@@ -133,7 +133,7 @@ table.table{width:100%;border-collapse:separate;border-spacing:0;font-size:.93re
 .form-grid.g3{grid-template-columns:repeat(3,minmax(0,1fr))}
 label.lbl,.field>label{display:block;font-size:.82rem;font-weight:650;margin-bottom:6px;color:var(--text)}
 .field .hint{font-size:.78rem;color:var(--muted);margin-top:4px}
-.input,input[type=text],input[type=email],input[type=password],input[type=number],input[type=date],input[type=datetime-local],input[type=time],input[type=url],input[type=tel],input[type=search],input[type=month],input[type=color],select,textarea{width:100%;font:inherit;color:var(--text);background:var(--surface-2);border:1px solid var(--border);border-radius:var(--r-sm);padding:10px 14px;outline:0;transition:border .15s,box-shadow .15s}
+.input,input:not([type]),input[type=text],input[type=email],input[type=password],input[type=number],input[type=date],input[type=datetime-local],input[type=time],input[type=url],input[type=tel],input[type=search],input[type=month],input[type=color],select,textarea{width:100%;font:inherit;color:var(--text);background:var(--surface-2);border:1px solid var(--border);border-radius:var(--r-sm);padding:10px 14px;outline:0;transition:border .15s,box-shadow .15s}
 input[type=color]{padding:4px;height:42px}
 textarea{min-height:96px;resize:vertical}
 input:focus,select:focus,textarea:focus{border-color:var(--primary);box-shadow:0 0 0 4px color-mix(in srgb,var(--primary) 18%,transparent);background:var(--surface)}
