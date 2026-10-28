@@ -110,8 +110,7 @@ try {
   $ok(!Scope::canSeeClient($u, $other) && Scope::canSeeClient($u, $mine), 'canSeeClient respects client_managers');
   $empRole = (int) DB::value("SELECT id FROM roles WHERE slug='employee'");
   $emp = ['role_slug' => 'employee', 'role_id' => $empRole] + $u;
-  $ok($throws(static fn () => NlSearch::run(Json::filters(['entity' => 'invoices']), $emp)) !== null, 'entity without permission (employee -> invoices) refused');
-}
+  $ok($throws(static fn () => NlSearch::run(Json::filters(['entity' => 'invoices']), $emp)) !== null, 'entity without permission (employee -> invoices) refused'); }
 finally { DB::pdo()->rollBack(); AiClient::fake(null); Core\Cache::forget('settings'); }
 
 echo "\n$pass passed, $fail failed\n";

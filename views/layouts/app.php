@@ -7,6 +7,9 @@ $unread = (int) DB::value('SELECT COUNT(*) FROM notifications WHERE user_id=? AN
 $logo = setting('branding.logo');
 $appName = (string) setting('branding.app_name', 'Niyanta');
 $isActive = static function (string $url) use ($path): bool { $u = parse_url($url, PHP_URL_PATH) ?: '/'; return $u === '/' ? $path === '/' : ($path === $u || str_starts_with($path, rtrim($u, '/').'/')); };
+$scripts = $scripts ?? [];
+foreach (Modules::hooks('global_scripts') as $gs) { foreach ($gs as $js => $perm) { if (!$perm || \Core\Gate::any((array) $perm)) { $scripts[] = $js; } } }
+$scripts = array_values(array_unique($scripts));
 echo partial('partials/head', get_defined_vars());
 ?>
 <body>

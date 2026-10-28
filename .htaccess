@@ -4,6 +4,9 @@ DirectoryIndex index.php
 
 <IfModule mod_rewrite.c>
   RewriteEngine On
+  # Pass the Authorization header through on CGI/FastCGI hosts (desktop agent API)
+  RewriteCond %{HTTP:Authorization} .
+  RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
   # Block direct access to private folders and sensitive files
   RewriteRule ^(config|core|modules|storage|views|tests|docs|tools)(/|$) - [F,L,NC]
   RewriteRule (^|/)\.(?!well-known) - [F,L]
