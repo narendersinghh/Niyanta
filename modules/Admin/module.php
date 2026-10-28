@@ -1,0 +1,55 @@
+<?php
+use Modules\Admin\Controllers\{UserController, RoleController, ModuleController, SettingsController, AuditController, BackupController, UpdateController, CronAdminController};
+
+return [
+  'key' => 'admin', 'name' => 'System Administration', 'icon' => 'settings', 'core' => true, 'order' => 90, 'version' => '1.0.0',
+  'description' => 'Users, roles & permissions, modules, settings, branding, security, backups, updates and cron.',
+  'permissions' => [
+    'admin.users.view' => ['label' => 'View users', 'roles' => ['hr']],
+    'admin.users.manage' => ['label' => 'Create & edit users (non-admin roles)', 'roles' => ['hr']],
+    'admin.audit.view' => ['label' => 'View audit log', 'roles' => []],
+  ],
+  'nav' => [
+    ['label' => 'Users', 'icon' => 'users', 'url' => '/admin/users', 'perm' => 'admin.users.view', 'group' => 'System', 'order' => 1],
+    ['label' => 'Roles & Access', 'icon' => 'key', 'url' => '/admin/roles', 'perm' => '__super_admin', 'group' => 'System', 'order' => 2],
+    ['label' => 'Modules', 'icon' => 'puzzle', 'url' => '/admin/modules', 'perm' => '__super_admin', 'group' => 'System', 'order' => 3],
+    ['label' => 'Settings', 'icon' => 'sliders', 'url' => '/admin/settings', 'perm' => '__super_admin', 'group' => 'System', 'order' => 4],
+    ['label' => 'Audit Log', 'icon' => 'history', 'url' => '/admin/audit', 'perm' => 'admin.audit.view', 'group' => 'System', 'order' => 5],
+  ],
+  'routes' => function (Core\Router $r): void {
+    $sa = ['perm' => '__super_admin'];
+    $r->get('/admin/users', [UserController::class, 'index'], 'admin.users.view');
+    $r->get('/admin/users/create', [UserController::class, 'create'], 'admin.users.manage');
+    $r->post('/admin/users', [UserController::class, 'store'], 'admin.users.manage');
+    $r->get('/admin/users/{id}/edit', [UserController::class, 'edit'], 'admin.users.manage');
+    $r->post('/admin/users/{id}', [UserController::class, 'update'], 'admin.users.manage');
+    $r->post('/admin/users/{id}/status', [UserController::class, 'toggleStatus'], 'admin.users.manage');
+    $r->post('/admin/users/{id}/sessions', [UserController::class, 'revokeSessions'], 'admin.users.manage');
+    $r->get('/admin/roles', [RoleController::class, 'index'], $sa);
+    $r->post('/admin/roles', [RoleController::class, 'store'], $sa);
+    $r->post('/admin/roles/permissions', [RoleController::class, 'savePermissions'], $sa);
+    $r->post('/admin/roles/{id}/delete', [RoleController::class, 'destroy'], $sa);
+    $r->get('/admin/modules', [ModuleController::class, 'index'], $sa);
+    $r->post('/admin/modules/{key}', [ModuleController::class, 'toggle'], $sa);
+    $r->get('/admin/settings', [SettingsController::class, 'index'], $sa);
+    $r->get('/admin/settings/{tab}', [SettingsController::class, 'index'], $sa);
+    $r->post('/admin/settings/{tab}', [SettingsController::class, 'save'], $sa);
+    $r->post('/admin/settings/email/test', [SettingsController::class, 'testEmail'], $sa);
+    $r->get('/admin/audit', [AuditController::class, 'index'], 'admin.audit.view');
+    $r->get('/admin/backups', [BackupController::class, 'index'], $sa);
+    $r->post('/admin/backups', [BackupController::class, 'create'], $sa);
+    $r->get('/admin/backups/{id}/download', [BackupController::class, 'download'], $sa);
+    $r->post('/admin/backups/{id}/delete', [BackupController::class, 'destroy'], $sa);
+    $r->get('/admin/updates', [UpdateController::class, 'index'], $sa);
+    $r->post('/admin/updates/check', [UpdateController::class, 'check'], $sa);
+    $r->post('/admin/updates/apply', [UpdateController::class, 'apply'], $sa);
+    $r->post('/admin/updates/migrate', [UpdateController::class, 'migrate'], $sa);
+    $r->get('/admin/updates/{id}', [UpdateController::class, 'show'], $sa);
+    $r->get('/admin/cron', [CronAdminController::class, 'index'], $sa);
+    $r->post('/admin/cron/run', [CronAdminController::class, 'run'], $sa);
+    $r->post('/admin/cron/token', [CronAdminController::class, 'regenerateToken'], $sa);
+  },
+  'cron' => [
+    'backup' => ['daily' => '02:30', 'run' => [Modules\Admin\Services\BackupService::class, 'scheduled']],
+  ],
+];

@@ -1,0 +1,16 @@
+/config/config.php
+/storage/installed.lock
+/storage/maintenance.flag
+/storage/uploads/*
+/storage/backups/*
+/storage/logs/*
+/storage/cache/*
+/storage/sessions/*
+/storage/updates/*
+/storage/screenshots/*
+/assets/uploads/branding/*
+!/storage/**/.gitkeep
+!/assets/uploads/branding/.gitkeep
+/vendor/
+.DS_Store
+/tests/config.php
