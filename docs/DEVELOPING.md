@@ -25,6 +25,8 @@ Returns an array: `key, name, description, icon, order, version, requires[], per
 - **cron**: `'name' => ['every' => minutes | 'daily' => 'HH:MM' | 'weekly' => 'N HH:MM' | 'monthly' => 'D HH:MM', 'run' => callable returning a short status string]`.
 - **file_access**: `'client' => fn(array $user, int $entityId, array $file, string $mode): bool` — authorises downloads of files attached via `Storage::attach($upload, 'crm', 'client', $id, 'category')`. Download link: `url('/files/'.$id)`; inline view `/files/{id}/view`; delete POST `/files/{id}/delete` (mode 'delete').
 
+Validator note: rules are split on `|`; for a `regex:` rule containing `|` pass the rules as an array (`['required', 'regex:/a|b/']`).
+
 ## Controllers
 Extend `Core\Controller`. Helpers: `$this->view('crm::clients/index', [...])`, `$this->validate([...rules])` (throws → redirect back with `errors()`/`old()`), `$this->redirect('/path')`, `$this->back()`, `$this->json()`, `$this->flash('Saved')`, `$this->abort(403)`, `$this->authorize('perm')`, `$this->can('perm')`, `$this->user()`, `$this->uid()`, `$this->findOr404('table', $id)`.
 **Record-level scoping is mandatory**: route permission is not enough — e.g. a manager without `crm.clients.view_all` sees only clients in `client_managers`; employees only projects in `project_members`. Write one private `scope()`/`visible($id)` helper per controller and use it for index, show, edit, update, delete and related records.

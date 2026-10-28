@@ -27,7 +27,8 @@ final class Pdf {
     return implode(' ', array_map(static fn ($i) => round(hexdec(substr($hex, $i, 2)) / 255, 3), [0, 2, 4])); }
 
   private static function esc(string $s): string {
-    $s = iconv('UTF-8', 'Windows-1252//TRANSLIT//IGNORE', str_replace(['₹', '€'], ['Rs.', 'EUR '], $s)) ?: '';
+    $c = iconv('UTF-8', 'Windows-1252//TRANSLIT//IGNORE', str_replace(['₹', '€'], ['Rs.', 'EUR '], $s));
+    $s = $c === false ? '' : $c;
     return strtr($s, ['\\' => '\\\\', '(' => '\\(', ')' => '\\)', "\r" => '', "\n" => ' ']); }
 
   /** Approximate Helvetica width (sufficient for right-alignment and wrapping). */

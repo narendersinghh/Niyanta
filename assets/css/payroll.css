@@ -1,0 +1,50 @@
+/* Payroll module */
+.pay-tabs{margin:-6px 0 20px}
+.pay-tabs .pill{margin-left:4px;padding:1px 7px}
+.tile .num.pay-num{font-size:1.65rem;letter-spacing:-.03em;position:relative;z-index:1}
+.tile .lbl{position:relative;z-index:1}
+.table .r,.pay-table .r{text-align:right;font-variant-numeric:tabular-nums}
+.table tfoot td{font-weight:750;background:var(--surface-2);border-top:2px solid var(--border);padding:12px}
+.table tfoot td:first-child{border-radius:14px 0 0 14px}.table tfoot td:last-child{border-radius:0 14px 14px 0}
+.pay-flag td{background:var(--red-s)}
+.pay-red{color:var(--red-d)}
+.pay-dot{width:34px;height:34px;border-radius:12px;display:grid;place-items:center;flex:none;color:var(--text)}
+.pay-off{opacity:.55}
+.pay-flow{border:0;position:relative;overflow:hidden}
+.pay-flow-illus{width:120px;margin:-6px 0 6px auto}
+.pay-steps{margin:0;padding-left:18px;font-size:.86rem;display:grid;gap:8px}
+.pay-steps li::marker{font-weight:800;color:var(--lav-d)}
+.pay-stepper{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.pay-step{display:inline-flex;align-items:center;gap:.5rem;padding:5px 14px 5px 5px;border-radius:99px;background:var(--surface);border:1px solid var(--border);font-weight:650;color:var(--muted);font-size:.88rem}
+.pay-step i{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;background:var(--surface-3);font-style:normal;font-size:.8rem;font-weight:750}
+.pay-step.done{color:var(--text)}.pay-step.done i{background:var(--mint);color:#0c3325}
+.pay-step.on{color:var(--text);border-color:var(--primary)}.pay-step.on i{background:var(--primary);color:#fff}
+.pay-step-sep{width:28px;height:2px;border-radius:2px;background:var(--border)}.pay-step-sep.done{background:var(--mint)}
+.pay-note{display:flex;gap:16px;align-items:center;border:0}
+.pay-note-illus{width:110px;flex:none}
+.pay-profile .profile-head{flex-wrap:wrap}
+.pay-current{display:flex;flex-direction:column;align-items:flex-end;background:var(--mint-s);border-radius:18px;padding:12px 18px;text-align:right}
+.pay-current b{font-size:1.5rem;letter-spacing:-.03em;color:var(--mint-d)}
+.pay-current.none{background:var(--peach-s)}.pay-current.none b{color:var(--peach-d)}
+.pay-hero .illus{width:200px}
+.pay-hero-amt{font-size:2.6rem;font-weight:800;letter-spacing:-.04em;line-height:1.1}
+.pay-slip-head{display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;padding-bottom:16px;margin-bottom:16px;border-bottom:1px dashed var(--border)}
+.pay-up{text-transform:uppercase;letter-spacing:.12em;font-weight:750;color:var(--muted)}
+.pay-info .kv{grid-template-columns:120px 1fr;background:var(--surface-2);border-radius:18px;padding:14px 16px;margin:0}
+.pay-box{border:1px solid var(--border);border-radius:18px;overflow:hidden}
+.pay-box-head{display:flex;justify-content:space-between;align-items:center;padding:10px 16px}
+.pay-box-head .xs{text-transform:uppercase;letter-spacing:.08em;font-weight:700;opacity:.7}
+.pay-line{display:flex;justify-content:space-between;gap:1rem;padding:10px 16px;border-top:1px solid var(--border);font-size:.92rem}
+.pay-line span:last-child{font-variant-numeric:tabular-nums;white-space:nowrap}
+.pay-line.total{font-weight:750;background:var(--surface-2)}
+.pay-net{display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;background:var(--mint-s);border-left:6px solid var(--mint-d);border-radius:18px;padding:18px 22px;color:var(--mint-d)}
+.pay-net .small{color:var(--text);max-width:420px}
+.pay-net-amt{font-size:2.1rem;font-weight:800;letter-spacing:-.04em}
+.pay-side-illus{border:0;text-align:center}.pay-side-illus .illus{width:150px;margin:0 auto 6px}
+.pay-review{display:flex;gap:6px;align-items:center;justify-content:flex-end}
+.pay-review input{width:180px;padding:6px 12px;border-radius:99px;font-size:.84rem}
+.chip .ic{width:13px;height:13px}
+@media (max-width:900px){.pay-current{align-items:flex-start;text-align:left;width:100%}.pay-review{flex-wrap:wrap}.pay-review input{width:100%}}
+.pay-top{align-items:start}
+.pay-tile .corner{width:78px;right:-6px;bottom:-8px}
+.pay-tile .lbl{max-width:calc(100% - 62px)}

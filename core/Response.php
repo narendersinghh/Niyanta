@@ -9,7 +9,9 @@ final class Response {
   public static function back(): self {
     $ref = (string) ($_SERVER['HTTP_REFERER'] ?? '');
     $host = parse_url($ref, PHP_URL_HOST);
-    return self::redirect($ref !== '' && ($host === null || $host === ($_SERVER['HTTP_HOST'] ?? '')) ? $ref : url('/')); }
+    $port = parse_url($ref, PHP_URL_PORT);
+    $same = $host === null || ($host.($port ? ':'.$port : '')) === ($_SERVER['HTTP_HOST'] ?? '') || $host === parse_url('http://'.($_SERVER['HTTP_HOST'] ?? ''), PHP_URL_HOST);
+    return self::redirect($ref !== '' && $same ? $ref : url('/')); }
   public static function view(string $view, array $data = [], string $layout = 'layouts/app'): self { return new self(View::render($view, $data, $layout)); }
 
   /** Stream a private file; caller must have authorised access. */

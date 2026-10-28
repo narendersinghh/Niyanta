@@ -13,7 +13,7 @@ final class Router {
 
   /** Options: perm (string|array any-of), auth (bool, default true), csrf (bool, default true), module (string), throttle ([max, seconds]) */
   public function add(string $m, string $p, callable|array $h, array|string $o = []): self {
-    if (is_string($o)) { $o = ['perm' => $o]; }
+    if (is_string($o) || ($o !== [] && array_is_list($o))) { $o = ['perm' => $o]; }
     $o += $this->groupOpts + ['auth' => true, 'csrf' => true, 'module' => $this->module];
     $rx = '#^'.preg_replace_callback('#\{(\w+)(\?)?\}#', static fn ($x) => $x[1] === 'id' || str_ends_with($x[1], '_id') ? '(?P<'.$x[1].'>\d+)' : '(?P<'.$x[1].'>[^/]+)', rtrim($p, '/') ?: '/').'$#';
     $this->routes[$m][] = [$rx, $h, $o];
