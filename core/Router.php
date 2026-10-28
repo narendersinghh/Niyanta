@@ -40,7 +40,7 @@ final class Router {
       try { $res = is_array($h) ? (new $h[0]($req))->{$h[1]}(...array_values($params)) : $h($req, ...array_values($params)); }
       catch (HttpException $e) { return Response::error($e->status, $e->getMessage() ?: 'Request failed.', $req); }
       catch (ValidationException $e) {
-        if ($req->wantsJson()) { return Response::json(['errors' => $e->errors, 'error' => reset($e->errors)], 422); }
+        if ($req->wantsJson()) { return Response::json(['errors' => $e->errors, 'error' => array_values($e->errors)[0] ?? 'Invalid input'], 422); }
         Session::flash('errors', $e->errors);
         Session::flash('old', array_diff_key($req->all(), array_flip(['password', 'password_confirmation', '_token', 'current_password'])));
         return Response::back(); }
