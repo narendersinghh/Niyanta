@@ -34,22 +34,25 @@ return [
     $r->get('/admin/settings', [SettingsController::class, 'index'], $sa);
     $r->get('/admin/settings/{tab}', [SettingsController::class, 'index'], $sa);
     $r->post('/admin/settings/{tab}', [SettingsController::class, 'save'], $sa);
-    $r->post('/admin/settings/email/test', [SettingsController::class, 'testEmail'], $sa);
+    $r->post('/admin/settings/email/test', [SettingsController::class, 'testEmail'], $sa + ['throttle' => [10, 600]]);
+    $r->post('/admin/settings/security/logout-all', [SettingsController::class, 'logoutAll'], $sa);
     $r->get('/admin/audit', [AuditController::class, 'index'], 'admin.audit.view');
     $r->get('/admin/backups', [BackupController::class, 'index'], $sa);
     $r->post('/admin/backups', [BackupController::class, 'create'], $sa);
     $r->get('/admin/backups/{id}/download', [BackupController::class, 'download'], $sa);
     $r->post('/admin/backups/{id}/delete', [BackupController::class, 'destroy'], $sa);
+    $r->post('/admin/backups/{id}/restore', [BackupController::class, 'restore'], $sa + ['throttle' => [3, 600]]);
     $r->get('/admin/updates', [UpdateController::class, 'index'], $sa);
     $r->post('/admin/updates/check', [UpdateController::class, 'check'], $sa);
     $r->post('/admin/updates/apply', [UpdateController::class, 'apply'], $sa);
     $r->post('/admin/updates/migrate', [UpdateController::class, 'migrate'], $sa);
+    $r->post('/admin/updates/upload', [UpdateController::class, 'upload'], $sa + ['throttle' => [5, 600]]);
     $r->get('/admin/updates/{id}', [UpdateController::class, 'show'], $sa);
     $r->get('/admin/cron', [CronAdminController::class, 'index'], $sa);
     $r->post('/admin/cron/run', [CronAdminController::class, 'run'], $sa);
     $r->post('/admin/cron/token', [CronAdminController::class, 'regenerateToken'], $sa);
   },
   'cron' => [
-    'backup' => ['daily' => '02:30', 'run' => [Modules\Admin\Services\BackupService::class, 'scheduled']],
+    'backup' => ['daily' => preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $bt = (string) Core\Settings::get('backups.time', '02:30')) ? $bt : '02:30', 'run' => [Modules\Admin\Services\BackupService::class, 'scheduled']],
   ],
 ];
