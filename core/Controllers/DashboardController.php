@@ -14,4 +14,6 @@ final class DashboardController extends Controller {
         catch (\Throwable $e) { error_log("Widget $mod failed: ".$e->getMessage()); continue; }
         if ($html !== '' && $html !== null) { $widgets[$w['zone'] ?? 'main'][] = ['order' => $w['order'] ?? 50, 'html' => $html]; } } }
     foreach ($widgets as &$z) { usort($z, static fn ($a, $b) => $a['order'] <=> $b['order']); }
-    return $this->view('dashboard/index', ['title' => 'Dashboard', 'widgets' => $widgets]); } }
+    $styles = array_values(array_filter(array_map(static fn ($k) => is_file(NY_ROOT."/assets/css/$k.css") ? "css/$k.css" : null, array_keys(Modules::hooks('widgets')))));
+    $scripts = array_values(array_filter(array_map(static fn ($k) => is_file(NY_ROOT."/assets/js/$k.js") ? "js/$k.js" : null, array_keys(Modules::hooks('widgets')))));
+    return $this->view('dashboard/index', ['title' => 'Dashboard', 'widgets' => $widgets, 'styles' => $styles, 'scripts' => $scripts]); } }

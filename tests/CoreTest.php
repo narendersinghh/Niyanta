@@ -67,9 +67,12 @@ return [
     assert_eq(403, http('GET', '/admin/users/'.$GLOBALS['ADMIN_ID'].'/edit')->status()); },
   'permission matrix cannot grant unknown or super-admin-only keys' => function () {
     act_as($GLOBALS['ADMIN_ID']);
+    $before = DB::all('SELECT role_id, permission FROM role_permissions');
     $emp = (int) DB::value("SELECT id FROM roles WHERE slug='employee'");
     http('POST', '/admin/roles/permissions', ['grants' => [$emp => ['__super_admin' => 1, 'attendance.track' => 1]]]);
-    assert_eq(['attendance.track'], DB::column('SELECT permission FROM role_permissions WHERE role_id=?', [$emp])); },
+    $after = DB::column('SELECT permission FROM role_permissions WHERE role_id=?', [$emp]);
+    DB::delete('role_permissions', '1=1'); DB::insertMany('role_permissions', $before); Gate::flush();
+    assert_eq(['attendance.track'], $after); },
   'rate limiter enforces window' => function () { RateLimiter::clear('t'); for ($i = 0; $i < 3; $i++) { assert_true(RateLimiter::hit('t', 3, 60)); } assert_true(!RateLimiter::hit('t', 3, 60)); },
   'pdf writer produces a valid document' => function () {
     $p = new Pdf('Test'); $p->font(true, 16)->text(40, 60, 'Invoice ₹ 1,000 (test)'); $p->rect(40, 80, 100, 20, '#7c5cff')->line(40, 120, 300, 120); $p->addPage()->text(40, 40, 'Page 2');
