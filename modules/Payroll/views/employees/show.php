@@ -1,18 +1,29 @@
 <?php
 $num = static fn ($v) => rtrim(rtrim(number_format((float) $v, 2), '0'), '.');
 ?>
-<?= partial('partials/page_head', ['title' => $emp['name'], 'subtitle' => trim(($emp['designation'] ?? '').($emp['department'] ? ' · '.$emp['department'] : ''), ' ·') ?: 'Compensation & pay components', 'crumbs' => [['Compensation', '/payroll/employees'], [$emp['name']]]]) ?>
+<?php $dn = [1 => 'Mon', 2 => 'Tue', 3 => 'Wed', 4 => 'Thu', 5 => 'Fri', 6 => 'Sat', 7 => 'Sun']; ?>
+<?= partial('partials/page_head', ['title' => $emp['name'], 'subtitle' => trim(($emp['designation'] ?? '').($emp['department'] ? ' · '.$emp['department'] : ''), ' ·') ?: 'Compensation & pay components', 'crumbs' => [['HR Admin'], ['Compensation', '/payroll/employees'], [$emp['name']]],
+  'actions' => (can('hr.employees.view') ? '<a class="btn ghost" href="'.e(url('/hr/employees/'.$emp['id'].'?tab=schedule')).'">'.icon('clock', 'sm').' Work schedule</a>' : '').'<button class="btn primary" type="button" data-modal="add-rev">'.icon('plus', 'sm').' Add revision</button>']) ?>
+<div class="card pay-banner mb">
+  <div class="pay-banner-bg"></div>
+  <div class="pay-banner-body">
+    <?= avatar($emp['name'], $emp['avatar'], 'lg') ?>
+    <div class="pay-banner-id"><h2><?= e($emp['name']) ?></h2><div class="muted small"><?= e($emp['email']) ?><?= $emp['employee_code'] ? ' · '.e($emp['employee_code']) : '' ?> · <?= e($emp['role_name']) ?></div></div>
+    <div class="pay-current <?= $current ? '' : 'none' ?>"><?php if ($current): ?><span class="xs muted">Current <?= $current['pay_type'] === 'hourly' ? 'hourly rate' : 'monthly salary' ?></span><b><?= e(money($current['amount'])) ?></b><span class="xs muted">since <?= e(fdate($current['effective_from'])) ?></span><?php else: ?><span class="xs muted">Not on payroll yet</span><b>—</b><span class="xs muted">Add a revision to start</span><?php endif ?></div>
+  </div>
+  <div class="pay-facts">
+    <div><span class="xs">Status</span><b><?= badge($emp['status']) ?></b></div>
+    <div><span class="xs">Joined</span><b><?= e(fdate($emp['joined_on'])) ?></b></div>
+    <div><span class="xs">Bank</span><b><?= $emp['bank_name'] ? e($emp['bank_name']).($emp['has_account'] ? '' : ' · no acc. no.') : '<span class="muted">Not provided</span>' ?></b></div>
+    <div><span class="xs">Work week</span><b><?php if ($sched): ?><?= e(rtrim(rtrim(number_format((float) $sched['hours_per_day'], 2, '.', ''), '0'), '.')) ?> h/day · <?= e(rtrim(rtrim(number_format((float) $days['own'], 1, '.', ''), '0'), '.')) ?> days in <?= e(date('M')) ?><?php else: ?>—<?php endif ?></b></div>
+  </div>
+</div>
+<?php if ($sched && $days && $days['own'] != $days['company']): ?><div class="alert info"><?= icon('info', 'sm') ?><div><?= e(explode(' ', $emp['name'])[0]) ?> has a personal work week (off <?= e($sched['off_days'] ? implode(', ', array_map(static fn ($d) => $dn[$d], $sched['off_days'])) : 'none') ?>): monthly salary is prorated on <b><?= e(rtrim(rtrim(number_format((float) $days['own'], 1, '.', ''), '0'), '.')) ?></b> working days this month instead of the company’s <?= e(rtrim(rtrim(number_format((float) $days['company'], 1, '.', ''), '0'), '.')) ?>.</div></div><?php endif ?>
 <div class="grid g-side pay-top">
   <div class="stack">
-    <div class="card pay-profile">
-      <div class="profile-head"><?= avatar($emp['name'], $emp['avatar'], 'lg') ?><div class="grow"><h2 class="mb0"><?= e($emp['name']) ?></h2><div class="muted small"><?= e($emp['email']) ?><?= $emp['employee_code'] ? ' · '.e($emp['employee_code']) : '' ?> · <?= e($emp['role_name']) ?></div>
-        <div class="chips mt"><?= badge($emp['status']) ?><?php if ($emp['joined_on']): ?><span class="chip"><?= icon('calendar', 'sm') ?> Joined <?= e(fdate($emp['joined_on'])) ?></span><?php endif ?><span class="chip"><?= icon('credit-card', 'sm') ?> <?= $emp['bank_name'] ? e($emp['bank_name']).($emp['has_account'] ? '' : ' · no account no.') : 'No bank details' ?></span></div></div>
-        <div class="pay-current <?= $current ? '' : 'none' ?>"><?php if ($current): ?><span class="xs muted">Current <?= $current['pay_type'] === 'hourly' ? 'hourly rate' : 'monthly salary' ?></span><b><?= e(money($current['amount'])) ?></b><span class="xs muted">since <?= e(fdate($current['effective_from'])) ?></span><?php else: ?><span class="xs muted">Not on payroll yet</span><b>—</b><span class="xs muted">Add a revision</span><?php endif ?></div>
-      </div>
-    </div>
     <div class="card">
       <div class="card-head"><h3>Compensation history</h3><span class="muted small"><?= count($history) ?> revision<?= count($history) === 1 ? '' : 's' ?></span></div>
-      <?php if (!$history): ?><?= empty_state('No compensation yet', 'Add a monthly salary or an hourly rate to include this person in payroll runs.', 'money-wallet') ?><?php else: ?>
+      <?php if (!$history): ?><?= empty_state('No compensation yet', 'Add a monthly salary or an hourly rate to include this person in payroll runs.', 'money-wallet', '<button class="btn primary" type="button" data-modal="add-rev">'.icon('plus', 'sm').' Add revision</button>') ?><?php else: ?>
       <div class="timeline">
         <?php foreach ($history as $h): $isCur = $current && (int) $current['id'] === (int) $h['id']; $future = $h['effective_from'] > date('Y-m-d'); ?>
         <div class="tl-item"><span class="tl-dot <?= $isCur ? 'bg-mint' : ($future ? 'bg-lemon' : 'bg-gray') ?>"><?= icon($future ? 'clock' : 'check') ?></span>
@@ -33,21 +44,20 @@ $num = static fn ($v) => rtrim(rtrim(number_format((float) $v, 2), '0'), '.');
   </div>
   <div class="stack">
     <div class="card">
-      <div class="card-head"><h3>Add revision</h3></div>
-      <form class="form" method="post" action="<?= e(url('/payroll/employees/'.$emp['id'].'/compensation')) ?>"><?= csrf_field() ?>
-        <div class="field"><label for="pay_type">Pay type</label><select id="pay_type" name="pay_type"><option value="monthly"<?= selected('monthly', old('pay_type', $current['pay_type'] ?? 'monthly')) ?>>Monthly salary</option><option value="hourly"<?= selected('hourly', old('pay_type', $current['pay_type'] ?? '')) ?>>Hourly rate</option></select><?= error_for('pay_type') ?></div>
-        <div class="field"><label for="amount">Amount *</label><input id="amount" type="number" name="amount" step="0.01" min="0.01" value="<?= e(old('amount')) ?>" placeholder="<?= e($current ? $num($current['amount']) : '0.00') ?>" required><div class="hint">Gross monthly salary, or rate per approved hour.</div><?= error_for('amount') ?></div>
-        <div class="field"><label for="effective_from">Effective from *</label><input id="effective_from" type="date" name="effective_from" value="<?= e(old('effective_from', date('Y-m-01'))) ?>" required><?= error_for('effective_from') ?></div>
-        <div class="field"><label for="note">Note</label><input id="note" type="text" name="note" value="<?= e(old('note')) ?>" maxlength="255" placeholder="e.g. Annual appraisal"><?= error_for('note') ?></div>
-        <div class="form-actions"><button class="btn primary"><?= icon('check', 'sm') ?> Save revision</button></div>
-      </form>
-    </div>
-    <div class="card">
       <div class="card-head"><h3>Recent payslips</h3></div>
       <?php if (!$slips): ?><p class="muted small mb0">No payslips yet.</p><?php else: ?><div class="list"><?php foreach ($slips as $s): ?>
-        <a class="list-item" href="<?= e(url('/payslips/'.$s['id'])) ?>"><span class="pay-dot soft-peach"><?= icon('file-text', 'sm') ?></span><div class="grow"><b class="small"><?= e(date('F Y', strtotime($s['period_month']))) ?></b><div class="meta">Gross <?= e(money($s['gross'])) ?></div></div><div class="right"><b class="small"><?= e(money($s['net'])) ?></b><div><?= badge($s['status']) ?></div></div></a>
+        <a class="list-item" href="<?= e(url('/payslips/'.$s['id'])) ?>"><span class="pay-ic peach"><?= icon('file-text', 'sm') ?></span><div class="grow"><b class="small"><?= e(date('F Y', strtotime($s['period_month']))) ?></b><div class="meta">Gross <?= e(money($s['gross'])) ?></div></div><div class="right"><b class="small"><?= e(money($s['net'])) ?></b><div><?= badge($s['status']) ?></div></div></a>
       <?php endforeach ?></div><?php endif ?>
     </div>
   </div>
 </div>
 <dialog class="modal" id="add-personal"><div class="modal-head"><h3>Add item for <?= e($emp['name']) ?></h3><button class="btn icon sm ghost" type="button" data-close aria-label="Close"><?= icon('x', 'sm') ?></button></div><div class="modal-body"><?= partial('payroll::components/_form', ['c' => null, 'uid' => (int) $emp['id']]) ?></div></dialog>
+<dialog class="modal" id="add-rev"<?= errors() && old('amount', null) !== null ? ' data-open' : '' ?>><div class="modal-head"><h3>New compensation revision</h3><button class="btn icon sm ghost" type="button" data-close aria-label="Close"><?= icon('x', 'sm') ?></button></div>
+  <form class="modal-body form" method="post" action="<?= e(url('/payroll/employees/'.$emp['id'].'/compensation')) ?>"><?= csrf_field() ?>
+        <div class="field"><label for="pay_type">Pay type</label><select id="pay_type" name="pay_type"><option value="monthly"<?= selected('monthly', old('pay_type', $current['pay_type'] ?? 'monthly')) ?>>Monthly salary</option><option value="hourly"<?= selected('hourly', old('pay_type', $current['pay_type'] ?? '')) ?>>Hourly rate</option></select><?= error_for('pay_type') ?></div>
+        <div class="field"><label for="amount">Amount *</label><input id="amount" type="number" name="amount" step="0.01" min="0.01" value="<?= e(old('amount')) ?>" placeholder="<?= e($current ? $num($current['amount']) : '0.00') ?>" required><div class="hint">Gross monthly salary, or rate per approved hour.</div><?= error_for('amount') ?></div>
+        <div class="field"><label for="effective_from">Effective from *</label><input id="effective_from" type="date" name="effective_from" value="<?= e(old('effective_from', date('Y-m-01'))) ?>" required><?= error_for('effective_from') ?></div>
+        <div class="field"><label for="note">Note</label><input id="note" type="text" name="note" value="<?= e(old('note')) ?>" maxlength="255" placeholder="e.g. Annual appraisal"><?= error_for('note') ?></div>
+        <div class="form-actions"><button class="btn ghost" type="button" data-close>Cancel</button><button class="btn primary"><?= icon('check', 'sm') ?> Save revision</button></div>
+  </form>
+</dialog>

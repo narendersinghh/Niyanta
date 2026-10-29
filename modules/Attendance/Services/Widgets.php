@@ -19,7 +19,7 @@ final class Widgets {
   public static function kpi(array $u): string {
     $ws = TimeService::weekStart();
     $sec = TimeService::secondsForUser((int) $u['id'], $ws, date('Y-m-d', strtotime($ws.' +6 days')));
-    $target = AttendanceService::workSeconds() * (7 - count(AttendanceService::weekendDays()));
+    $target = AttendanceService::workSeconds((int) $u['id']) * max(1, 7 - count(AttendanceService::offDays((int) $u['id'])));
     return '<a class="tile bg-sky" href="'.e(url('/timesheets')).'"><span class="tile-ic">'.icon('timer').'</span><div><div class="num">'.e(sprintf('%.1f', $sec / 3600)).'<small class="tile-unit">h</small></div><div class="lbl">Hours this week · '.e((string) round(100 * $sec / max(1, $target))).'% of target</div></div>'.illus('clock-worker', 'corner').'</a>'.self::assets(); }
 
   public static function team(array $u): string {

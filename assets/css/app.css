@@ -31,7 +31,7 @@ hr{border:0;border-top:1px solid var(--border);margin:1.2rem 0}
 .stack>*+*{margin-top:1rem}
 .mt{margin-top:1rem}.mt2{margin-top:1.6rem}.mb{margin-bottom:1rem}.mb0{margin-bottom:0}
 .hide{display:none!important}
-.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+.sr{position:absolute;left:0;top:0;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 .truncate{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .app{display:grid;grid-template-columns:256px 1fr;min-height:100vh}
 .sidebar{position:sticky;top:0;height:100vh;background:radial-gradient(120% 60% at 0% 0%,#2A2160 0%,transparent 60%),var(--sidebar);color:var(--sidebar-text);display:flex;flex-direction:column;padding:18px 12px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2c2a50 transparent;z-index:40}

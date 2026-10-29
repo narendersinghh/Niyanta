@@ -8,7 +8,7 @@ DirectoryIndex index.php
   RewriteCond %{HTTP:Authorization} .
   RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
   # Block direct access to private folders and sensitive files
-  RewriteRule ^(config|core|modules|storage|views|tests|docs|tools)(/|$) - [F,L,NC]
+  RewriteRule ^(config|core|modules|storage|views|tests|docs)(/|$) - [F,L,NC]
   RewriteRule (^|/)\.(?!well-known) - [F,L]
   RewriteRule ^(cron\.php|composer\.(json|lock)|niyanta\.json|README\.md|.*\.(sql|log|lock|gz|zip|bak|dist|example|sh|md))$ - [F,L,NC]
   # Front controller

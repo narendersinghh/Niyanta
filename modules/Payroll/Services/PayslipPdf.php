@@ -41,6 +41,8 @@ final class PayslipPdf {
     if ((float) $s['total_deductions'] > (float) $s['gross']) { $pdf->font(false, 8.5)->text($L, $y, 'Note: deductions exceeded gross earnings for this period; net pay has been capped at zero.', '#c22b2b'); $y += 18; }
     if (!empty($s['bank_name'])) { $pdf->font(false, 9)->text($L, $y, 'Paid to: '.$s['bank_name'].(!empty($s['bank_ifsc']) ? ' (IFSC '.$s['bank_ifsc'].')' : ''), '#5e5e6e'); }
     $fy = $pdf->height() - 50;
+    $foot = trim((string) setting('payroll.payslip_footer', ''));
+    if ($foot !== '') { $pdf->font(false, 8.5)->paragraph($L, $fy - 80, $R - $L, mb_substr(preg_replace('/\s+/', ' ', $foot), 0, 400), '#5e5e6e'); }
     $pdf->line($L, $fy - 16, $R, $fy - 16, '#eaeaf0');
     $pdf->font(false, 8)->text($L, $fy, 'This is a computer-generated payslip and does not require a signature.', '#7b7b8c');
     $pdf->font(false, 8)->text($R, $fy, 'Generated '.date('d M Y, h:i A'), '#7b7b8c', 'right');

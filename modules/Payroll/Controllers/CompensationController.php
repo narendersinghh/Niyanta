@@ -1,6 +1,6 @@
 <?php
 namespace Modules\Payroll\Controllers;
-use Core\{Audit, Controller, DB, Response, ValidationException};
+use Core\{Audit, Controller, DB, Modules, Response, ValidationException};
 
 /** Salaries / hourly rates (with revision history) and allowance & deduction components (global or per employee). */
 final class CompensationController extends Controller {
@@ -17,7 +17,13 @@ final class CompensationController extends Controller {
     elseif (in_array($f, ['monthly', 'hourly'], true)) { $sql .= ' AND c.pay_type=?'; $p[] = $f; }
     $page = DB::paginate($sql.' ORDER BY u.name', $p, 20);
     $stats = DB::first("SELECT COUNT(u.id) AS active, SUM(c.pay_type='monthly') AS monthly, SUM(c.pay_type='hourly') AS hourly, SUM(c.id IS NULL) AS missing, COALESCE(SUM(CASE WHEN c.pay_type='monthly' THEN c.amount END),0) AS monthly_cost FROM users u ".self::CURRENT." WHERE u.status='active'");
-    return $this->view('payroll::employees/index', ['title' => 'Compensation', 'p' => $page, 'stats' => $stats, 'styles' => ['css/payroll.css']]); }
+    return $this->view('payroll::employees/index', ['title' => 'Compensation', 'p' => $page, 'stats' => $stats, 'sched' => self::schedules(array_column($page['items'], 'id')), 'styles' => ['css/payroll.css']]); }
+
+  /** Employee work schedules from HR (hours/day, weekly off days) — empty when HR is unavailable. */
+  private static function schedules(array $ids): array {
+    $cls = 'Modules\\Hr\\Services\\LeaveService';
+    if (!$ids || !Modules::enabled('hr') || !class_exists($cls) || !method_exists($cls, 'schedules')) { return []; }
+    try { return $cls::schedules($ids); } catch (\Throwable $e) { error_log('Payroll: schedules unavailable: '.$e->getMessage()); return []; } }
 
   public function show(int $id): Response {
     $emp = DB::first('SELECT u.*, r.name AS role_name, ep.bank_name, ep.bank_ifsc, (ep.bank_account_enc IS NOT NULL AND ep.bank_account_enc<>\'\') AS has_account FROM users u JOIN roles r ON r.id=u.role_id LEFT JOIN employee_profiles ep ON ep.user_id=u.id WHERE u.id=?', [$id]) ?? $this->abort(404, 'Employee not found.');
@@ -27,7 +33,10 @@ final class CompensationController extends Controller {
     $personal = DB::all('SELECT * FROM pay_components WHERE user_id=? ORDER BY kind, name', [$id]);
     $global = DB::all('SELECT * FROM pay_components WHERE user_id IS NULL AND active=1 ORDER BY kind, name');
     $slips = DB::all('SELECT s.id, s.net, s.gross, r.period_month, r.status FROM payslips s JOIN payroll_runs r ON r.id=s.run_id WHERE s.user_id=? ORDER BY r.period_month DESC LIMIT 6', [$id]);
-    return $this->view('payroll::employees/show', ['title' => $emp['name'].' · Compensation', 'emp' => $emp, 'history' => $history, 'current' => $current, 'personal' => $personal, 'global' => $global, 'slips' => $slips, 'styles' => ['css/payroll.css']]); }
+    $sched = self::schedules([$id])[$id] ?? null;
+    $days = null;
+    if ($sched) { $cls = 'Modules\\Hr\\Services\\LeaveService'; $days = ['own' => $cls::workingDaysFor($id, date('Y-m-01'), date('Y-m-t')), 'company' => $cls::workingDays(date('Y-m-01'), date('Y-m-t'))]; }
+    return $this->view('payroll::employees/show', ['title' => $emp['name'].' · Compensation', 'emp' => $emp, 'history' => $history, 'current' => $current, 'personal' => $personal, 'global' => $global, 'slips' => $slips, 'sched' => $sched, 'days' => $days, 'styles' => ['css/payroll.css']]); }
 
   public function storeCompensation(int $id): Response {
     $emp = $this->findOr404('users', $id);

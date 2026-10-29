@@ -1,27 +1,27 @@
-<?php $cover = $stats['active'] ? (int) round($stats['users'] / $stats['active'] * 100) : 0; ?>
-<?= partial('partials/page_head', ['title' => 'Leave balances', 'subtitle' => 'Yearly allocations from leave type quotas, with manual adjustments.', 'crumbs' => [['Leave', '/hr/leave'], ['Balances']],
-  'actions' => '<button type="button" class="btn ghost" data-modal="adjust">'.icon('sliders', 'sm').' Adjust balance</button><form method="post" action="'.e(url('/hr/leave/balances/allocate')).'" data-confirm="Allocate '.(int) $year.' balances from the leave type quotas to every active employee who does not have them yet?">'.csrf_field().'<input type="hidden" name="year" value="'.(int) $year.'"><button class="btn primary">'.icon('refresh', 'sm').' Allocate '.(int) $year.'</button></form>']) ?>
+<?php use Modules\Hr\Services\LeaveService as LS; $cover = $stats['active'] ? (int) round($stats['users'] / $stats['active'] * 100) : 0; ?>
+<?= partial('partials/page_head', ['title' => 'Leave balances', 'subtitle' => 'Yearly allocations from leave type quotas (or personal overrides), with manual adjustments.', 'crumbs' => [['HR Admin'], ['Leave', '/hr/leave'], ['Balances']],
+  'actions' => '<button type="button" class="btn ghost" data-modal="adjust">'.icon('sliders', 'sm').' Adjust balance</button><form method="post" action="'.e(url('/hr/leave/balances/allocate')).'" data-confirm="Allocate '.(int) $year.' balances to every active employee who does not have them yet? Personal quota overrides are respected.">'.csrf_field().'<input type="hidden" name="year" value="'.(int) $year.'"><button class="btn primary">'.icon('refresh', 'sm').' Allocate '.(int) $year.'</button></form>']) ?>
 <?= partial('hr::leave/_tabs', ['tab' => $tab, 'pendingCount' => $pendingCount]) ?>
 <div class="grid g4 mb">
-  <div class="tile bg-lav"><span class="tile-ic"><?= icon('users') ?></span><div><div class="num"><?= (int) $stats['users'] ?><small class="hr-of">/<?= (int) $stats['active'] ?></small></div><div class="lbl">Employees allocated</div></div></div>
-  <div class="tile bg-mint"><span class="tile-ic"><?= icon('gift') ?></span><div><div class="num"><?= e((float) $stats['allocated']) ?></div><div class="lbl">Days allocated</div></div></div>
-  <div class="tile bg-peach"><span class="tile-ic"><?= icon('plane') ?></span><div><div class="num"><?= e((float) $stats['used']) ?></div><div class="lbl">Days used</div></div></div>
-  <div class="tile dark"><span class="tile-ic"><?= icon('pie') ?></span><div><div class="num"><?= $cover ?>%</div><div class="lbl">Coverage</div></div><?= illus('calendar-person', 'corner') ?></div>
+  <div class="tile bg-lav"><span class="tile-ic"><?= icon('users') ?></span><div><div class="num"><?= (int) $stats['users'] ?><small>/ <?= (int) $stats['active'] ?></small></div><div class="lbl">Employees allocated</div></div></div>
+  <div class="tile bg-mint"><span class="tile-ic"><?= icon('gift') ?></span><div><div class="num"><?= e(LS::num($stats['allocated'])) ?></div><div class="lbl">Days allocated</div></div></div>
+  <div class="tile bg-peach"><span class="tile-ic"><?= icon('plane') ?></span><div><div class="num"><?= e(LS::num($stats['used'])) ?></div><div class="lbl">Days used</div></div></div>
+  <div class="tile bg-sky"><span class="tile-ic"><?= icon('pie') ?></span><div><div class="num"><?= $cover ?>%</div><div class="lbl">Coverage</div><div class="hr-tbar"><span style="width:<?= $cover ?>%"></span></div></div></div>
 </div>
 <?php if ($cover < 100): ?><div class="alert warn"><?= icon('alert', 'sm') ?> <?= (int) $stats['active'] - (int) $stats['users'] ?> active employee(s) have no <?= (int) $year ?> balance yet. Click “Allocate <?= (int) $year ?>” — existing balances are never overwritten.</div><?php endif ?>
 <div class="card">
-  <form class="filters" method="get">
-    <select name="year" data-autosubmit><?php for ($y = (int) date('Y') + 1; $y >= (int) date('Y') - 3; $y--): ?><option<?= selected($y, $year) ?>><?= $y ?></option><?php endfor ?></select>
-    <input type="search" name="q" value="<?= e($_GET['q'] ?? '') ?>" placeholder="Search employee or code">
-    <button class="btn ghost sm"><?= icon('filter', 'sm') ?> Filter</button>
+  <form class="hr-toolbar" method="get">
+    <label class="hr-search"><span class="sr">Search</span><?= icon('search', 'sm') ?><input type="search" name="q" value="<?= e($_GET['q'] ?? '') ?>" placeholder="Search employee or code"></label>
+    <select name="year" data-autosubmit aria-label="Year"><?php for ($y = (int) date('Y') + 1; $y >= (int) date('Y') - 3; $y--): ?><option<?= selected($y, $year) ?>><?= $y ?></option><?php endfor ?></select>
+    <?php if (($_GET['q'] ?? '') !== ''): ?><a class="btn sm ghost" href="<?= e(url('/hr/leave/balances?year='.$year)) ?>"><?= icon('x', 'sm') ?> Clear</a><?php endif ?>
   </form>
-  <?php if (!$p['items']): ?><?= empty_state('No employees found', '', 'team') ?><?php else: ?>
+  <?php if (!$p['items']): ?><?= empty_state('No employees found', 'Try another name or employee code.', 'people-hr') ?><?php else: ?>
   <div class="table-wrap"><table class="table">
-    <thead><tr><th>Employee</th><?php foreach ($types as $t): ?><th class="center"><span class="pill pill-<?= e($t['color']) ?>"><?= e($t['code']) ?></span><div class="xs muted hr-th-sub"><?= (int) $t['paid'] ? 'left / allocated' : 'used' ?></div></th><?php endforeach ?></tr></thead>
+    <thead><tr><th>Employee</th><?php foreach ($types as $t): ?><th class="c"><span class="pill pill-<?= e($t['color']) ?>"><?= e($t['code']) ?></span><div class="xs muted hr-th-sub"><?= (int) $t['paid'] ? 'left / allocated' : 'used' ?></div></th><?php endforeach ?></tr></thead>
     <tbody><?php foreach ($p['items'] as $u): ?><tr>
-      <td><a class="flex" href="<?= e(url('/hr/employees/'.$u['id'].'?tab=leave')) ?>"><?= avatar($u['name'], $u['avatar'], 'sm') ?><div><b><?= e($u['name']) ?></b><div class="xs muted"><?= e($u['department'] ?: ($u['employee_code'] ?: '')) ?></div></div></a></td>
+      <td><a class="hr-who" href="<?= e(url('/hr/employees/'.$u['id'].'?tab=schedule')) ?>"><?= avatar($u['name'], $u['avatar'], 'sm') ?><div><b class="small"><?= e($u['name']) ?></b><div class="xs muted"><?= e($u['department'] ?: ($u['employee_code'] ?: '')) ?></div></div></a></td>
       <?php foreach ($types as $t): $b = $map[$u['id']][$t['id']] ?? null; ?>
-      <td class="center"><?php if (!$b): ?><span class="muted">—</span><?php elseif ((int) $t['paid']): $left = (float) $b['allocated'] - (float) $b['used']; ?><b class="<?= $left <= 0 ? 'hr-neg' : '' ?>"><?= e($left) ?></b><span class="muted small"> / <?= e((float) $b['allocated']) ?></span><?php else: ?><b><?= e((float) $b['used']) ?></b><?php endif ?></td>
+      <td class="c nowrap"><?php if (!$b): ?><span class="muted">—</span><?php elseif ((int) $t['paid']): $left = (float) $b['allocated'] - (float) $b['used']; ?><b class="<?= $left <= 0 ? 'hr-neg' : '' ?>"><?= e(LS::num($left)) ?></b><span class="muted small"> / <?= e(LS::num($b['allocated'])) ?></span><?php else: ?><b><?= e(LS::num($b['used'])) ?></b><?php endif ?></td>
       <?php endforeach ?>
     </tr><?php endforeach ?></tbody>
   </table></div>

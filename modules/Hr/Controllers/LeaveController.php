@@ -1,6 +1,6 @@
 <?php
 namespace Modules\Hr\Controllers;
-use Core\{Audit, Controller, DB, Gate, Notify, Response, ValidationException};
+use Core\{Audit, Controller, DB, Gate, Notify, Response, Settings, ValidationException};
 use Modules\Hr\Services\{HrAccess, LeaveService};
 
 /** Leave requests, approvals, team calendar, balances and leave types. */
@@ -20,8 +20,10 @@ final class LeaveController extends Controller {
     $p = [$uid];
     if (in_array($status, ['pending', 'approved', 'rejected', 'cancelled'], true)) { $sql .= ' AND lr.status=?'; $p[] = $status; }
     $mgr = DB::first('SELECT m.name FROM users u JOIN users m ON m.id=u.manager_id WHERE u.id=?', [$uid]);
-    return $this->base('index', ['title' => 'Leave', 'year' => $year, 'balances' => LeaveService::balances($uid, $year), 'p' => DB::paginate($sql.' ORDER BY lr.start_date DESC, lr.id DESC', $p, 12),
-      'manager' => $mgr['name'] ?? null, 'upcoming' => DB::all('SELECT holiday_date, name, optional FROM holidays WHERE holiday_date>=? ORDER BY holiday_date LIMIT 3', [date('Y-m-d')])]); }
+    $stats = DB::first("SELECT SUM(status='pending') AS pending, COALESCE(SUM(CASE WHEN status='approved' THEN days END),0) AS taken FROM leave_requests WHERE user_id=? AND start_date BETWEEN ? AND ?", [$uid, "$year-01-01", "$year-12-31"]);
+    $next = DB::first("SELECT lr.start_date, lr.end_date, t.name AS type_name FROM leave_requests lr JOIN leave_types t ON t.id=lr.leave_type_id WHERE lr.user_id=? AND lr.status='approved' AND lr.end_date>=? ORDER BY lr.start_date LIMIT 1", [$uid, date('Y-m-d')]);
+    return $this->base('index', ['title' => 'Leave', 'year' => $year, 'balances' => LeaveService::balances($uid, $year), 'p' => DB::paginate($sql.' ORDER BY lr.start_date DESC, lr.id DESC', $p, 12), 'stats' => $stats, 'nextLeave' => $next,
+      'manager' => $mgr['name'] ?? null, 'schedule' => LeaveService::scheduleFor($uid), 'optional' => LeaveService::optionalType(), 'upcoming' => DB::all('SELECT holiday_date, name, optional FROM holidays WHERE holiday_date>=? ORDER BY holiday_date LIMIT 4', [date('Y-m-d')])]); }
 
   /** JSON working-day preview for the request form. */
   public function preview(): Response {
@@ -29,8 +31,9 @@ final class LeaveController extends Controller {
     if (!$this->isDate($from) || !$this->isDate($to) || $to < $from) { return $this->json(['days' => 0, 'note' => 'Choose a valid date range.']); }
     if ((strtotime($to) - strtotime($from)) / 86400 > 92) { return $this->json(['days' => 0, 'note' => 'Requests are limited to 3 months.']); }
     $hol = DB::column('SELECT name FROM holidays WHERE optional=0 AND holiday_date BETWEEN ? AND ? ORDER BY holiday_date', [$from, $to]);
-    $days = LeaveService::requestDays($from, $to, $half && $from === $to);
-    return $this->json(['days' => $days, 'note' => $days ? ($days == 1 ? '1 working day' : rtrim(rtrim(number_format($days, 1), '0'), '.').' working days').($hol ? ' (excludes '.implode(', ', $hol).')' : '') : 'No working days in this range.']); }
+    $days = LeaveService::requestDaysFor($this->uid(), $from, $to, $half && $from === $to);
+    $off = LeaveService::daysLabel(LeaveService::scheduleFor($this->uid())['off_days']);
+    return $this->json(['days' => $days, 'note' => $days ? ($days == 1 ? '1 working day' : rtrim(rtrim(number_format($days, 1), '0'), '.').' working days').($hol ? ' (excludes '.implode(', ', $hol).')' : '') : 'No working days in this range — your weekly off: '.$off.'.']); }
 
   private function isDate(string $v): bool { $d = \DateTime::createFromFormat('Y-m-d', $v); return $d && $d->format('Y-m-d') === $v; }
 
@@ -43,9 +46,9 @@ final class LeaveController extends Controller {
     if ((strtotime($d['end_date']) - strtotime($d['start_date'])) / 86400 > 92) { throw new ValidationException(['end_date' => 'A single request can cover at most 3 months.']); }
     if ($d['half_day'] && $d['start_date'] !== $d['end_date']) { throw new ValidationException(['half_day' => 'A half day must start and end on the same date.']); }
     if ($d['start_date'] < date('Y-m-d', strtotime('-60 days'))) { throw new ValidationException(['start_date' => 'Leave older than 60 days cannot be requested. Contact HR.']); }
-    $days = LeaveService::requestDays($d['start_date'], $d['end_date'], (bool) $d['half_day']);
-    if ($days <= 0) { throw new ValidationException(['start_date' => 'The selected dates fall on weekends or holidays — no working days to request.']); }
     $uid = $this->uid(); $year = (int) substr($d['start_date'], 0, 4);
+    $days = LeaveService::requestDaysFor($uid, $d['start_date'], $d['end_date'], (bool) $d['half_day']);
+    if ($days <= 0) { throw new ValidationException(['start_date' => 'The selected dates fall on your weekly off days or fixed holidays — no working days to request.']); }
     $id = DB::transaction(function () use ($d, $type, $days, $uid, $year): int {
       DB::value('SELECT id FROM users WHERE id=? FOR UPDATE', [$uid]);
       $clash = DB::first("SELECT start_date, end_date, status FROM leave_requests WHERE user_id=? AND status IN ('pending','approved') AND start_date<=? AND end_date>=? LIMIT 1", [$uid, $d['end_date'], $d['start_date']]);
@@ -58,7 +61,7 @@ final class LeaveController extends Controller {
     Audit::log('hr.leave.request', 'leave_request', $id, ['type' => $type['code'], 'days' => $days, 'from' => $d['start_date'], 'to' => $d['end_date']]);
     $this->notifyApprovers($id, $type['name'], $days, $d);
     $this->flash('Leave requested for '.$days.' day(s). Your approver has been notified.');
-    return $this->redirect('/hr/leave'); }
+    return $this->redirect($this->request->str('return') === 'holidays' ? '/hr/holidays?year='.$year : '/hr/leave'); }
 
   private function notifyApprovers(int $id, string $typeName, float $days, array $d): void {
     $me = $this->user();
@@ -87,7 +90,9 @@ final class LeaveController extends Controller {
     if ($page['items']) {
       $uids = array_values(array_unique(array_map('intval', array_column($page['items'], 'user_id'))));
       foreach (DB::all('SELECT user_id, leave_type_id, year, allocated-used AS left_days FROM leave_balances WHERE user_id IN '.DB::in($uids), $uids) as $b) { $bal[$b['user_id'].'-'.$b['leave_type_id'].'-'.$b['year']] = (float) $b['left_days']; } }
-    return $this->base('approvals', ['title' => 'Leave approvals', 'p' => $page, 'status' => $status, 'bal' => $bal, 'all' => HrAccess::seesAllLeave()]); }
+    [$w2, $p2] = HrAccess::reviewScope();
+    $stats = DB::first("SELECT SUM(lr.status='approved' AND lr.reviewed_at>=?) AS approved, SUM(lr.status='rejected' AND lr.reviewed_at>=?) AS rejected, SUM(lr.status='approved' AND lr.start_date<=? AND lr.end_date>=?) AS out_today FROM leave_requests lr JOIN users u ON u.id=lr.user_id WHERE $w2", [date('Y-m-01'), date('Y-m-01'), date('Y-m-d'), date('Y-m-d'), ...$p2]);
+    return $this->base('approvals', ['title' => 'Leave approvals', 'p' => $page, 'status' => $status, 'bal' => $bal, 'all' => HrAccess::seesAllLeave(), 'stats' => $stats]); }
 
   public function review(int $id): Response {
     $d = $this->validate(['decision' => 'required|in:approve,reject', 'review_note' => 'nullable|max:500'], ['review_note' => 'Note']);
@@ -119,10 +124,11 @@ final class LeaveController extends Controller {
     $end = date('Y-m-t', strtotime($start));
     $rows = DB::all("SELECT lr.user_id, lr.start_date, lr.end_date, lr.half_day, lr.status, u.name, t.name AS type_name, t.code, t.color FROM leave_requests lr JOIN users u ON u.id=lr.user_id JOIN leave_types t ON t.id=lr.leave_type_id WHERE u.status='active' AND lr.start_date<=? AND lr.end_date>=? AND (lr.status='approved' OR (lr.status='pending' AND lr.user_id=?)) ORDER BY u.name", [$end, $start, $this->uid()]);
     $byDay = [];
+    LeaveService::schedules(array_column($rows, 'user_id'));
     foreach ($rows as $r) {
       for ($t = strtotime(max($r['start_date'], $start)), $e = strtotime(min($r['end_date'], $end)); $t <= $e; $t = strtotime('+1 day', $t)) {
         $day = date('Y-m-d', $t);
-        if (!LeaveService::isWeekend($day) && !LeaveService::isHoliday($day)) { $byDay[$day][] = $r; } } }
+        if (LeaveService::isWorkingDayFor((int) $r['user_id'], $day)) { $byDay[$day][] = $r; } } }
     $hol = [];
     foreach (DB::all('SELECT holiday_date, name, optional FROM holidays WHERE holiday_date BETWEEN ? AND ? ORDER BY holiday_date', [$start, $end]) as $h) { $hol[$h['holiday_date']][] = $h; }
     $types = $this->can('hr.leave.approve') || $this->can('hr.employees.view');
@@ -169,7 +175,26 @@ final class LeaveController extends Controller {
     return $this->redirect('/hr/leave/balances?year='.$d['year']); }
 
   public function types(): Response {
-    return $this->base('types', ['title' => 'Leave types', 'types' => DB::all('SELECT t.*, (SELECT COUNT(*) FROM leave_requests r WHERE r.leave_type_id=t.id) AS uses FROM leave_types t ORDER BY t.active DESC, t.paid DESC, t.id'), 'colors' => self::COLORS]); }
+    $types = DB::all('SELECT t.*, (SELECT COUNT(*) FROM leave_requests r WHERE r.leave_type_id=t.id) AS uses, (SELECT COUNT(*) FROM employee_leave_quotas q WHERE q.leave_type_id=t.id) AS overrides FROM leave_types t ORDER BY t.active DESC, t.code=? DESC, t.paid DESC, t.id', [LeaveService::OPTIONAL_CODE]);
+    $oh = LeaveService::optionalType();
+    return $this->base('types', ['title' => 'Leave types', 'types' => $types, 'colors' => self::COLORS, 'optional' => $oh, 'ohDefault' => (float) Settings::get('hr.optional_holidays_default', $oh['annual_quota'] ?? 15),
+      'optionalDays' => (int) DB::value('SELECT COUNT(*) FROM holidays WHERE optional=1 AND holiday_date BETWEEN ? AND ?', [date('Y-01-01'), date('Y-12-31')])]); }
+
+  /** HR setting hr.optional_holidays_default: yearly optional-holiday pool; keeps the OH leave type quota in sync. */
+  public function optionalQuota(): Response {
+    $d = $this->validate(['quota' => 'required|numeric|min:0|max:365', 'apply_current' => 'boolean'], ['quota' => 'Optional days per year']);
+    $q = round((float) $d['quota'] * 2) / 2;
+    $oh = DB::first('SELECT * FROM leave_types WHERE code=?', [LeaveService::OPTIONAL_CODE]) ?? throw new ValidationException(['quota' => 'The Optional Holiday (OH) leave type is missing. Create a leave type with code OH first.']);
+    $year = (int) date('Y');
+    $n = DB::transaction(static function () use ($q, $oh, $d, $year): int {
+      $old = (float) $oh['annual_quota'];
+      Settings::set('hr.optional_holidays_default', (string) $q);
+      DB::update('leave_types', ['annual_quota' => $q], 'id=?', [$oh['id']]);
+      if (!$d['apply_current'] || $q == $old) { return 0; }
+      return DB::query('UPDATE leave_balances b LEFT JOIN employee_leave_quotas eq ON eq.user_id=b.user_id AND eq.leave_type_id=b.leave_type_id SET b.allocated=GREATEST(0, b.allocated + ?) WHERE b.leave_type_id=? AND b.year=? AND eq.user_id IS NULL', [$q - $old, $oh['id'], $year])->rowCount(); });
+    Audit::log('hr.leave.optional_quota', 'leave_type', (int) $oh['id'], ['from' => (float) $oh['annual_quota'], 'to' => $q, 'balances_updated' => $n]);
+    $this->flash('Optional holidays set to '.rtrim(rtrim(number_format($q, 1), '0'), '.').' days per year'.($n ? " — $n employee balance(s) for $year updated." : '.'));
+    return $this->redirect('/hr/leave/types'); }
 
   private function typeData(?int $id): array {
     $in = $this->request->all();
@@ -184,15 +209,18 @@ final class LeaveController extends Controller {
     return $this->redirect('/hr/leave/types'); }
 
   public function updateType(int $id): Response {
-    $this->findOr404('leave_types', $id);
+    $t = $this->findOr404('leave_types', $id);
     $d = $this->typeData($id);
+    if ($t['code'] === LeaveService::OPTIONAL_CODE && $d['code'] !== $t['code']) { throw new ValidationException(['code' => 'The OH code powers optional festival days and cannot be changed.']); }
     DB::update('leave_types', $d, 'id=?', [$id]);
+    if ($d['code'] === LeaveService::OPTIONAL_CODE) { Settings::set('hr.optional_holidays_default', (string) (float) $d['annual_quota']); }
     Audit::log('hr.leave_type.update', 'leave_type', $id, $d);
     $this->flash('Leave type updated.');
     return $this->redirect('/hr/leave/types'); }
 
   public function destroyType(int $id): Response {
     $t = $this->findOr404('leave_types', $id);
+    if ($t['code'] === LeaveService::OPTIONAL_CODE) { $this->flash('The Optional Holiday type powers festival days and cannot be deleted. Edit it to deactivate instead.', 'error'); return $this->redirect('/hr/leave/types'); }
     if (DB::value('SELECT 1 FROM leave_requests WHERE leave_type_id=? LIMIT 1', [$id])) {
       DB::update('leave_types', ['active' => 0], 'id=?', [$id]);
       Audit::log('hr.leave_type.deactivate', 'leave_type', $id, ['name' => $t['name']]);

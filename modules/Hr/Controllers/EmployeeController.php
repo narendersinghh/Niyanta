@@ -1,6 +1,6 @@
 <?php
 namespace Modules\Hr\Controllers;
-use Core\{Audit, Auth, Controller, Crypto, DB, Response, Storage, ValidationException};
+use Core\{Audit, Auth, Controller, Crypto, DB, Modules, Response, Storage, ValidationException};
 use Modules\Hr\Services\{HrAccess, LeaveService};
 
 /** Employee list / directory, HR profile, documents, onboarding & offboarding checklists. */
@@ -28,7 +28,7 @@ final class EmployeeController extends Controller {
     $kpi = DB::first("SELECT SUM(status='active') AS headcount, SUM(status='active' AND joined_on BETWEEN ? AND ?) AS joined FROM users", [date('Y-m-01'), date('Y-m-t')]);
     $kpi['out'] = (int) DB::value("SELECT COUNT(DISTINCT lr.user_id) FROM leave_requests lr JOIN users u ON u.id=lr.user_id WHERE u.status='active' AND lr.status='approved' AND lr.start_date<=? AND lr.end_date>=?", [$today, $today]);
     $kpi['onboarding'] = (int) DB::value("SELECT COUNT(*) FROM (SELECT c.user_id FROM employee_checklists c JOIN users u ON u.id=c.user_id WHERE c.type='onboarding' AND u.status<>'inactive' GROUP BY c.user_id HAVING SUM(c.done_at IS NULL)>0) x");
-    return $this->view('hr::employees/index', ['title' => 'Employees', 'p' => $page, 'prog' => $prog, 'out' => $out, 'kpi' => $kpi, 'departments' => $this->departments(), 'styles' => ['css/hr.css']]); }
+    return $this->view('hr::employees/index', ['title' => 'Employees', 'p' => $page, 'prog' => $prog, 'out' => $out, 'kpi' => $kpi, 'departments' => $this->departments(), 'sched' => $ids ? LeaveService::schedules($ids) : [], 'styles' => ['css/hr.css']]); }
 
   private function directory(): Response {
     $q = $this->request->str('q'); $dept = $this->request->str('department');
@@ -59,10 +59,9 @@ final class EmployeeController extends Controller {
     $prof = $this->profile($id);
     $self = $id === $this->uid();
     $hr = $this->can('hr.employees.view');
-    $tabs = ['overview' => 'Overview'];
+    $tabs = ['overview' => 'Overview', 'schedule' => 'Work schedule & leave', 'leave' => 'Leave history'];
     if (HrAccess::canViewDocuments($id)) { $tabs['documents'] = 'Documents'; }
     $tabs['checklists'] = 'Onboarding & exit';
-    $tabs['leave'] = 'Leave';
     $tab = $this->request->str('tab', 'overview');
     if (!isset($tabs[$tab])) { $tab = 'overview'; }
     $year = (int) date('Y');
@@ -76,7 +75,63 @@ final class EmployeeController extends Controller {
     if ($tab === 'documents') { $data['docs'] = DB::all("SELECT f.*, u.name AS uploader FROM files f LEFT JOIN users u ON u.id=f.uploaded_by WHERE f.module='hr' AND f.entity_type='employee' AND f.entity_id=? ORDER BY f.category, f.id DESC", [$id]); $data['cats'] = self::DOC_CATS; }
     if ($tab === 'leave') { $data['history'] = DB::paginate('SELECT lr.*, t.name AS type_name, t.color, r.name AS reviewer FROM leave_requests lr JOIN leave_types t ON t.id=lr.leave_type_id LEFT JOIN users r ON r.id=lr.reviewed_by WHERE lr.user_id=? ORDER BY lr.start_date DESC, lr.id DESC', [$id], 15); }
     if ($tab === 'checklists') { $data['templateCount'] = DB::pairs('SELECT type, COUNT(*) FROM checklist_templates GROUP BY type'); }
+    $data['schedule'] = LeaveService::scheduleFor($id);
+    if ($tab === 'schedule') { $data += $this->scheduleData($id, $year); }
     return $this->view('hr::employees/show', $data); }
+
+  /** Work schedule tab: effective hours/off days, per-type quotas with this year's balances, and the current pay rate (read-only). */
+  private function scheduleData(int $id, int $year): array {
+    $bal = array_column(LeaveService::balances($id, $year), null, 'id');
+    $pay = null;
+    if (Modules::enabled('payroll')) {
+      try { $pay = DB::first('SELECT pay_type, amount, effective_from FROM compensations WHERE user_id=? AND effective_from<=CURDATE() ORDER BY effective_from DESC, id DESC LIMIT 1', [$id]); }
+      catch (\Throwable $e) { error_log('HR schedule tab: compensation lookup failed: '.$e->getMessage()); } }
+    return ['quotas' => LeaveService::quotasFor($id), 'bal' => $bal, 'pay' => $pay, 'companyDays' => LeaveService::weekendDays(), 'companyHours' => LeaveService::companyHours(),
+      'monthDays' => LeaveService::workingDaysFor($id, date('Y-m-01'), date('Y-m-t')), 'companyMonthDays' => LeaveService::workingDays(date('Y-m-01'), date('Y-m-t'))]; }
+
+  /** HR: employee-specific hours per day, weekly off days and yearly quota overrides (current-year balances follow the change). */
+  public function updateSchedule(int $id): Response {
+    $emp = $this->employee($id);
+    $in = $this->request->all();
+    $errors = [];
+    $hours = null;
+    if (($in['hours_mode'] ?? 'default') === 'custom') {
+      $h = (string) ($in['work_hours_per_day'] ?? '');
+      if (!is_numeric($h) || (float) $h < 0.5 || (float) $h > 16) { $errors['work_hours_per_day'] = 'Enter working hours between 0.5 and 16.'; } else { $hours = round((float) $h * 4) / 4; } }
+    $days = null;
+    if (($in['days_mode'] ?? 'default') === 'custom') {
+      $raw = array_map('intval', (array) ($in['off_days'] ?? []));
+      if (array_diff($raw, range(1, 7))) { $errors['off_days'] = 'Choose valid weekdays.'; }
+      elseif (count(array_unique($raw)) > 6) { $errors['off_days'] = 'At least one working day per week is required.'; }
+      else { $days = implode(',', LeaveService::parseDays(implode(',', $raw))); } }
+    $types = DB::pairs('SELECT id, annual_quota FROM leave_types WHERE active=1');
+    $over = [];
+    foreach ((array) ($in['quota'] ?? []) as $tid => $v) {
+      $tid = (int) $tid; $v = trim((string) $v);
+      if (!isset($types[$tid])) { continue; }
+      if ($v === '') { $over[$tid] = null; continue; }
+      if (!is_numeric($v) || (float) $v < 0 || (float) $v > 365) { $errors['quota_'.$tid] = 'Quota must be between 0 and 365 days.'; continue; }
+      $over[$tid] = round((float) $v * 2) / 2; }
+    if ($errors) { throw new ValidationException($errors); }
+    $year = (int) date('Y');
+    $changed = DB::transaction(function () use ($id, $hours, $days, $over, $types, $year): array {
+      $this->saveProfile($id, ['work_hours_per_day' => $hours, 'weekly_off_days' => $days]);
+      $old = DB::pairs('SELECT leave_type_id, annual_quota FROM employee_leave_quotas WHERE user_id=?', [$id]);
+      $log = [];
+      foreach ($over as $tid => $q) {
+        $before = isset($old[$tid]) ? (float) $old[$tid] : null;
+        if ($q !== null && (float) $q === (float) $types[$tid]) { $q = null; }
+        if ($before === $q) { continue; }
+        if ($q === null) { DB::delete('employee_leave_quotas', 'user_id=? AND leave_type_id=?', [$id, $tid]); }
+        else { DB::query('INSERT INTO employee_leave_quotas (user_id, leave_type_id, annual_quota) VALUES (?,?,?) ON DUPLICATE KEY UPDATE annual_quota=VALUES(annual_quota)', [$id, $tid, $q]); }
+        $delta = (float) ($q ?? $types[$tid]) - (float) ($before ?? $types[$tid]);
+        if ($delta != 0) { DB::query('UPDATE leave_balances SET allocated=GREATEST(0, allocated + ?) WHERE user_id=? AND leave_type_id=? AND year=?', [$delta, $id, $tid, $year]); }
+        $log[$tid] = ['from' => $before, 'to' => $q, 'balance_delta' => $delta]; }
+      return $log; });
+    LeaveService::flush();
+    Audit::log('hr.employee.schedule', 'employee', $id, ['hours_per_day' => $hours, 'off_days' => $days, 'quotas' => $changed]);
+    $this->flash('Work schedule saved for '.$emp['name'].($changed ? ' — '.count($changed).' quota change(s) applied to the '.$year.' balance.' : '.'));
+    return $this->redirect('/hr/employees/'.$id.'?tab=schedule'); }
 
   public function edit(int $id): Response {
     $emp = $this->employee($id);

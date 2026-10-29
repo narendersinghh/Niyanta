@@ -17,6 +17,15 @@ final class TimeService {
   /** Approved hours (for hourly payroll). */
   public static function approvedHours(int $userId, string $from, string $to): float { return round(self::secondsForUser($userId, $from, $to, 'approved') / 3600, 2); }
 
+  /** Bulk approved hours for payroll runs: [uid => hours] in one query. */
+  public static function approvedHoursMany(array $userIds, string $from, string $to): array {
+    $userIds = array_values(array_unique(array_map('intval', $userIds)));
+    if (!$userIds) { return []; }
+    $out = array_fill_keys($userIds, 0.0);
+    $sec = DB::pairs("SELECT user_id, COALESCE(SUM(CASE WHEN is_running=1 THEN GREATEST(0, TIMESTAMPDIFF(SECOND, started_at, NOW()) - discarded_seconds) ELSE duration_seconds END),0) FROM time_entries WHERE status='approved' AND started_at>=? AND started_at<? AND user_id IN ".DB::in($userIds).' GROUP BY user_id', [$from.' 00:00:00', date('Y-m-d', strtotime($to.' +1 day')).' 00:00:00', ...$userIds]);
+    foreach ($sec as $u => $s) { $out[(int) $u] = round((float) $s / 3600, 2); }
+    return $out; }
+
   /** Present days from attendance (half day = 0.5). */
   public static function presentDays(int $userId, string $from, string $to): float {
     return (float) DB::value("SELECT COALESCE(SUM(CASE status WHEN 'present' THEN 1 WHEN 'half_day' THEN 0.5 ELSE 0 END),0) FROM attendance WHERE user_id=? AND work_date BETWEEN ? AND ?", [$userId, $from, $to]); }

@@ -8,5 +8,5 @@
   </div>
   <div class="field"><label for="<?= $fid ?>-value">Value *</label><input id="<?= $fid ?>-value" type="number" name="value" step="0.01" min="0" value="<?= e($c['value'] ?? '') ?>" required><div class="hint">Amount per month, or percentage of the employee's base pay for the period.</div></div>
   <label class="check"><input type="checkbox" name="active" value="1"<?= checked($c['active'] ?? 1) ?>> Active</label>
-  <div class="form-actions"><?php if ($c): ?><button class="btn ghost" type="button" data-close>Cancel</button><?php endif ?><button class="btn primary"><?= icon('check', 'sm') ?> <?= $c ? 'Save changes' : 'Add component' ?></button></div>
+  <div class="form-actions"><button class="btn ghost" type="button" data-close>Cancel</button><button class="btn primary"><?= icon('check', 'sm') ?> <?= $c ? 'Save changes' : 'Add component' ?></button></div>
 </form>

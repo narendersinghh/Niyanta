@@ -48,15 +48,15 @@ return [
   'widgets' => [
     ['zone' => 'kpis', 'order' => 40, 'perm' => 'payroll.view_own', 'render' => static function (array $u): string {
       $s = DB::first("SELECT s.id, s.net, r.period_month FROM payslips s JOIN payroll_runs r ON r.id=s.run_id WHERE s.user_id=? AND r.status IN ('finalized','paid') ORDER BY r.period_month DESC LIMIT 1", [$u['id']]);
-      return '<a class="tile bg-peach" href="'.e(url($s ? '/payslips/'.$s['id'] : '/payslips')).'"><span class="tile-ic">'.icon('wallet').'</span><div><div class="num" style="font-size:1.75rem">'.e($s ? money($s['net']) : '—').'</div><div class="lbl">Last net pay'.($s ? ' · '.e(date('M Y', strtotime($s['period_month']))) : '').'</div></div>'.illus('money-wallet', 'corner').'</a>'; }],
+      return '<a class="tile bg-peach" href="'.e(url($s ? '/payslips/'.$s['id'] : '/payslips')).'"><span class="tile-ic">'.icon('wallet').'</span><div><div class="num">'.e($s ? money($s['net']) : '—').'</div><div class="lbl">Last net pay'.($s ? ' · '.e(date('M Y', strtotime($s['period_month']))) : '').'</div></div>'.'</a>'; }],
     ['zone' => 'side', 'order' => 40, 'perm' => 'payroll.manage', 'render' => static function (array $u): string {
       $rows = DB::all("SELECT r.id, r.title, r.amount, r.created_at, u.name FROM reimbursements r JOIN users u ON u.id=r.user_id WHERE r.status='pending' ORDER BY r.created_at LIMIT 5");
       $n = $rows ? (int) DB::value("SELECT COUNT(*) FROM reimbursements WHERE status='pending'") : 0;
       $link = Gate::allows('payroll.reimbursements.approve', $u) ? url('/reimbursements?tab=queue') : url('/payroll');
       $h = '<div class="card"><div class="card-head"><h3>Pending reimbursements</h3>'.($n ? '<span class="pill pill-peach">'.$n.'</span>' : '').'</div>';
-      if (!$rows) { return $h.'<div class="flex"><div style="width:84px;flex:none">'.illus('celebrate').'</div><p class="muted small mb0">No claims waiting for review. All caught up!</p></div></div>'; }
+      if (!$rows) { return $h.'<div class="list-item"><span class="avatar bg-mint">'.icon('check', 'sm').'</span><div class="grow"><b class="small">All caught up</b><div class="meta">No claims waiting for review.</div></div></div></div>'; }
       $h .= '<div class="list">';
-      foreach ($rows as $r) { $h .= '<a class="list-item" href="'.e($link).'">'.avatar($r['name'], null, 'sm').'<div class="grow"><b class="small truncate" style="display:block">'.e($r['title']).'</b><div class="meta">'.e($r['name']).' · '.e(ago($r['created_at'])).'</div></div><b class="small nowrap">'.e(money($r['amount'])).'</b></a>'; }
+      foreach ($rows as $r) { $h .= '<a class="list-item" href="'.e($link).'">'.avatar($r['name'], null, 'sm').'<div class="grow"><b class="small truncate">'.e($r['title']).'</b><div class="meta">'.e($r['name']).' · '.e(ago($r['created_at'])).'</div></div><b class="small nowrap">'.e(money($r['amount'])).'</b></a>'; }
       return $h.'</div><a class="btn ghost sm mt" href="'.e($link).'">Review claims '.icon('arrow-right', 'sm').'</a></div>'; }],
   ],
   'search' => static function (string $q, array $u): array {

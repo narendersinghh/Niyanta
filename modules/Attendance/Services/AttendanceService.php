@@ -1,10 +1,21 @@
 <?php
 namespace Modules\Attendance\Services;
-use Core\{Audit, DB, Modules, Settings};
+use Core\{Audit, Auth, DB, Modules, Settings};
 
 /** Clock-in/out & break logic. All timestamps are taken on the server; per-user actions are serialised with a row lock. */
 final class AttendanceService {
-  public static function workSeconds(): int { return max(3600, (int) round((float) Settings::get('hr.work_hours_per_day', 8) * 3600)); }
+  private static function hr(): bool { return Modules::enabled('hr') && class_exists(\Modules\Hr\Services\LeaveService::class) && method_exists(\Modules\Hr\Services\LeaveService::class, 'scheduleFor'); }
+
+  /** Target work seconds per day: the employee's own hours (HR schedule) or the company setting. Defaults to the signed-in user. */
+  public static function workSeconds(?int $uid = null): int {
+    $uid ??= Auth::id();
+    $h = $uid && self::hr() ? (float) \Modules\Hr\Services\LeaveService::scheduleFor((int) $uid)['hours_per_day'] : (float) Settings::get('hr.work_hours_per_day', 8);
+    return max(3600, (int) round($h * 3600)); }
+
+  /** Weekly off days of an employee (ISO-N); company weekend when HR is off or no user is given. */
+  public static function offDays(?int $uid = null): array {
+    $uid ??= Auth::id();
+    return $uid && self::hr() ? \Modules\Hr\Services\LeaveService::scheduleFor((int) $uid)['off_days'] : self::weekendDays(); }
   public static function lock(int $uid): void { DB::value('SELECT id FROM users WHERE id=? FOR UPDATE', [$uid]); }
 
   public static function today(int $uid, ?string $date = null): ?array {
@@ -86,7 +97,7 @@ final class AttendanceService {
     $d = ['break_seconds' => $br, 'worked_seconds' => 0];
     if ($r['clock_in'] && $r['clock_out']) {
       $d['worked_seconds'] = max(0, strtotime($r['clock_out']) - strtotime($r['clock_in']) - $br);
-      if (in_array($r['status'], ['present', 'half_day'], true)) { $d['status'] = $d['worked_seconds'] < self::workSeconds() / 2 ? 'half_day' : 'present'; } }
+      if (in_array($r['status'], ['present', 'half_day'], true)) { $d['status'] = $d['worked_seconds'] < self::workSeconds((int) $r['user_id']) / 2 ? 'half_day' : 'present'; } }
     DB::update('attendance', $d, 'id=?', [$id]); }
 
   public static function closeRow(array $r, string $at, ?string $note = null): void {
@@ -100,7 +111,7 @@ final class AttendanceService {
   /** Close a forgotten day at clock-in + work hours + breaks (or at the start of a never-ended break), never past the end of that day (or now). */
   public static function autoCloseRow(array $r): void {
     $in = strtotime($r['clock_in']);
-    $end = min($in + self::workSeconds() + (int) $r['break_seconds'], strtotime($r['work_date'].' 23:59:59'), time());
+    $end = min($in + self::workSeconds((int) $r['user_id']) + (int) $r['break_seconds'], strtotime($r['work_date'].' 23:59:59'), time());
     $open = DB::value('SELECT MIN(start_at) FROM attendance_breaks WHERE attendance_id=? AND end_at IS NULL', [$r['id']]);
     if ($open) { $end = min($end, strtotime($open)); }
     self::closeRow($r, date('Y-m-d H:i:s', max($in, $end)), 'auto-closed'); }
@@ -170,7 +181,7 @@ final class AttendanceService {
     foreach (DB::all('SELECT * FROM attendance WHERE user_id=? AND work_date BETWEEN ? AND ?', [$uid, $from, $to]) as $r) { $rows[$r['work_date']] = $r; }
     $leave = self::leaveMap([$uid], $from, $to)[$uid] ?? [];
     $hol = self::holidays($from, $to);
-    $wk = self::weekendDays();
+    $wk = self::offDays($uid);
     $start = $user['joined_on'] ?: substr((string) ($user['created_at'] ?? $from), 0, 10);
     $days = []; $tot = ['present' => 0.0, 'half_day' => 0, 'absent' => 0, 'leave' => 0.0, 'holiday' => 0, 'weekend' => 0, 'worked' => 0, 'days_worked' => 0];
     for ($t = strtotime($from); $t <= strtotime($to); $t = strtotime('+1 day', $t)) {

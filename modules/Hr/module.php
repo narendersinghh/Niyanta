@@ -1,11 +1,11 @@
 <?php
 use Core\{DB, Gate, View};
-use Modules\Hr\Controllers\{EmployeeController, ChecklistController, LeaveController, HolidayController};
+use Modules\Hr\Controllers\{EmployeeController, ChecklistController, CompanyDocController, LeaveController, HolidayController};
 use Modules\Hr\Services\{HrAccess, LeaveService};
 
 return [
   'key' => 'hr', 'name' => 'HR Management', 'icon' => 'users', 'order' => 30, 'version' => '1.0.0',
-  'description' => 'Employee profiles, onboarding/offboarding, secure documents, leave balances & approvals and holidays.',
+  'description' => 'Employee profiles & work schedules, onboarding/offboarding, secure documents, leave balances & approvals, holidays and company documents.',
   'permissions' => [
     'hr.directory.view' => ['label' => 'View team directory', 'roles' => ['manager', 'hr', 'employee']],
     'hr.employees.view' => ['label' => 'View employee HR records', 'roles' => ['hr']],
@@ -35,6 +35,7 @@ return [
     $r->get('/hr/employees/{id}/edit', [EmployeeController::class, 'edit'], 'hr.employees.manage');
     $r->post('/hr/employees/{id}', [EmployeeController::class, 'update'], 'hr.employees.manage');
     $r->post('/hr/employees/{id}/self', [EmployeeController::class, 'updateSelf'], $self);
+    $r->post('/hr/employees/{id}/schedule', [EmployeeController::class, 'updateSchedule'], 'hr.employees.manage');
     $r->post('/hr/employees/{id}/reveal', [EmployeeController::class, 'reveal'], ['perm' => 'hr.employees.manage', 'throttle' => [30, 300]]);
     $r->post('/hr/employees/{id}/documents', [EmployeeController::class, 'upload'], ['perm' => 'hr.documents.manage', 'throttle' => [40, 300]]);
     $r->post('/hr/employees/{id}/checklists/{type}', [EmployeeController::class, 'generateChecklist'], 'hr.employees.manage');
@@ -56,13 +57,19 @@ return [
     $r->post('/hr/leave/balances/allocate', [LeaveController::class, 'allocate'], 'hr.leave.manage');
     $r->post('/hr/leave/balances/adjust', [LeaveController::class, 'adjust'], 'hr.leave.manage');
     $r->get('/hr/leave/types', [LeaveController::class, 'types'], 'hr.leave.manage');
+    $r->post('/hr/leave/optional-quota', [LeaveController::class, 'optionalQuota'], 'hr.leave.manage');
     $r->post('/hr/leave/types', [LeaveController::class, 'storeType'], 'hr.leave.manage');
     $r->post('/hr/leave/types/{id}', [LeaveController::class, 'updateType'], 'hr.leave.manage');
     $r->post('/hr/leave/types/{id}/delete', [LeaveController::class, 'destroyType'], 'hr.leave.manage');
     $r->get('/hr/holidays', [HolidayController::class, 'index'], ['hr.directory.view', 'hr.leave.manage', 'hr.leave.request']);
     $r->post('/hr/holidays', [HolidayController::class, 'store'], 'hr.leave.manage');
     $r->post('/hr/holidays/{id}', [HolidayController::class, 'update'], 'hr.leave.manage');
-    $r->post('/hr/holidays/{id}/delete', [HolidayController::class, 'destroy'], 'hr.leave.manage'); },
+    $r->post('/hr/holidays/{id}/delete', [HolidayController::class, 'destroy'], 'hr.leave.manage');
+    $r->get('/hr/documents', [CompanyDocController::class, 'index'], 'hr.company_docs.view');
+    $r->post('/hr/documents', [CompanyDocController::class, 'store'], ['perm' => 'hr.company_docs.manage', 'throttle' => [30, 300]]);
+    $r->post('/hr/documents/{id}', [CompanyDocController::class, 'update'], ['perm' => 'hr.company_docs.manage', 'throttle' => [30, 300]]);
+    $r->post('/hr/documents/{id}/delete', [CompanyDocController::class, 'destroy'], 'hr.company_docs.manage');
+    $r->post('/hr/documents/{id}/ack', [CompanyDocController::class, 'acknowledge'], 'hr.company_docs.view'); },
   'widgets' => [
     ['zone' => 'kpis', 'order' => 30, 'perm' => 'hr.leave.request', 'render' => static function (array $u): string {
       $b = array_filter(LeaveService::balances((int) $u['id'], (int) date('Y')), static fn ($r) => (int) $r['paid'] === 1);
@@ -77,6 +84,9 @@ return [
     ['zone' => 'side', 'order' => 20, 'perm' => ['hr.directory.view', 'hr.leave.request'], 'render' => static function (array $u): string {
       $today = date('Y-m-d');
       return View::partial('hr::widgets/out_today', ['out' => LeaveService::onLeaveOn($today, 6), 'holidays' => DB::all('SELECT holiday_date, name, optional FROM holidays WHERE holiday_date>=? ORDER BY holiday_date LIMIT 4', [$today])]); }],
+    ['zone' => 'side', 'order' => 15, 'perm' => 'hr.company_docs.view', 'render' => static function (array $u): string {
+      $docs = CompanyDocController::pendingFor((int) $u['id']);
+      return $docs ? View::partial('hr::widgets/docs_ack', ['docs' => $docs, 'cats' => CompanyDocController::CATS]) : ''; }],
   ],
   'search' => static function (string $q, array $u): array {
     $full = Gate::allows('hr.employees.view', $u);
@@ -94,5 +104,6 @@ return [
   ],
   'file_access' => [
     'employee' => static fn (array $user, int $entityId, array $file, string $mode = 'view'): bool => $mode === 'delete' ? Gate::allows('hr.documents.manage', $user) : HrAccess::canViewDocuments($entityId, $user),
+    'company_doc' => static fn (array $user, int $entityId, array $file, string $mode = 'view'): bool => $mode === 'delete' ? Gate::allows('hr.company_docs.manage', $user) : Gate::allows('hr.company_docs.view', $user),
   ],
 ];

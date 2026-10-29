@@ -1,14 +1,14 @@
 <?php $max = $trend ? max(1.0, ...array_map(static fn ($t) => (float) $t['net'], $trend)) : 1.0; ?>
-<?= partial('partials/page_head', ['title' => 'My Payslips', 'subtitle' => 'Your monthly salary statements, ready to view and download.', 'crumbs' => [['People'], ['My Payslips']]]) ?>
+<?= partial('partials/page_head', ['title' => 'My Payslips', 'subtitle' => 'Your monthly salary statements, ready to view and download.', 'crumbs' => [['My HR'], ['My Payslips']]]) ?>
 <?php if (!$p['total']): ?>
   <div class="card"><?= empty_state('No payslips yet', 'Your payslips will appear here as soon as payroll for a month is finalized. You will also get a notification.', 'money-wallet') ?></div>
 <?php else: ?>
-<div class="grid g-main mb">
+<div class="grid g-main mb pay-top">
   <div class="card hero pay-hero">
     <div>
-      <span class="pill pill-peach">Latest · <?= e(date('F Y', strtotime($latest['period_month']))) ?></span>
+      <span class="pill">Latest · <?= e(date('F Y', strtotime($latest['period_month']))) ?></span>
       <div class="pay-hero-amt mt"><?= e(money($latest['net'])) ?></div>
-      <p class="muted">Net pay credited for <?= e(date('F Y', strtotime($latest['period_month']))) ?></p>
+      <p>Net pay credited for <?= e(date('F Y', strtotime($latest['period_month']))) ?></p>
       <div class="flex wrap"><a class="btn primary" href="<?= e(url('/payslips/'.$latest['id'])) ?>"><?= icon('eye', 'sm') ?> View payslip</a><a class="btn ghost" href="<?= e(url('/payslips/'.$latest['id'].'/pdf')) ?>"><?= icon('download', 'sm') ?> Download PDF</a></div>
     </div>
     <?= illus('money-wallet') ?>
@@ -29,7 +29,7 @@
     <thead><tr><th>Period</th><th>Paid for</th><th class="r">Gross</th><th class="r">Deductions</th><th class="r">Net pay</th><th>Status</th><th></th></tr></thead>
     <tbody><?php foreach ($p['items'] as $s): ?>
       <tr>
-        <td><div class="flex"><span class="pay-dot soft-peach"><?= icon('file-text', 'sm') ?></span><a class="row-link" href="<?= e(url('/payslips/'.$s['id'])) ?>"><?= e(date('F Y', strtotime($s['period_month']))) ?></a></div></td>
+        <td><div class="pay-who"><span class="pay-ic peach"><?= icon('file-text', 'sm') ?></span><a class="row-link" href="<?= e(url('/payslips/'.$s['id'])) ?>"><?= e(date('F Y', strtotime($s['period_month']))) ?></a></div></td>
         <td class="small muted"><?= $s['pay_type'] === 'hourly' ? e(number_format((float) $s['worked_hours'], 2)).' hours' : e(rtrim(rtrim(number_format((float) $s['paid_days'], 1), '0'), '.')).' of '.e(rtrim(rtrim(number_format((float) $s['working_days'], 1), '0'), '.')).' days' ?></td>
         <td class="r nowrap"><?= e(money($s['gross'])) ?></td>
         <td class="r nowrap"><?= e(money($s['total_deductions'])) ?></td>

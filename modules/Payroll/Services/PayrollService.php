@@ -17,13 +17,22 @@ final class PayrollService {
   public static function monthLabel(string $period): string { return date('F Y', strtotime($period)); }
 
   private static function hr(string $method): bool { return self::$integrations && Modules::enabled('hr') && class_exists(self::LEAVE) && method_exists(self::LEAVE, $method); }
-  private static function att(): bool { return self::$integrations && Modules::enabled('attendance') && class_exists(self::TIME) && method_exists(self::TIME, 'approvedHours'); }
+  private static function att(string $method = 'approvedHours'): bool { return self::$integrations && Modules::enabled('attendance') && class_exists(self::TIME) && method_exists(self::TIME, $method); }
 
   public static function workingDays(string $from, string $to): float {
     if (self::hr('workingDays')) {
       try { return round((float) call_user_func([self::LEAVE, 'workingDays'], $from, $to), 1); }
       catch (\Throwable $e) { error_log('Payroll: LeaveService::workingDays failed, using fallback: '.$e->getMessage()); } }
     return (float) count(self::workingDates($from, $to)); }
+
+  /** Working days per employee for the period (their own weekly off days via HR), falling back to the company count. */
+  public static function workingDaysFor(array $userIds, string $from, string $to): array {
+    $userIds = array_values(array_unique(array_map('intval', $userIds)));
+    if (!$userIds) { return []; }
+    if (self::hr('workingDaysMany')) {
+      try { return array_map(static fn ($v) => round((float) $v, 1), call_user_func([self::LEAVE, 'workingDaysMany'], $userIds, $from, $to)) + array_fill_keys($userIds, self::workingDays($from, $to)); }
+      catch (\Throwable $e) { error_log('Payroll: LeaveService::workingDaysMany failed, using company calendar: '.$e->getMessage()); } }
+    return array_fill_keys($userIds, self::workingDays($from, $to)); }
 
   /** Fallback calendar: dates in range that are not weekend days (setting general.weekend_days, ISO-N) nor mandatory holidays. */
   public static function workingDates(string $from, string $to): array {
@@ -62,7 +71,8 @@ final class PayrollService {
     $out = array_fill_keys($userIds, 0.0);
     if (self::att()) {
       try {
-        foreach ($userIds as $u) { $out[$u] = round((float) call_user_func([self::TIME, 'approvedHours'], (int) $u, $from, $to), 2); }
+        if (self::att('approvedHoursMany')) { foreach (call_user_func([self::TIME, 'approvedHoursMany'], $userIds, $from, $to) as $u => $v) { if (isset($out[$u])) { $out[$u] = round((float) $v, 2); } } }
+        else { foreach ($userIds as $u) { $out[$u] = round((float) call_user_func([self::TIME, 'approvedHours'], (int) $u, $from, $to), 2); } }
         return $out; }
       catch (\Throwable $e) { error_log('Payroll: TimeService::approvedHours failed, using fallback: '.$e->getMessage()); $out = array_fill_keys($userIds, 0.0); } }
     $sec = DB::pairs("SELECT user_id, SUM(GREATEST(CAST(duration_seconds AS SIGNED) - CAST(idle_seconds AS SIGNED), 0)) FROM time_entries WHERE status='approved' AND started_at BETWEEN ? AND ? AND user_id IN ".DB::in($userIds).' GROUP BY user_id', [$from.' 00:00:00', $to.' 23:59:59', ...$userIds]);
@@ -80,7 +90,7 @@ final class PayrollService {
 
   /**
    * Pure payslip calculation.
-   * monthly: base = amount × paid_days / working_days; hourly: base = rate × hours.
+   * monthly: base = amount × paid_days / working_days (the employee's own working days); hourly: base = rate × hours.
    * gross = base + allowances + reimbursements; net = max(0, gross − deductions).
    */
   public static function compute(array $comp, float $workingDays, float $unpaid, float $hours, array $components, float $reimb): array {
@@ -117,6 +127,7 @@ final class PayrollService {
       $monthly = array_map(static fn ($c) => (int) $c['user_id'], array_filter($comps, static fn ($c) => $c['pay_type'] === 'monthly'));
       $hourly = array_map(static fn ($c) => (int) $c['user_id'], array_filter($comps, static fn ($c) => $c['pay_type'] === 'hourly'));
       $unpaid = self::unpaidLeave(array_values($monthly), $from, $to);
+      $ownDays = self::workingDaysFor(array_values($monthly), $from, $to);
       $hours = self::approvedHours(array_values($hourly), $from, $to);
       $global = []; $personal = [];
       if ($ids) {
@@ -128,7 +139,7 @@ final class PayrollService {
       foreach ($comps as $c) {
         $u = (int) $c['user_id'];
         $mine = $claims[$u] ?? [];
-        $s = self::compute($c, $wd, $unpaid[$u] ?? 0.0, $hours[$u] ?? 0.0, [...$global, ...($personal[$u] ?? [])], array_sum(array_map(static fn ($r) => (float) $r['amount'], $mine)));
+        $s = self::compute($c, $ownDays[$u] ?? $wd, $unpaid[$u] ?? 0.0, $hours[$u] ?? 0.0, [...$global, ...($personal[$u] ?? [])], array_sum(array_map(static fn ($r) => (float) $r['amount'], $mine)));
         $flagged += (int) $s['flagged'];
         $sid = DB::insert('payslips', ['run_id' => $runId, 'user_id' => $u, 'pay_type' => $s['pay_type'], 'rate' => $s['rate'], 'working_days' => $s['working_days'], 'paid_days' => $s['paid_days'], 'unpaid_leave_days' => $s['unpaid_leave_days'], 'worked_hours' => $s['worked_hours'],
           'base_pay' => $s['base_pay'], 'earnings' => json_encode($s['earnings'], JSON_UNESCAPED_UNICODE), 'deductions' => json_encode($s['deductions'], JSON_UNESCAPED_UNICODE), 'reimbursement_total' => $s['reimbursement_total'], 'gross' => $s['gross'], 'total_deductions' => $s['total_deductions'], 'net' => $s['net'], 'created_at' => $now]);

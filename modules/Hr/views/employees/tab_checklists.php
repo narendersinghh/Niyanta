@@ -1,5 +1,5 @@
 <?php $manage = can('hr.employees.manage'); ?>
-<div class="grid g2">
+<div class="grid g2 hr-top">
   <?php foreach (['onboarding' => ['Onboarding', 'rocket', 'mint'], 'offboarding' => ['Offboarding', 'log-out', 'peach']] as $type => [$label, $ill, $col]):
     $items = $checklists[$type]; $done = count(array_filter($items, static fn ($i) => $i['done_at'] !== null)); $pct = $items ? (int) round($done / count($items) * 100) : 0; ?>
   <div class="card">
@@ -27,7 +27,7 @@
   <?php endforeach ?>
 </div>
 <?php if ($manage): ?>
-<div class="grid g-side mt">
+<div class="grid g-side mt hr-top">
   <form class="card form" method="post" action="<?= e(url('/hr/employees/'.$emp['id'].'/offboard')) ?>"><?= csrf_field() ?>
     <div class="card-head mb0"><h3><?= icon('log-out') ?> Record exit</h3><?php if (!empty($prof['exit_date'])): ?><span class="pill pill-peach">Exit <?= fdate($prof['exit_date']) ?></span><?php endif ?></div>
     <p class="small muted mb0">Saving the exit details creates the offboarding checklist from your templates (if it does not exist yet).</p>
@@ -37,7 +37,7 @@
     </div>
     <div class="form-actions"><button class="btn primary"><?= icon('check', 'sm') ?> Save exit details</button></div>
   </form>
-  <div class="card soft-pink hr-noborder">
+  <div class="card hr-danger-zone">
     <h3><?= icon('lock') ?> Account access</h3>
     <?php if ($emp['status'] === 'inactive'): ?>
       <p class="small mb0">This account is <b>inactive</b>: the person can no longer sign in.</p>
