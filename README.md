@@ -6,17 +6,17 @@
 - **Architecture:** modular monolith (`core/` framework plus self-contained `modules/`)
 - **Design:** dark sidebar, pastel multi-colour cards, light/dark/system themes, cartoon illustrations
 
-## Modules
+## Product structure
+Niyanta is organised into **three bundles**. A Super Admin can switch a whole bundle, or any feature inside it, on or off in **System → Features**. Turning something off hides and blocks it, but its data is always kept.
 
-| Module | Highlights |
+| Bundle | Features |
 |---|---|
-| **Client Management (CRM)** | Client profiles, contacts, tags, assigned managers, WhatsApp/call/email quick actions, chronological client journey (meetings, calls, requirements, follow-ups, internal notes), private documents, quotations, invoices with partial payments, branded PDF invoices/quotations, signed share links, overdue tracking and reminders, financial reports (collections, aging, outstanding, per-project) |
-| **Projects & Work** | Projects with scope, deliverables, budgets and members; milestones; tasks, subtasks and dependencies; drag-and-drop Kanban and list views; comments and attachments; estimated vs actual and billable hours; change requests; daily/weekly work reports with manager approval; deadline reminders |
-| **HR** | Team directory, employee records (bank and tax IDs encrypted and masked), secure ID-proof and agreement storage, onboarding/offboarding checklists, leave types, balances, requests and approvals (HR: all; managers: direct reports), team leave calendar, holidays |
-| **Attendance & Time** | Clock in/out and breaks; timer with idle detection and keep/discard; manual entries; weekly timesheets with scoped approvals; consent-based browser screenshot capture (configurable, default every 3 min) with retention clean-up; token-authenticated desktop-agent API |
-| **Payroll** | Monthly or hourly compensation history, allowances and deductions (fixed or %), reimbursements with receipts, monthly payroll runs (unpaid leave and approved hours included), finalize/paid lifecycle, PDF payslips, audited bank-transfer CSV |
-| **AI Assistant** | OpenAI, Anthropic Claude and OpenRouter: client and meeting summaries, email and payment-reminder drafts, follow-up suggestions, project reports, task suggestions that need explicit approval, natural-language search. Keys are encrypted; token budget, per-user limits, PII redaction and a usage log |
-| **System Administration** | Users, roles and permission matrix, module on/off switches, settings tabs (general, users, appearance and branding with live preview, email, AI, HR, payroll, storage, cron, updates, security, backups), audit log, backups and restore, GitHub/upload updates with rollback, cron dashboard, system health |
+| **HR & Employee Management** | **Employee directory & records:** profiles, encrypted bank and tax IDs, secure ID proofs, onboarding/offboarding, and a per-employee work schedule (hours/day, weekly off days, leave quotas). **Attendance & time tracking**. **Leave & holidays:** fixed company holidays plus a pool of optional days for festivals, personal or medical needs. **Salary & payroll:** prorated on each employee's own working days, with PDF payslips. **Reimbursements**. **Company documents:** policies and handbooks with read acknowledgements. |
+| **Team & Work Management** | **Projects & tasks:** Kanban with WIP limits and quick-add, subtasks, dependencies, milestones, change requests, budgets and hours. **Work reports** with manager approval. |
+| **Client Management** | **Clients & journey:** profiles, contacts, timeline, follow-ups and documents. **Quotations**. **Invoices & payments:** partial payments, PDFs, signed share links and overdue reminders. **Financial reports**. |
+| **System** (always on) | Users, roles and permission matrix, features, settings grouped by bundle, branding, email provider presets, data retention, demo data import/delete, audit log, backups and restore, updates with rollback, and the cron dashboard. |
+
+The AI Assistant code is included but parked (switched off) for a later release.
 
 ### Roles
 Four built-in roles with granular permissions that the Super Admin can edit (custom roles can be added too):
@@ -54,8 +54,8 @@ php modules/Ai/tests/ai_test.php               # AI parsing, redaction, filter a
 ```
 
 ## External requirements and honest limitations
-- **AI** needs your own API key for OpenAI, Anthropic or OpenRouter, and outbound HTTPS (cURL). Provider calls were exercised only against a mock and with error handling, not with live keys.
+- **AI** is parked. When re-enabled it needs your own OpenAI, Anthropic or OpenRouter key.
 - **GitHub updates** need outbound HTTPS to `api.github.com`; private repos need a token. The update pipeline was tested with uploaded packages, including automatic rollback. The live GitHub download path could not be tested in the development sandbox. Database migrations are not rolled back automatically; restore the pre-update backup (see UPDATES.md).
 - **Screenshots:** browser capture works only while the time-tracker page is open, the user has consented, and the browser screen-share permission has been granted. **Full-desktop screenshots require a separately authorised desktop agent, which is not included.** Only its API and protocol are provided.
-- **Email** uses PHP `mail()` or SMTP, and is sent by cron from a queue.
+- **Email** uses PHP `mail()` or SMTP, with presets for common providers (see [docs/EMAIL.md](docs/EMAIL.md)). Mail is queued and sent by cron.
 - **Fonts:** the default is Google Fonts "Plus Jakarta Sans"; choose "System" in Appearance to avoid external requests.
