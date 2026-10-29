@@ -30,6 +30,16 @@ try{const v=localStorage.getItem(k);if(v==="1")set(true);if(v==="0"&&!x.hasAttri
 tg.addEventListener("click",e=>{e.stopPropagation();const o=!x.classList.contains("open");x.classList.remove("fly");set(o);try{localStorage.setItem(k,o?"1":"0")}catch(e){}});
 let t;const show=()=>{if(x.classList.contains("open")||innerWidth<=900)return;clearTimeout(t);x.classList.add("fly");const r=h.getBoundingClientRect(),hh=it.offsetHeight,top=Math.max(12,Math.min(r.top-8,innerHeight-hh-12));it.style.top=top+"px";it.style.maxHeight=(innerHeight-24)+"px"};
 x.addEventListener("mouseenter",show);x.addEventListener("mouseleave",()=>{t=setTimeout(()=>x.classList.remove("fly"),150)})});
+/* instant search: grouped results dropdown under the top-bar search (keyboard friendly) */
+const sIn=$("[data-search]");if(sIn){const form=sIn.closest("form"),pop=d.createElement("div");pop.className="search-pop hide";pop.setAttribute("role","listbox");form.append(pop);let t,ctl,idx=-1;
+const items=()=>$$(".sp-item",pop),mark=i=>{const a=items();idx=Math.max(-1,Math.min(i,a.length-1));a.forEach((x,k)=>x.classList.toggle("on",k===idx));a[idx]?.scrollIntoView({block:"nearest"})};
+const close=()=>{pop.classList.add("hide");idx=-1};
+const render=j=>{if(!j.groups.length){pop.innerHTML='<div class="sp-empty">No matches for “'+N.esc(j.q)+'”</div>';return}
+pop.innerHTML=j.groups.map(g=>'<div class="sp-group" style="--gc:var(--'+N.esc(g.color)+')"><div class="sp-head"><span class="dot"></span>'+N.esc(g.label)+'<span class="n">'+g.count+'</span></div>'+g.items.slice(0,5).map(r=>'<a class="sp-item" role="option" href="'+N.esc(r.url_abs)+'"><span class="sp-ic"><svg class="ic"><use href="'+meta("icons")+'#'+N.esc(r.icon||g.icon)+'"/></svg></span><div><b>'+N.esc(r.title)+'</b>'+(r.meta?'<small>'+N.esc(r.meta)+'</small>':'')+'</div></a>').join("")+'</div>').join("")+'<a class="sp-foot" href="'+N.esc(j.all_url)+'"><span>See all '+j.total+' results</span><span class="kbd">Enter</span></a>'};
+sIn.addEventListener("input",()=>{clearTimeout(t);const q=sIn.value.trim();if(q.length<2){close();return}t=setTimeout(async()=>{try{ctl?.abort();ctl=new AbortController();const r=await fetch(N.url("search")+"?q="+encodeURIComponent(q),{headers:{Accept:"application/json","X-Requested-With":"XMLHttpRequest"},signal:ctl.signal,credentials:"same-origin"});const j=await r.json();if(sIn.value.trim()!==q)return;render(j);pop.classList.remove("hide");idx=-1}catch(e){}},220)});
+sIn.addEventListener("keydown",e=>{if(pop.classList.contains("hide"))return;if(e.key==="ArrowDown"){e.preventDefault();mark(idx+1)}else if(e.key==="ArrowUp"){e.preventDefault();mark(idx-1)}else if(e.key==="Enter"&&idx>=0){e.preventDefault();items()[idx].click()}else if(e.key==="Escape"){close()}});
+sIn.addEventListener("focus",()=>{if(pop.innerHTML&&sIn.value.trim().length>1)pop.classList.remove("hide")});
+d.addEventListener("click",e=>{if(!form.contains(e.target))close()})}
 /* automatic scheduler: background beacon when the server asks for it */
 if(meta("cron-due")&&navigator.sendBeacon){setTimeout(()=>{try{navigator.sendBeacon(N.url("cron/tick"))}catch(e){}},1500)}
 /* toasts auto-hide */

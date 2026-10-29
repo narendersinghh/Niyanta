@@ -8,6 +8,11 @@ $isActive = static function (string $url) use ($path): bool { $u = parse_url($ur
 $scripts = $scripts ?? [];
 foreach (Modules::hooks('global_scripts') as $gs) { foreach ($gs as $js => $perm) { if (!$perm || \Core\Gate::any((array) $perm)) { $scripts[] = $js; } } }
 $scripts = array_values(array_unique($scripts));
+$styles = $styles ?? [];
+foreach (Modules::hooks('global_styles') as $gs) { foreach ($gs as $css => $perm) { if (!$perm || \Core\Gate::any((array) $perm)) { $styles[] = $css; } } }
+$styles = array_values(array_unique($styles));
+/* Module layout slots: 'topbar' (buttons before the theme switch) and 'body_end' (drawers, dialogs). Each is fn(array $user): string. */
+$slot = static function (string $name) use ($u): string { $h = ''; foreach (Modules::hooks($name) as $mod => $fn) { try { $h .= (string) $fn($u); } catch (\Throwable $e) { error_log("Slot $name/$mod: ".$e->getMessage()); } } return $h; };
 echo partial('partials/head', get_defined_vars());
 ?>
 <body>
@@ -37,7 +42,7 @@ echo partial('partials/head', get_defined_vars());
   <header class="topbar">
     <button class="icon-btn menu-toggle" data-nav-toggle aria-label="Open menu"><?= icon('menu') ?></button>
     <form class="search" action="<?= e(url('/search')) ?>" method="get" role="search"><?= icon('search', 'sm') ?><input type="search" name="q" placeholder="Search clients, projects, tasks…" value="<?= e($_GET['q'] ?? '') ?>" data-search aria-label="Search"><span class="kbd">/</span></form>
-    <div class="top-actions">
+    <div class="top-actions"><?= $slot('topbar') ?>
       <div class="theme-switch" role="group" aria-label="Theme">
         <button type="button" data-theme-set="light" title="Light"><?= icon('sun', 'sm') ?></button><button type="button" data-theme-set="system" title="System"><?= icon('monitor', 'sm') ?></button><button type="button" data-theme-set="dark" title="Dark"><?= icon('moon', 'sm') ?></button>
       </div>
@@ -64,6 +69,7 @@ echo partial('partials/head', get_defined_vars());
   </main>
 </div>
 </div>
+<?= $slot('body_end') ?>
 <?= partial('partials/toasts') ?>
 </body>
 </html>

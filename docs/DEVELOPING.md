@@ -24,6 +24,8 @@ Returns an array: `key, name, description, icon, order, version, requires[], per
 - **search**: `fn(string $q, array $user): array` returning `['Clients' => [['title'=>..,'meta'=>..,'url'=>'/clients/5','icon'=>'briefcase'], ...]]`, MUST scope to records the user may see (max ~8 per group).
 - **cron**: `'name' => ['every' => minutes | 'daily' => 'HH:MM' | 'weekly' => 'N HH:MM' | 'monthly' => 'D HH:MM', 'run' => callable returning a short status string]`.
 - **global_scripts**: `['js/x.js' => 'perm']`, loaded on every app page for users holding the permission (keep them tiny).
+- **global_styles**: `['css/x.css' => 'perm']` loaded on every app page.
+- **topbar** / **body_end**: `fn(array $user): string` HTML slots in the layout (top-bar buttons; drawers/dialogs before </body>).
 - **file_access**: `'client' => fn(array $user, int $entityId, array $file, string $mode): bool`, authorises downloads of files attached via `Storage::attach($upload, 'crm', 'client', $id, 'category')`. Download link: `url('/files/'.$id)`; inline view `/files/{id}/view`; delete POST `/files/{id}/delete` (mode 'delete').
 
 Validator note: rules are split on `|`; for a `regex:` rule containing `|` pass the rules as an array (`['required', 'regex:/a|b/']`).
