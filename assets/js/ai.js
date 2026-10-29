@@ -1,4 +1,4 @@
-/* Niyu AI assistant drawer: open/close (Esc, focus return), conversations (DB, last one kept per tab), safe markdown-lite rendering, settings page helpers */
+/* Goraiya AI assistant drawer: open/close (Esc, focus return), conversations (DB, last one kept per tab), safe markdown-lite rendering, settings page helpers */
 (()=>{"use strict";const d=document,N=window.Niyanta,$=(s,c=d)=>c.querySelector(s),$$=(s,c=d)=>[...c.querySelectorAll(s)];if(!N)return;
 const sprite=($('meta[name="icons"]')||{}).content||"",ic=n=>`<svg class="ic sm"><use href="${sprite}#${n}"/></svg>`;
 const ss={get(k){try{return sessionStorage.getItem(k)}catch(e){return null}},set(k,v){try{v==null?sessionStorage.removeItem(k):sessionStorage.setItem(k,v)}catch(e){}}};
@@ -33,7 +33,7 @@ const empty=()=>{welcome.hidden=!!msgs.children.length};
 const bubble=(m)=>{const w=d.createElement("div");w.className="ai-msg "+m.role;
 if(m.role==="user"){w.innerHTML='<div class="ai-bubble"></div>';$(".ai-bubble",w).textContent=m.content}
 else{w.innerHTML='<span class="ai-ava sm"><img src="'+N.esc(N.url("assets/img/logo.svg"))+'" alt=""></span><div class="ai-col"><div class="ai-bubble md">'+(m.role==="error"?'<span class="ai-err">'+ic("alert")+N.esc(m.content)+"</span>":md(m.content))+"</div>"+
-(m.role==="assistant"?'<div class="ai-meta">'+(m.tools&&m.tools.length?'<span class="ai-used" title="Data Niyu looked up">'+ic("database")+N.esc(m.tools.join(" · "))+"</span>":"")+'<button type="button" class="ai-copy" title="Copy answer" aria-label="Copy answer">'+ic("copy")+"</button></div>":"")+"</div>";
+(m.role==="assistant"?'<div class="ai-meta">'+(m.tools&&m.tools.length?'<span class="ai-used" title="Data Goraiya looked up">'+ic("database")+N.esc(m.tools.join(" · "))+"</span>":"")+'<button type="button" class="ai-copy" title="Copy answer" aria-label="Copy answer">'+ic("copy")+"</button></div>":"")+"</div>";
 const cp=$(".ai-copy",w);if(cp)cp.addEventListener("click",()=>{navigator.clipboard?.writeText(m.content).then(()=>N.toast("Copied"))})}
 msgs.append(w);empty();return w};
 const reset=()=>{msgs.innerHTML="";loaded=null;empty()};

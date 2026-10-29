@@ -10,6 +10,7 @@ final class DashboardController extends Controller {
     foreach (Modules::hooks('widgets') as $mod => $list) {
       foreach ($list as $w) {
         if (!empty($w['perm']) && !\Core\Gate::any((array) $w['perm'])) { continue; }
+        if (!empty($w['feature']) && !array_filter((array) $w['feature'], 'feature_on')) { continue; }
         try { $html = ($w['render'])($u); }
         catch (\Throwable $e) { error_log("Widget $mod failed: ".$e->getMessage()); continue; }
         if ($html !== '' && $html !== null) { $widgets[$w['zone'] ?? 'main'][] = ['order' => $w['order'] ?? 50, 'html' => $html]; } } }

@@ -18,8 +18,8 @@ $tone = static fn (array $m) => ModelRegistry::presets()[$m['preset']][4] ?? 'la
   <span class="ai-ava xl"><img src="<?= e(asset('img/logo.svg')) ?>" alt=""></span>
   <div class="grow">
     <span class="pill pill-<?= $ready ? 'mint' : ($enabled ? 'lemon' : 'gray') ?>"><?= $ready ? 'Live for everyone with access' : ($enabled ? 'On, but no model yet' : 'Off') ?></span>
-    <h2>Niyu, your AI assistant</h2>
-    <p class="muted small mb0">A chat drawer behind the <b>Ask Niyu</b> button in the top bar. Niyu answers from live workspace data using read-only tools that apply each person's own role and record access, so employees only see their own information and managers their team.</p>
+    <h2>Goraiya, your AI assistant</h2>
+    <p class="muted small mb0">A chat drawer behind the <b>Ask Goraiya</b> button in the top bar. Goraiya answers from live workspace data using read-only tools that apply each person's own role and record access, so employees only see their own information and managers their team.</p>
   </div>
   <form method="post" action="<?= e(url('/ai/settings/toggle')) ?>" class="ai-set-switch" data-confirm="<?= $enabled ? 'Turn the AI assistant off for everyone? Conversations are kept.' : 'Turn the AI assistant on?' ?>"><?= csrf_field() ?>
     <label class="switch lg" title="<?= $enabled ? 'Turn off' : 'Turn on' ?>"><input type="checkbox" data-autosubmit<?= checked($enabled) ?> aria-label="AI assistant on"><span></span></label>
@@ -33,7 +33,7 @@ $tone = static fn (array $m) => ModelRegistry::presets()[$m['preset']][4] ?? 'la
 </div>
 
 <section class="card set-card">
-  <header class="set-card-head flex between"><div><h3>Models</h3><p>Niyu uses the default model. Keys are stored encrypted and never shown again.</p></div><button type="button" class="btn primary sm" data-model-add><?= icon('plus', 'sm') ?> Add model</button></header>
+  <header class="set-card-head flex between"><div><h3>Models</h3><p>Goraiya uses the default model. Keys are stored encrypted and never shown again.</p></div><button type="button" class="btn primary sm" data-model-add><?= icon('plus', 'sm') ?> Add model</button></header>
   <?php if (!$models): ?>
     <?= empty_state('No model yet', 'Add ChatGPT, Claude, Gemini, OpenRouter, Groq, Mistral, DeepSeek, a local Ollama model or any OpenAI-compatible server.', 'ai-robot', '<button type="button" class="btn primary" data-model-add>'.icon('plus', 'sm').' Add your first model</button>') ?>
   <?php else: ?>
@@ -70,7 +70,7 @@ $tone = static fn (array $m) => ModelRegistry::presets()[$m['preset']][4] ?? 'la
   </div>
 </section>
 <section class="card set-card">
-  <header class="set-card-head"><h3>Privacy</h3><p>Niyu never sees passwords, API keys, salaries, bank or tax details, ID documents or HR notes, and only reads what the person asking may open.</p></header>
+  <header class="set-card-head"><h3>Privacy</h3><p>Goraiya never sees passwords, API keys, salaries, bank or tax details, ID documents or HR notes, and only reads what the person asking may open.</p></header>
   <div class="form-grid"><div class="field full"><label class="switch-row" for="ai-redact"><span class="switch"><input type="checkbox" id="ai-redact" name="redact_pii" value="1"<?= checked(Usage::redact()) ?>><span></span></span><span class="t">Mask emails, phone numbers and account numbers before sending to cloud providers</span></label>
   <div class="hint">Local models (Ollama, LM Studio on your network) always receive unmasked text.</div></div></div>
 </section>
@@ -78,8 +78,8 @@ $tone = static fn (array $m) => ModelRegistry::presets()[$m['preset']][4] ?? 'la
 </form>
 
 <div class="grid g2 mt">
-  <div class="card info-card"><span class="ic-chip" style="--c:var(--lav)"><?= icon('shield') ?></span><div class="grow"><h4>Role-based answers</h4><div class="small muted">Employees get their own tasks, timesheets, attendance, leave and payslips. Managers can ask about their direct reports and project teams; HR about anyone. Who may use Niyu is the <b>Chat with the AI assistant</b> permission in <a href="<?= e(url('/admin/roles')) ?>">Roles &amp; Access</a>.</div></div></div>
-  <div class="card info-card"><span class="ic-chip" style="--c:var(--mint)"><?= icon('puzzle') ?></span><div class="grow"><h4>Pick a model with tool calling</h4><div class="small muted">Niyu looks data up through function calls, so choose a model that supports tools. Use <b>Test</b> after adding a model; it checks the key, the address and tool support in one go.</div></div></div>
+  <div class="card info-card"><span class="ic-chip" style="--c:var(--lav)"><?= icon('shield') ?></span><div class="grow"><h4>Role-based answers</h4><div class="small muted">Employees get their own tasks, timesheets, attendance, leave and payslips. Managers can ask about their direct reports and project teams; HR about anyone. Who may use Goraiya is the <b>Chat with the AI assistant</b> permission in <a href="<?= e(url('/admin/roles')) ?>">Roles &amp; Access</a>.</div></div></div>
+  <div class="card info-card"><span class="ic-chip" style="--c:var(--mint)"><?= icon('puzzle') ?></span><div class="grow"><h4>Pick a model with tool calling</h4><div class="small muted">Goraiya looks data up through function calls, so choose a model that supports tools. Use <b>Test</b> after adding a model; it checks the key, the address and tool support in one go.</div></div></div>
 </div>
 </div>
 </div>

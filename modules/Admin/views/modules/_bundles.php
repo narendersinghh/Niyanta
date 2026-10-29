@@ -26,7 +26,7 @@ $bundles = Features::bundles(); $ai = Modules::exists('ai') && class_exists(\Mod
 <section class="card bundle-card mt2<?= $aiOn ? '' : ' is-off' ?>" style="--bc:#F0508A">
   <header class="bundle-head">
     <span class="bundle-ic"><?= icon('sparkles', 'lg') ?></span>
-    <div class="grow"><h3>AI Assistant</h3><p class="muted small mb0">Niyu, a chat drawer that answers questions from workspace data within each person's own access. <?= $aiOn && !$aiReady ? '<b>Add a model</b> in ' : 'Models, budgets and privacy in ' ?><a href="<?= e(url('/ai/settings')) ?>">AI assistant settings</a>.</p></div>
+    <div class="grow"><h3>AI Assistant</h3><p class="muted small mb0">Goraiya, a chat drawer that answers questions from workspace data within each person's own access. <?= $aiOn && !$aiReady ? '<b>Add a model</b> in ' : 'Models, budgets and privacy in ' ?><a href="<?= e(url('/ai/settings')) ?>">AI assistant settings</a>.</p></div>
     <form method="post" action="<?= e(url('/ai/settings/toggle')) ?>" data-confirm="<?= $aiOn ? 'Turn the AI assistant off for everyone? Conversations are kept.' : 'Turn the AI assistant on?' ?>"><?= csrf_field() ?><label class="switch lg" title="<?= $aiOn ? 'Turn off' : 'Turn on' ?>"><input type="checkbox" data-autosubmit<?= checked($aiOn) ?> aria-label="AI Assistant"><span></span></label></form>
   </header>
 </section>

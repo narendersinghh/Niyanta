@@ -91,3 +91,5 @@ function company_name(): string {
   return $n !== '' ? $n : 'Your Company'; }
 /** Uploaded company logo URL or null. */
 function company_logo_url(): ?string { $l = setting('branding.logo'); return $l ? url('assets/uploads/branding/'.basename((string) $l)) : null; }
+/** True when a product feature (core/features.php) is switched on. Use to hide cards, links and options of disabled features. */
+function feature_on(string $feature): bool { return Core\Features::enabled($feature); }

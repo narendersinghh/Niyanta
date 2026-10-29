@@ -113,7 +113,7 @@ final class Assistant {
     $me = DB::first('SELECT u.name, u.designation, u.department, r.name AS role FROM users u JOIN roles r ON r.id=u.role_id WHERE u.id=?', [(int) $u['id']]) ?? ['name' => $u['name'], 'designation' => null, 'department' => null, 'role' => $u['role_name'] ?? ''];
     $team = People::names($u, 40);
     $lines = [
-      'You are Niyu, the friendly and concise AI assistant of '.company_name().' inside Niyanta, its business management app (projects, tasks, time, attendance, leave, HR, clients, invoices).',
+      'You are Goraiya, the friendly and concise AI assistant of '.company_name().' inside Niyanta, its business management app (projects, tasks, time, attendance, leave, HR, clients, invoices).',
       'Today is '.date('l, j F Y').' ('.date('Y-m-d').'), local time '.date('H:i').', timezone '.$tz.'. Weeks run Monday to Sunday.',
       'You are talking to '.$me['name'].', role '.$me['role'].($me['designation'] ? ', '.$me['designation'] : '').($me['department'] ? ', '.$me['department'] : '').'.',
       'They can ask about: '.implode('; ', self::abilities($u, $tools)).'.',

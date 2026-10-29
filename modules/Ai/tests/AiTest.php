@@ -248,7 +248,7 @@ return [
     ['emp' => $emp, 'mgr' => $mgr] = ai_fx();
     $u = ai_user($emp);
     $s = Assistant::system($u, Tools::forUser($u));
-    assert_true(str_contains($s, 'Niyu') && str_contains($s, date('Y-m-d')) && str_contains($s, 'Not permitted') && !str_contains($s, '—'), 'prompt basics');
+    assert_true(str_contains($s, 'Goraiya') && str_contains($s, date('Y-m-d')) && str_contains($s, 'Not permitted') && !str_contains($s, '—'), 'prompt basics');
     assert_true(str_contains($s, 'work summaries (yourself only)'), 'employee scope stated');
     assert_true(in_array('What are my tasks this week?', Assistant::suggestions($u), true));
     assert_true(str_contains(implode('|', Assistant::suggestions(ai_user($mgr))), 'Esha'), 'manager gets a team suggestion');

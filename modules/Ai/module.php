@@ -3,7 +3,7 @@ use Modules\Ai\Controllers\{ChatController, SettingsController, UsageController}
 
 return [
   'key' => 'ai', 'name' => 'AI Assistant', 'icon' => 'sparkles', 'order' => 60, 'version' => '2.0.0',
-  'description' => 'Niyu, a chat assistant in a right-hand drawer that answers from your workspace data with role-based access. Works with OpenAI, Claude, OpenRouter, Gemini, Groq, Mistral, DeepSeek, Ollama or any OpenAI-compatible model.',
+  'description' => 'Goraiya, a chat assistant in a right-hand drawer that answers from your workspace data with role-based access. Works with OpenAI, Claude, OpenRouter, Gemini, Groq, Mistral, DeepSeek, Ollama or any OpenAI-compatible model.',
   'permissions' => [
     'ai.use' => ['label' => 'Chat with the AI assistant (answers stay within the user\'s own access)', 'roles' => ['manager', 'hr', 'employee']],
     'ai.usage.view' => ['label' => 'View AI usage & costs', 'roles' => []],

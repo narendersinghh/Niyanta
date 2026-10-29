@@ -423,3 +423,7 @@ html{scrollbar-color:color-mix(in srgb,var(--muted) 45%,transparent) transparent
 .sg-ic{width:36px;height:36px;border-radius:11px;display:grid;place-items:center;background:color-mix(in srgb,var(--gc) 15%,transparent);color:var(--gc)}
 @media (max-width:560px){.search-groups{grid-template-columns:1fr}}
 .search-pop{right:auto;width:min(580px,calc(100vw - 32px))}
+.dd-menu .notif{margin:0 0 6px;padding:11px 12px;border:1px solid var(--border);background:var(--surface)}
+.dd-menu .notif.unread{border-color:color-mix(in srgb,var(--primary) 22%,var(--border))}
+.dd-menu [data-notif-list]{display:flex;flex-direction:column;gap:2px;max-height:min(60vh,460px);overflow-y:auto;padding:2px}
+.ring::before{color:var(--text)}

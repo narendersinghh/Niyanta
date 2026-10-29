@@ -31,7 +31,7 @@ final class SettingsSchema {
       'email' => ['Email', 'mail', 'Email provider, SMTP credentials and sender identity.', $g('workspace'), 'peach', 'workspace', null],
       'users' => ['Users & security', 'shield', 'Password policy, sessions and sign-in protection.', $g('workspace'), 'lav', 'workspace', null],
       'features' => ['Features', 'puzzle', 'Which bundles and features are switched on.', $g('workspace'), 'mint', 'workspace', null],
-      'ai' => ['AI assistant', 'sparkles', 'Niyu chat assistant, AI models, budgets and privacy.', $g('workspace'), 'pink', 'workspace', null],
+      'ai' => ['AI assistant', 'sparkles', 'Goraiya chat assistant, AI models, budgets and privacy.', $g('workspace'), 'pink', 'workspace', null],
       'employees' => ['Employees & schedule', 'id-card', 'Company default working hours and weekly off days.', $g('people'), 'mint', 'people', 'people'],
       'leave' => ['Leave & holidays', 'umbrella', 'Default optional-holiday allowance.', $g('people'), 'sky', 'people', 'people'],
       'attendance' => ['Attendance & time', 'timer', 'Idle detection and screenshot monitoring.', $g('people'), 'lemon', 'people', 'people'],

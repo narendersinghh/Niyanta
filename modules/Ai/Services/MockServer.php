@@ -81,7 +81,7 @@ final class MockServer {
       $has('hello', 'hi ', 'thanks', 'thank you') || mb_strlen($l) < 4 => [],
       default => [['search_records', ['query' => mb_substr($q, 0, 60)]]] }; }
 
-  private static function smallTalk(string $q): string { return "Hi! I'm **Niyu**, running in mock mode. Ask me about your tasks, leave, attendance, projects or invoices."; }
+  private static function smallTalk(string $q): string { return "Hi! I'm **Goraiya**, running in mock mode. Ask me about your tasks, leave, attendance, projects or invoices."; }
 
   /** Markdown answer built only from tool results (never invents data). */
   private static function compose(array $results): string {
