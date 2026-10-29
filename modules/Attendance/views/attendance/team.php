@@ -35,11 +35,11 @@ $actions = '<a class="btn ghost" href="'.e(url('/attendance')).'">'.icon('user',
     ?><tr>
       <td><div class="flex"><?= avatar($r['name'], $r['avatar'], 'sm') ?><div><b><?= e($r['name']) ?></b><div class="xs muted"><?= e($r['designation'] ?: ($r['department'] ?? '')) ?></div></div></div></td>
       <td><span class="flex small b"><span class="dotc <?= e($dot) ?>"></span><?= e($st) ?></span><?php if ($r['note']): ?><div class="xs muted"><?= e(str_limit($r['note'], 40)) ?></div><?php endif ?></td>
-      <td><?= e(ftime($r['clock_in'])) ?></td>
-      <td><?= e(ftime($r['clock_out'])) ?></td>
-      <td class="muted"><?= $r['att_id'] ? e(hours($r['break_seconds'])) : '—' ?></td>
-      <td><b><?= $r['clock_in'] ? e(hours($worked)) : '—' ?></b></td>
-      <td class="small"><?php if ($tStart): ?><span class="pill pill-mint"><?= icon('timer', 'sm') ?> <?= e(str_limit($tProj ?: 'Tracking', 18)) ?> · <?= e(hours(time() - strtotime($tStart))) ?></span><?php else: ?><span class="muted">—</span><?php endif ?></td>
+      <td><?= e($r['clock_in'] ? ftime($r['clock_in']) : '-') ?></td>
+      <td><?= e($r['clock_out'] ? ftime($r['clock_out']) : '-') ?></td>
+      <td class="muted"><?= $r['att_id'] ? e(hours($r['break_seconds'])) : '-' ?></td>
+      <td><b><?= $r['clock_in'] ? e(hours($worked)) : '-' ?></b></td>
+      <td class="small"><?php if ($tStart): ?><span class="pill pill-mint"><?= icon('timer', 'sm') ?> <?= e(str_limit($tProj ?: 'Tracking', 18)) ?> · <?= e(hours(time() - strtotime($tStart))) ?></span><?php else: ?><span class="muted">-</span><?php endif ?></td>
       <td class="actions"><?php if (can('attendance.manage')): ?><button class="btn icon sm ghost" data-modal="att-dialog" data-att-edit="<?= e(json_encode($json)) ?>" aria-label="Edit"><?= icon('edit', 'sm') ?></button><?php endif ?>
         <?php if (can('attendance.screenshots.view') && setting('attendance.screenshots_enabled')): ?><a class="btn icon sm ghost" href="<?= e(url('/time/screenshots?user='.$r['id'].'&date='.$date)) ?>" aria-label="Screenshots" title="Screenshots"><?= icon('image', 'sm') ?></a><?php endif ?></td>
     </tr><?php endforeach ?></tbody>

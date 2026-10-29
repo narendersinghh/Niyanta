@@ -89,7 +89,7 @@ final class TimeService {
       Audit::log('time.start', 'time_entry', $id, ['source' => $source, 'project_id' => $pid], $uid);
       return $id; }); }
 
-  /** Stop the user's running entry at $at (default now). Returns the stopped entry or null. */
+  /** Stop the user's running entry at $at (default now). The entry is approved automatically unless its week is rejected. Returns the stopped entry or null. */
   public static function stop(int $uid, ?string $at = null, string $reason = 'user', bool $atHeartbeat = false): ?array {
     return DB::transaction(static function () use ($uid, $at, $reason, $atHeartbeat): ?array {
       AttendanceService::lock($uid);
@@ -99,8 +99,10 @@ final class TimeService {
       $end = $at ? strtotime($at) : ($atHeartbeat && $e['last_heartbeat_at'] ? strtotime($e['last_heartbeat_at']) : time());
       $end = max($start, $end);
       $dur = max(0, $end - $start - (int) $e['discarded_seconds']);
-      DB::update('time_entries', ['ended_at' => date('Y-m-d H:i:s', $end), 'duration_seconds' => $dur, 'idle_seconds' => min((int) $e['idle_seconds'], $end - $start), 'is_running' => 0], 'id=?', [$e['id']]);
-      Audit::log('time.stop', 'time_entry', (int) $e['id'], ['reason' => $reason, 'duration' => $dur], $uid);
+      $status = Timesheets::entryStatus($uid, $e['started_at']);
+      DB::update('time_entries', ['ended_at' => date('Y-m-d H:i:s', $end), 'duration_seconds' => $dur, 'idle_seconds' => min((int) $e['idle_seconds'], $end - $start), 'is_running' => 0, 'status' => $status], 'id=?', [$e['id']]);
+      Timesheets::sync($uid, self::weekStart(substr($e['started_at'], 0, 10)));
+      Audit::log('time.stop', 'time_entry', (int) $e['id'], ['reason' => $reason, 'duration' => $dur, 'status' => $status], $uid);
       return ['id' => (int) $e['id'], 'duration' => $dur]; }); }
 
   /** Accumulate activity from a heartbeat. Idle is capped to the time since the last beat (+ the idle threshold, which clients report retroactively) and to the elapsed time. */
@@ -136,8 +138,8 @@ final class TimeService {
       if (self::stop((int) $uid, null, 'stale', true)) { $n++; } }
     return "stopped $n"; }
 
-  /** Is the entry editable by its owner? */
-  public static function editable(array $e): bool { return !$e['is_running'] && in_array($e['status'], ['draft', 'rejected'], true); }
+  /** Is the entry editable by its owner? (open week, or a rejected week being fixed; never in a finalized payroll month) */
+  public static function editable(array $e): bool { return Timesheets::entryEditable($e); }
 
   /** Validate & normalise manual entry input. Returns row data. */
   public static function manualData(array $user, array $d, ?int $ignoreId = null): array {

@@ -35,13 +35,13 @@ Returns the user, the running entry (or `null`), server time, settings and conse
 `projects` lists only projects the person may log time on. Call this at start-up and every few minutes to pick up setting changes and consent revocation.
 
 ### `POST /api/agent/start`
-Form or JSON body: `project_id` (optional), `task_id` (optional, must belong to the project), `description` (optional, ≤500 chars), `billable` (default `true`). Fails with 422 if a timer is already running (from the browser or another agent) — one running entry per user is enforced on the server. Entries created here have `source = agent`.
+Form or JSON body: `project_id` (optional), `task_id` (optional, must belong to the project), `description` (optional, ≤500 chars), `billable` (default `true`). Fails with 422 if a timer is already running (from the browser or another agent); one running entry per user is enforced on the server. Entries created here have `source = agent`. When the timer stops the entry is approved automatically (status `approved`), unless the week was rejected by a manager (status `rejected` until the employee resubmits the week).
 
 ### `POST /api/agent/stop`
 Stops the running entry (whatever its source) at server time. Returns `{"stopped":{"id":37,"duration":1840}}`.
 
 ### `POST /api/agent/heartbeat`
-Body: `active_seconds`, `idle_seconds` — activity measured **since the previous heartbeat** (send every 60 s). The server adds the idle part to the entry's `idle_seconds` (capped to the time since the last heartbeat plus the idle threshold, and to the elapsed time) and updates `last_heartbeat_at`. Returns `{"running": true|false, "entry": {…, "activity": 83}}`; when `running` is false the agent should stop tracking locally.
+Body: `active_seconds`, `idle_seconds`: activity measured **since the previous heartbeat** (send every 60 s). The server adds the idle part to the entry's `idle_seconds` (capped to the time since the last heartbeat plus the idle threshold, and to the elapsed time) and updates `last_heartbeat_at`. Returns `{"running": true|false, "entry": {…, "activity": 83}}`; when `running` is false the agent should stop tracking locally.
 
 **Stale timers:** if no heartbeat arrives for more than 10 minutes, the `stale_timers` cron job (every 5 minutes) stops the entry at its last heartbeat. A daily `auto_close` job at 23:55 also closes open attendance and stops running timers.
 
@@ -64,4 +64,4 @@ Returns `{"id": 123}`. Take screenshots every `screenshot_interval_minutes` and 
 
 - People can always see their own screenshots (`/time/screenshots`).
 - Others need the `attendance.screenshots.view` permission **and** team scope: HR / Super Admin see everyone; managers see their direct reports and members of projects they manage. Images are served only through the authorised controller (`/time/screenshots/{id}/image`), never publicly; every view of someone else's screenshots is audit-logged.
-- Screenshots older than `attendance.screenshot_retention_days` (default 30) are deleted — files and rows — by the daily `screenshot_cleanup` cron job.
+- Screenshots older than `attendance.screenshot_retention_days` (default 30) are deleted (files and rows) by the daily `screenshot_cleanup` cron job.

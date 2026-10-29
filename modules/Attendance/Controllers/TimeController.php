@@ -1,7 +1,7 @@
 <?php
 namespace Modules\Attendance\Controllers;
 use Core\{Audit, DB, Response, Session, Settings};
-use Modules\Attendance\Services\{AttendanceService, Monitoring, TimeService as T};
+use Modules\Attendance\Services\{AttendanceService, Monitoring, Timesheets, TimeService as T};
 
 /** Timer, heartbeat/idle, manual entries, monitoring consent and agent tokens. */
 final class TimeController extends BaseController {
@@ -18,7 +18,7 @@ final class TimeController extends BaseController {
     return $this->view('attendance::time/index', ['title' => 'Time Tracker', 'running' => $running, 'projects' => T::projects($u), 'ws' => $ws, 'days' => T::weekEntries($uid, $ws), 'weekTotal' => $weekTotal,
       'stats' => ['total' => $total, 'idle' => $idle, 'active' => $total - $idle, 'break' => AttendanceService::live($att)['break']], 'attState' => AttendanceService::state($att),
       'idleMinutes' => max(1, (int) Settings::get('attendance.idle_minutes', 5)), 'monitoring' => Monitoring::enabled(), 'consent' => Monitoring::consent($uid), 'interval' => Monitoring::interval(), 'retention' => Monitoring::retention(), 'shotsToday' => $shotsToday,
-      'tokens' => $tokens, 'newToken' => Session::getFlash('agent_token'), 'tsStatus' => DB::value('SELECT status FROM timesheets WHERE user_id=? AND week_start=?', [$uid, $ws]),
+      'tokens' => $tokens, 'newToken' => Session::getFlash('agent_token'), 'ts' => Timesheets::find($uid, $ws),
       'styles' => ['css/attendance.css'], 'scripts' => ['js/attendance.js']]); }
 
   public function start(): Response {
@@ -30,7 +30,7 @@ final class TimeController extends BaseController {
     return $this->act(function (): array {
       $r = T::stop($this->uid());
       if (!$r) { throw new \DomainException('No timer is running.'); }
-      return ['message' => 'Timer stopped — '.hours($r['duration']).' logged.', 'duration' => $r['duration']]; }, $this->request->str('back') === 'dashboard' ? '/' : '/time'); }
+      return ['message' => 'Timer stopped: '.hours($r['duration']).' logged.', 'duration' => $r['duration']]; }, $this->request->str('back') === 'dashboard' ? '/' : '/time'); }
 
   public function heartbeat(): Response {
     $r = T::heartbeat($this->uid(), min(3600, max(0, $this->request->int('active'))), min(3600, max(0, $this->request->int('idle'))));
@@ -54,14 +54,24 @@ final class TimeController extends BaseController {
     $u = $this->user();
     $d = $this->validate($this->entryRules());
     return $this->act(static function () use ($u, $d): string {
+      $uid = (int) $u['id'];
       $row = T::manualData($u, $d);
-      $id = DB::insert('time_entries', $row + ['user_id' => $u['id'], 'source' => 'manual', 'status' => 'draft', 'created_at' => date('Y-m-d H:i:s')]);
+      self::checkOpen($uid, $row['started_at']);
+      $id = DB::transaction(static function () use ($uid, $row): int {
+        $id = DB::insert('time_entries', $row + ['user_id' => $uid, 'source' => 'manual', 'status' => Timesheets::entryStatus($uid, $row['started_at']), 'created_at' => date('Y-m-d H:i:s')]);
+        Timesheets::sync($uid, T::weekStart(substr($row['started_at'], 0, 10)));
+        return $id; });
       Audit::log('time.manual_create', 'time_entry', $id, ['duration' => $row['duration_seconds']]);
       return 'Time entry added ('.hours($row['duration_seconds']).').'; }); }
 
+  /** Time can be added to or moved into a week only while it is open for the owner. */
+  private static function checkOpen(int $uid, string $startedAt): void {
+    $date = substr($startedAt, 0, 10);
+    if (!Timesheets::canEditDate($date, Timesheets::weekRejected($uid, T::weekStart($date)))) { throw new \DomainException(Timesheets::payrollLocked($date) ? 'Payroll for that month is finalized, so its time can no longer change.' : 'That week is closed. You can log or edit time for the current and previous week.'); } }
+
   private function ownEditable(int $id): array {
     $e = DB::first('SELECT * FROM time_entries WHERE id=? AND user_id=? LIMIT 1', [$id, $this->uid()]) ?? $this->abort(404, 'Entry not found.');
-    if (!T::editable($e)) { $this->abort(422, 'Submitted or approved entries are locked.'); }
+    if (!T::editable($e)) { $this->abort(422, $e['is_running'] ? 'Stop the timer before editing this entry.' : 'This entry is locked: its week is closed or its payroll period is finalized.'); }
     return $e; }
 
   public function updateEntry(int $id): Response {
@@ -70,15 +80,19 @@ final class TimeController extends BaseController {
     $d = $this->validate($this->entryRules());
     return $this->act(static function () use ($u, $d, $e, $id): string {
       $row = T::manualData($u, $d, $id);
+      $uid = (int) $u['id'];
+      if (T::weekStart(substr($row['started_at'], 0, 10)) !== T::weekStart(substr($e['started_at'], 0, 10))) { self::checkOpen($uid, $row['started_at']); }
       if ($e['source'] !== 'manual' && ($row['started_at'] !== $e['started_at'] || $row['ended_at'] !== $e['ended_at'])) { $row['source'] = 'manual'; }
       if ($e['source'] !== 'manual' && ($row['started_at'] === $e['started_at'] && $row['ended_at'] === $e['ended_at'])) { $row['duration_seconds'] = (int) $e['duration_seconds']; }
-      DB::update('time_entries', $row, 'id=?', [$id]);
+      DB::transaction(static function () use ($uid, $row, $e, $id): void {
+        DB::update('time_entries', $row + ['status' => Timesheets::entryStatus($uid, $row['started_at'])], 'id=?', [$id]);
+        foreach (array_unique([T::weekStart(substr($e['started_at'], 0, 10)), T::weekStart(substr($row['started_at'], 0, 10))]) as $w) { Timesheets::sync($uid, $w); } });
       Audit::log('time.entry_update', 'time_entry', $id, ['before' => ['start' => $e['started_at'], 'end' => $e['ended_at'], 'project' => $e['project_id']], 'after' => ['start' => $row['started_at'], 'end' => $row['ended_at'], 'project' => $row['project_id']]]);
       return 'Time entry updated.'; }); }
 
   public function deleteEntry(int $id): Response {
     $e = $this->ownEditable($id);
-    DB::delete('time_entries', 'id=?', [$id]);
+    DB::transaction(static function () use ($e, $id): void { DB::delete('time_entries', 'id=?', [$id]); Timesheets::sync((int) $e['user_id'], T::weekStart(substr($e['started_at'], 0, 10))); });
     Audit::log('time.entry_delete', 'time_entry', $id, ['start' => $e['started_at'], 'duration' => $e['duration_seconds']]);
     $this->flash('Time entry deleted.');
     return $this->back(); }
@@ -87,7 +101,7 @@ final class TimeController extends BaseController {
     if (!Monitoring::enabled()) { $this->abort(422, 'Screenshot monitoring is not enabled.'); }
     if (!$this->request->input('agree')) { $this->flash('Please tick the box to confirm you have read the notice.', 'error'); return $this->back(); }
     Monitoring::giveConsent($this->uid(), $this->request->ip());
-    $this->flash('Thanks — consent recorded. You can revoke it at any time.');
+    $this->flash('Thanks, consent recorded. You can revoke it at any time.');
     return $this->redirect('/time#monitoring'); }
 
   public function revokeConsent(): Response {
@@ -97,7 +111,7 @@ final class TimeController extends BaseController {
 
   public function createToken(): Response {
     $d = $this->validate(['name' => 'required|max:100'], ['name' => 'Device name']);
-    return $this->act(function () use ($d): string { Session::flash('agent_token', ['name' => $d['name'], 'token' => Monitoring::createToken($this->uid(), $d['name'])]); return 'Agent token created. Copy it now — it will not be shown again.'; }, '/time#agent'); }
+    return $this->act(function () use ($d): string { Session::flash('agent_token', ['name' => $d['name'], 'token' => Monitoring::createToken($this->uid(), $d['name'])]); return 'Agent token created. Copy it now, it will not be shown again.'; }, '/time#agent'); }
 
   public function revokeToken(int $id): Response {
     if (!Monitoring::revokeToken($this->uid(), $id)) { $this->abort(404, 'Token not found.'); }

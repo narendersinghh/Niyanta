@@ -73,7 +73,7 @@ final class AttendanceService {
       DB::update('attendance_breaks', ['end_at' => date('Y-m-d H:i:s')], 'id=?', [$r['open_break']['id']]);
       self::recompute((int) $r['id']);
       Audit::log('attendance.break_end', 'attendance', (int) $r['id'], [], $uid);
-      return 'Welcome back — break ended.'; }); }
+      return 'Welcome back, break ended.'; }); }
 
   public static function clockOut(int $uid, string $ip): string {
     return DB::transaction(static function () use ($uid, $ip): string {

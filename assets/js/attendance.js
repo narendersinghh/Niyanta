@@ -8,7 +8,7 @@ const t0=Date.now(),ticks=()=>$$("[data-tick]").forEach(el=>{if(el.hasAttribute(
 const rebase=(el,base)=>{if(!el)return;el.dataset.base=base;el._t0=Date.now();ticks()};
 setInterval(ticks,1000);
 /* project -> task pickers: select[data-project-select][data-task-target=id] */
-const loadTasks=async(sel,val)=>{const t=d.getElementById(sel.dataset.taskTarget);if(!t)return;const p=sel.value;t.disabled=!p;t.innerHTML='<option value="">'+(p?"Loading tasks…":"Select a project first")+"</option>";if(!p)return;
+const loadTasks=async(sel,val)=>{const t=d.getElementById(sel.dataset.taskTarget);if(!t)return;const p=sel.value;t.disabled=!p;t.innerHTML='<option value="">'+(p?"Loading tasks...":"Select a project first")+"</option>";if(!p)return;
 try{const j=await N().req("time/tasks?project_id="+encodeURIComponent(p));t.innerHTML='<option value="">No specific task</option>'+j.tasks.map(x=>'<option value="'+(+x.id)+'">'+N().esc(x.title)+(+x.mine?" ★":"")+"</option>").join("");if(val)t.value=String(val)}
 catch(e){t.innerHTML='<option value="">Could not load tasks</option>'}};
 d.addEventListener("change",e=>{if(e.target.matches("[data-project-select]"))loadTasks(e.target)});
@@ -22,6 +22,9 @@ loadTasks(F.project_id,j&&j.task_id)});
 const af=$("[data-att-form]");
 if(af)d.addEventListener("click",e=>{const b=e.target.closest("[data-att-edit],[data-att-new]");if(!b)return;const j=b.dataset.attEdit?JSON.parse(b.dataset.attEdit):null;af.reset();
 $("[data-att-title]",af).textContent=j?"Edit · "+j.name:"Add attendance record";if(j)["user_id","work_date","clock_in","clock_out","break_minutes","status","note"].forEach(k=>{if(af.elements[k])af.elements[k].value=j[k]??""})});
+/* shared reject dialog: [data-reject-url][data-reject-name] buttons fill the form before core opens the modal */
+const rf=$("[data-reject-form]");
+if(rf)d.addEventListener("click",e=>{const b=e.target.closest("[data-reject-url]");if(!b)return;rf.action=b.dataset.rejectUrl;rf.reset();const n=$("[data-reject-name]",rf);if(n)n.textContent=b.dataset.rejectName||"";setTimeout(()=>{const t=rf.elements.note;if(t)t.focus()},60)},true);
 /* running timer: idle detection + heartbeat every 60s */
 const T=$("[data-tracker]");
 if(T&&T.dataset.running==="1"){const idleMs=Math.max(1,+T.dataset.idleMin||5)*60000,live=$("[data-state-live]",T),chip=$("[data-state-idle]",T),timer=$("[data-timer]",T),dlg=$("#idle-dialog");

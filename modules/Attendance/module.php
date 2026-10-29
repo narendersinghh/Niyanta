@@ -3,13 +3,13 @@ use Modules\Attendance\Controllers\{AgentController, AttendanceController, Scree
 use Modules\Attendance\Services\{AttendanceService, Monitoring, TimeService, Widgets};
 
 return [
-  'key' => 'attendance', 'name' => 'Attendance & Time Tracking', 'icon' => 'clock', 'order' => 40, 'version' => '1.0.0',
-  'description' => 'Clock-in/out, breaks, timer & manual time entries, idle detection, timesheets, approvals and consent-based screenshots.',
+  'key' => 'attendance', 'name' => 'Attendance & Time Tracking', 'icon' => 'clock', 'order' => 40, 'version' => '1.1.0',
+  'description' => 'Clock-in/out, breaks, timer & manual time entries, idle detection, auto-approved timesheets with manager rejection, and consent-based screenshots.',
   'permissions' => [
     'attendance.track' => ['label' => 'Clock in/out & track own time', 'roles' => ['manager', 'hr', 'employee']],
     'attendance.view_all' => ['label' => 'View team attendance & time (Manager: direct reports + project members)', 'roles' => ['manager', 'hr']],
     'attendance.manage' => ['label' => 'Edit attendance records', 'roles' => ['hr']],
-    'attendance.timesheets.approve' => ['label' => 'Approve timesheets', 'roles' => ['manager', 'hr']],
+    'attendance.timesheets.approve' => ['label' => 'Review timesheets (reject / re-approve team weeks)', 'roles' => ['manager', 'hr']],
     'attendance.screenshots.view' => ['label' => 'View monitoring screenshots of team', 'roles' => []],
   ],
   'nav' => [
@@ -49,8 +49,9 @@ return [
     $r->get('/time/screenshots', [ScreenshotController::class, 'index'], ['attendance.track', 'attendance.screenshots.view']);
     $r->get('/time/screenshots/{id}/image', [ScreenshotController::class, 'image'], ['attendance.track', 'attendance.screenshots.view']);
     $r->get('/timesheets', [TimesheetController::class, 'index'], $ts);
-    $r->post('/timesheets/submit', [TimesheetController::class, 'submit'], $t);
+    $r->post('/timesheets/resubmit', [TimesheetController::class, 'resubmit'], $t);
     $r->get('/timesheets/approvals', [TimesheetController::class, 'approvals'], 'attendance.timesheets.approve');
+    $r->get('/timesheets/user/{user_id}', [TimesheetController::class, 'person'], 'attendance.timesheets.approve');
     $r->get('/timesheets/{id}', [TimesheetController::class, 'show'], $ts);
     $r->post('/timesheets/{id}/approve', [TimesheetController::class, 'approve'], 'attendance.timesheets.approve');
     $r->post('/timesheets/{id}/reject', [TimesheetController::class, 'reject'], 'attendance.timesheets.approve');

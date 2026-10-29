@@ -9,16 +9,16 @@ $actions = (can('attendance.view_all') ? '<a class="btn ghost" href="'.e(url('/a
 ?>
 <?= partial('partials/page_head', ['title' => 'Attendance', 'subtitle' => 'Clock in, take breaks and keep an eye on your month.', 'crumbs' => [['People'], ['Attendance']], 'actions' => $actions]) ?>
 <?php if (can('attendance.track')): ?>
-<div class="card today-card mb">
+<div class="card hero att-hero mb">
   <div>
-    <div class="flex wrap"><span class="state-chip"><span class="dotc <?= e($chip[0]) ?>"></span><?= e($chip[1]) ?></span><span class="pill pill-gray"><?= e(date('l, d M')) ?></span>
-      <?php if ($holiday): ?><span class="pill pill-peach"><?= icon('gift', 'sm') ?> Holiday</span><?php endif ?><?php if ($onLeave): ?><span class="pill pill-sky"><?= icon('plane', 'sm') ?> On approved leave</span><?php endif ?></div>
+    <div class="flex wrap"><span class="state-chip"><span class="dotc <?= e($chip[0]) ?>"></span><?= e($chip[1]) ?></span><span class="pill"><?= e(date('l, d M')) ?></span>
+      <?php if ($holiday): ?><span class="pill"><?= icon('gift', 'sm') ?> Holiday</span><?php endif ?><?php if ($onLeave): ?><span class="pill"><?= icon('plane', 'sm') ?> On approved leave</span><?php endif ?></div>
     <div class="big mt" data-tick data-base="<?= (int) $live['worked'] ?>"<?= $state === 'in' ? '' : ' data-paused' ?>><?= e($hms((int) $live['worked'])) ?></div>
     <div class="muted small mt">worked today · target <?= e(hours($target)) ?></div>
-    <div class="progress mt" style="max-width:420px"><span style="width:<?= min(100, (int) round(100 * $live['worked'] / $target)) ?>%"></span></div>
+    <div class="progress mt"><span style="width:<?= min(100, (int) round(100 * $live['worked'] / $target)) ?>%"></span></div>
     <div class="facts">
-      <div><small>Clock in</small><b><?= e($today && $today['clock_in'] ? ftime($today['clock_in']) : '—') ?></b></div>
-      <div><small>Clock out</small><b><?= e($today && $today['clock_out'] ? ftime($today['clock_out']) : '—') ?></b></div>
+      <div><small>Clock in</small><b><?= e($today && $today['clock_in'] ? ftime($today['clock_in']) : '-') ?></b></div>
+      <div><small>Clock out</small><b><?= e($today && $today['clock_out'] ? ftime($today['clock_out']) : '-') ?></b></div>
       <div><small>Breaks</small><b><span data-tick data-fmt="hm" data-base="<?= (int) $live['break'] ?>"<?= $state === 'break' ? '' : ' data-paused' ?>><?= e(hours($live['break'])) ?></span></b></div>
       <div><small>Timer</small><b><?php if ($running): ?><a href="<?= e(url('/time')) ?>"><?= e(str_limit($running['project_name'] ?? 'Running', 22)) ?></a><?php else: ?>Idle<?php endif ?></b></div>
     </div>
@@ -57,12 +57,12 @@ $actions = (can('attendance.view_all') ? '<a class="btn ghost" href="'.e(url('/a
     <div class="card">
       <div class="card-head"><h3>Daily log</h3><span class="muted small"><?= count($records) ?> records</span></div>
       <?php if (!$records): ?><?= empty_state('No attendance yet this month', 'Clock in to start your first record.', 'calendar-person') ?><?php else: ?>
-      <div class="table-wrap"><table class="table">
+      <div class="table-wrap"><table class="table att-log">
         <thead><tr><th>Date</th><th>Clock in</th><th>Clock out</th><th>Breaks</th><th>Worked</th><th>Status</th><th>Note</th></tr></thead>
         <tbody><?php foreach ($records as $r): ?><tr>
           <td><b><?= e(fdate($r['work_date'], 'D, d M')) ?></b></td>
-          <td><?= e(ftime($r['clock_in'])) ?></td><td><?= e(ftime($r['clock_out'])) ?></td>
-          <td class="muted"><?= e(hours($r['break_seconds'])) ?></td><td><b><?= e($r['clock_out'] ? hours($r['worked_seconds']) : ($r['clock_in'] ? 'In progress' : '—')) ?></b></td>
+          <td><?= e($r['clock_in'] ? ftime($r['clock_in']) : '-') ?></td><td><?= e($r['clock_out'] ? ftime($r['clock_out']) : '-') ?></td>
+          <td class="muted"><?= e(hours($r['break_seconds'])) ?></td><td><b><?= e($r['clock_out'] ? hours($r['worked_seconds']) : ($r['clock_in'] ? 'In progress' : '-')) ?></b></td>
           <td><?= $r['clock_in'] && !$r['clock_out'] ? badge('in_progress', 'Working') : badge($r['status']) ?></td>
           <td class="small muted"><?= e($r['note'] ?? '') ?><?php if ($r['editor']): ?><div class="xs">Edited by <?= e($r['editor']) ?></div><?php endif ?></td>
         </tr><?php endforeach ?></tbody>
@@ -80,10 +80,10 @@ $actions = (can('attendance.view_all') ? '<a class="btn ghost" href="'.e(url('/a
     <div class="card">
       <div class="card-head"><h3>Month summary</h3></div>
       <div class="mini-tiles">
-        <div class="mini bg-mint"><span class="lbl"><?= icon('check-circle', 'sm') ?> Present</span><span class="val"><?= e(rtrim(rtrim(number_format($t['present'] + $t['half_day'] * 0.5, 1), '0'), '.')) ?></span></div>
-        <div class="mini bg-lav"><span class="lbl"><?= icon('clock', 'sm') ?> Hours</span><span class="val"><?= e(sprintf('%.1f', $t['worked'] / 3600)) ?></span></div>
-        <div class="mini bg-sky"><span class="lbl"><?= icon('plane', 'sm') ?> Leave</span><span class="val"><?= e((string) $t['leave']) ?></span></div>
-        <div class="mini bg-pink"><span class="lbl"><?= icon('alert', 'sm') ?> Absent</span><span class="val"><?= (int) $t['absent'] ?></span></div>
+        <div class="mini m-mint"><span class="lbl"><?= icon('check-circle', 'sm') ?> Present</span><span class="val"><?= e(rtrim(rtrim(number_format($t['present'] + $t['half_day'] * 0.5, 1), '0'), '.')) ?></span></div>
+        <div class="mini m-lav"><span class="lbl"><?= icon('clock', 'sm') ?> Hours</span><span class="val"><?= e(sprintf('%.1f', $t['worked'] / 3600)) ?></span></div>
+        <div class="mini m-sky"><span class="lbl"><?= icon('plane', 'sm') ?> Leave</span><span class="val"><?= e((string) $t['leave']) ?></span></div>
+        <div class="mini m-pink"><span class="lbl"><?= icon('alert', 'sm') ?> Absent</span><span class="val"><?= (int) $t['absent'] ?></span></div>
       </div>
       <dl class="kv mt">
         <dt>Half days</dt><dd><?= (int) $t['half_day'] ?></dd>
