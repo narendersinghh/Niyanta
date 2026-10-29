@@ -343,3 +343,5 @@ details.dd>summary::-webkit-details-marker{display:none}
 .theme-pick button.on{border-color:var(--primary);background:var(--lav-s)}
 .tp{width:100%;height:46px;border-radius:10px;display:block;border:1px solid var(--border)}
 .tp-light{background:linear-gradient(90deg,#13122B 22%,#F4F4FA 22%)}.tp-dark{background:linear-gradient(90deg,#0A0918 22%,#17162B 22%)}.tp-sys{background:linear-gradient(135deg,#F4F4FA 50%,#17162B 50%)}
+.profile-banner-body>.grow,.profile-banner-body>.avatar-upload{padding-top:56px}
+input:disabled,select:disabled,textarea:disabled{opacity:.7;cursor:not-allowed}
