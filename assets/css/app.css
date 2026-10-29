@@ -383,3 +383,9 @@ html{scrollbar-color:color-mix(in srgb,var(--muted) 45%,transparent) transparent
 .hr-banner-body>.avatar.xl{width:100px;height:100px;font-size:2rem;border-width:5px}
 .hr-banner-id{padding-top:54px!important}
 @media (max-width:900px){.hr-banner-bg{height:76px!important}.hr-banner-body{margin-top:-40px!important}.hr-banner-body>.avatar.xl{width:84px;height:84px}.hr-banner-id{padding-top:0!important}}
+/* Larger illustration display (close-up art reads best at these sizes) */
+.hero .illus,.hero.hr-hero .illus,.pay-hero .illus,.att-hero .illus,.report-hero .illus,.ai-hero .illus,.set-hero .set-hero-illus,.hero-mini .illus{width:330px!important;max-width:34vw!important;margin:-18px -8px -30px 0!important}
+.empty .empty-illus,.crm .empty .empty-illus,.crm-w .empty .empty-illus,.pj .empty .empty-illus{width:260px!important;max-width:80%!important}
+.err-page .illus{width:360px;max-width:90%}
+.crm-tip .illus{width:130px!important}.side-tip .illus,.modal-illus,.side .illus,.ai-widget .illus{width:210px!important}
+@media (max-width:900px){.hero .illus,.hero.hr-hero .illus,.pay-hero .illus,.att-hero .illus,.report-hero .illus,.ai-hero .illus,.set-hero .set-hero-illus,.hero-mini .illus{width:240px!important;max-width:80%!important;margin:4px auto -20px!important}}
