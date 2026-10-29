@@ -8,7 +8,7 @@
   <div class="tile bg-peach"><span class="tile-ic"><?= icon('plane') ?></span><div><div class="num"><?= e(LS::num($stats['used'])) ?></div><div class="lbl">Days used</div></div></div>
   <div class="tile bg-sky"><span class="tile-ic"><?= icon('pie') ?></span><div><div class="num"><?= $cover ?>%</div><div class="lbl">Coverage</div><div class="hr-tbar"><span style="width:<?= $cover ?>%"></span></div></div></div>
 </div>
-<?php if ($cover < 100): ?><div class="alert warn"><?= icon('alert', 'sm') ?> <?= (int) $stats['active'] - (int) $stats['users'] ?> active employee(s) have no <?= (int) $year ?> balance yet. Click “Allocate <?= (int) $year ?>” — existing balances are never overwritten.</div><?php endif ?>
+<?php if ($cover < 100): ?><div class="alert warn"><?= icon('alert', 'sm') ?> <?= (int) $stats['active'] - (int) $stats['users'] ?> active employee(s) have no <?= (int) $year ?> balance yet. Click “Allocate <?= (int) $year ?>”, existing balances are never overwritten.</div><?php endif ?>
 <div class="card">
   <form class="hr-toolbar" method="get">
     <label class="hr-search"><span class="sr">Search</span><?= icon('search', 'sm') ?><input type="search" name="q" value="<?= e($_GET['q'] ?? '') ?>" placeholder="Search employee or code"></label>
@@ -21,7 +21,7 @@
     <tbody><?php foreach ($p['items'] as $u): ?><tr>
       <td><a class="hr-who" href="<?= e(url('/hr/employees/'.$u['id'].'?tab=schedule')) ?>"><?= avatar($u['name'], $u['avatar'], 'sm') ?><div><b class="small"><?= e($u['name']) ?></b><div class="xs muted"><?= e($u['department'] ?: ($u['employee_code'] ?: '')) ?></div></div></a></td>
       <?php foreach ($types as $t): $b = $map[$u['id']][$t['id']] ?? null; ?>
-      <td class="c nowrap"><?php if (!$b): ?><span class="muted">—</span><?php elseif ((int) $t['paid']): $left = (float) $b['allocated'] - (float) $b['used']; ?><b class="<?= $left <= 0 ? 'hr-neg' : '' ?>"><?= e(LS::num($left)) ?></b><span class="muted small"> / <?= e(LS::num($b['allocated'])) ?></span><?php else: ?><b><?= e(LS::num($b['used'])) ?></b><?php endif ?></td>
+      <td class="c nowrap"><?php if (!$b): ?><span class="muted">-</span><?php elseif ((int) $t['paid']): $left = (float) $b['allocated'] - (float) $b['used']; ?><b class="<?= $left <= 0 ? 'hr-neg' : '' ?>"><?= e(LS::num($left)) ?></b><span class="muted small"> / <?= e(LS::num($b['allocated'])) ?></span><?php else: ?><b><?= e(LS::num($b['used'])) ?></b><?php endif ?></td>
       <?php endforeach ?>
     </tr><?php endforeach ?></tbody>
   </table></div>

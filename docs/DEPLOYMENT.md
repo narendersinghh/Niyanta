@@ -13,7 +13,7 @@ Niyanta needs only PHP + MySQL. No Composer, Node.js, Redis, Docker or backgroun
 
 ## 1. Upload
 1. Download the release `.zip` (or clone the repository).
-2. Upload the **contents** to your domain/sub-domain folder, e.g. `public_html/app/`. Keep the folder structure intact — `config/`, `core/`, `modules/`, `storage/`, `views/` are protected by `.htaccess` files.
+2. Upload the **contents** to your domain/sub-domain folder, e.g. `public_html/app/`. Keep the folder structure intact, `config/`, `core/`, `modules/`, `storage/`, `views/` are protected by `.htaccess` files.
 3. Make these folders writable by PHP (usually `755`, or `775` on some hosts): `config/`, `storage/` (and all sub-folders), `assets/uploads/`.
 
 > Best practice: if your host lets you choose the document root, the app can live outside `public_html`; with the default layout every private folder is already denied by `.htaccess`.
@@ -22,12 +22,12 @@ Niyanta needs only PHP + MySQL. No Composer, Node.js, Redis, Docker or backgroun
 In cPanel → **MySQL® Databases**: create a database, a user with a strong password, and add the user to the database with **ALL PRIVILEGES**.
 
 ## 3. Run the web installer
-Open `https://your-domain/app/` — you are redirected to `/install`:
+Open `https://your-domain/app/`, you are redirected to `/install`:
 1. **Requirements** are checked (PHP version, extensions, writable folders).
 2. **Database** credentials are tested. The database must be empty.
 3. **Workspace & Super Admin**: app name, URL, timezone, currency, and your Super Admin account.
 
-The installer creates all tables, seeds roles/permissions/settings, generates a unique encryption key in `config/config.php`, and writes `storage/installed.lock`. After that the installer is permanently disabled. **Back up `config/config.php`** — the `app_key` inside it decrypts stored secrets (SMTP password, AI keys, GitHub token, bank details).
+The installer creates all tables, seeds roles/permissions/settings, generates a unique encryption key in `config/config.php`, and writes `storage/installed.lock`. After that the installer is permanently disabled. **Back up `config/config.php`**, the `app_key` inside it decrypts stored secrets (SMTP password, AI keys, GitHub token, bank details).
 
 ## 4. Configure cron
 Settings → Cron shows the exact command. Add **one** entry in cPanel → **Cron Jobs**:

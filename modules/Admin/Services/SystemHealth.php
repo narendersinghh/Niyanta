@@ -7,7 +7,7 @@ final class SystemHealth {
   public static function cron(): array {
     $hb = (string) Settings::get('cron.last_heartbeat', '');
     $age = $hb ? time() - strtotime($hb) : null;
-    $state = $age === null ? 'never' : ($age > 600 ? 'stale' : 'healthy');
+    $state = $age === null ? 'never' : ($age > 86400 ? 'stale' : 'healthy');
     return ['heartbeat' => $hb ?: null, 'age' => $age, 'state' => $state]; }
 
   public static function snapshot(): array {
@@ -25,7 +25,7 @@ final class SystemHealth {
       ['Debug mode is off', !$debug, 'Set \'debug\' => false in config/config.php on production.'],
       ['Storage folders writable', !in_array(false, $writable, true), 'Make storage/ and assets/uploads/ writable by PHP.'],
       ['Cron heartbeat within 10 minutes', self::cron()['state'] === 'healthy', 'Add the cron job shown on the Cron page.'],
-      ['Database schema up to date', !$pending, count($pending).' migration(s) pending — run them from Updates.'],
+      ['Database schema up to date', !$pending, count($pending).' migration(s) pending, run them from Updates.'],
       ['Backup in the last 48 hours', $last && strtotime($last['created_at']) > time() - 172800, 'Create a backup or enable automatic backups.'],
       ['Served over HTTPS', $https, 'Use an https:// app_url and enable SSL on your host.'],
       ['Email configured', $mailDriver === 'mail' || (string) Settings::get('email.smtp_host', '') !== '', 'Complete the SMTP settings.'],

@@ -40,7 +40,7 @@ final class ProjectController extends Controller {
     return $this->view('projects::projects/index', ['title' => 'Projects', 'p' => $page, 'members' => $members, 'counts' => $counts, 'stats' => $stats, 'overdue' => $overdue, 'clients' => $clients, 'sec' => $sec, 'viewMode' => $view, 'styles' => ['css/projects.css']]); }
 
   private function lookups(?int $id): array {
-    return ['clients' => DB::pairs("SELECT id, CONCAT(name, IF(company IS NULL OR company='', '', CONCAT(' — ', company))) FROM clients WHERE status<>'inactive' ORDER BY name"),
+    return ['clients' => DB::pairs("SELECT id, CONCAT(name, IF(company IS NULL OR company='', '', CONCAT(', ', company))) FROM clients WHERE status<>'inactive' ORDER BY name"),
       'users' => PS::users(), 'memberIds' => $id ? array_map('intval', DB::column('SELECT user_id FROM project_members WHERE project_id=?', [$id])) : [], 'styles' => ['css/projects.css']]; }
 
   public function create(): Response {

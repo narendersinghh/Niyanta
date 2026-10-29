@@ -1,6 +1,6 @@
 <?php use Core\{DB, Features};
 $raw = DB::pairs("SELECT `key`, enabled FROM modules WHERE `key` LIKE 'feature:%'"); ?>
-<?= partial('partials/page_head', ['title' => 'Features', 'subtitle' => 'Switch whole areas or individual features on and off for everyone. Turning something off hides and blocks it — data is always kept.', 'crumbs' => [['System'], ['Features']]]) ?>
+<?= partial('partials/page_head', ['title' => 'Features', 'subtitle' => 'Switch whole areas or individual features on and off for everyone. Turning something off hides and blocks it, data is always kept.', 'crumbs' => [['System'], ['Features']]]) ?>
 <div class="feature-bundles">
 <?php foreach ($bundles as $bk => $b): $bon = Features::bundleEnabled($bk); ?>
   <section class="card bundle-card<?= $bon ? '' : ' is-off' ?>" style="--bc:<?= e($b['color']) ?>">
@@ -18,7 +18,7 @@ $raw = DB::pairs("SELECT `key`, enabled FROM modules WHERE `key` LIKE 'feature:%
       </div>
     <?php endforeach ?>
     </div>
-    <?php if (!$bon): ?><p class="xs muted mt mb0"><?= icon('info', 'sm') ?> Bundle is off — individual switches are kept and apply again when you turn it back on.</p><?php endif ?>
+    <?php if (!$bon): ?><p class="xs muted mt mb0"><?= icon('info', 'sm') ?> Bundle is off, individual switches are kept and apply again when you turn it back on.</p><?php endif ?>
   </section>
 <?php endforeach ?>
 </div>

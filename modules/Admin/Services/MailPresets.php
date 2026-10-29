@@ -11,7 +11,7 @@ final class MailPresets {
     return [
       'brevo' => ['name' => 'Brevo', 'tag' => 'formerly Sendinblue', 'host' => 'smtp-relay.brevo.com', 'port' => 587, 'enc' => 'tls', 'user' => null,
         'user_hint' => 'Your SMTP login from the SMTP & API page (e.g. 8a1b2c001@smtp-brevo.com or your account email)', 'pass_hint' => 'An SMTP key (not your account password or an API v3 key)',
-        'steps' => ['Sign in to Brevo and open your name (top right) → <b>SMTP & API</b>.', 'Open the <b>SMTP</b> tab and copy the <b>SMTP server</b>, <b>Port</b> and <b>Login</b>.', 'Click <b>Generate a new SMTP key</b>, name it "Niyanta" and copy the key — it is shown only once.', 'Under <b>Senders, domains & dedicated IPs</b>, add and authenticate your sending domain (DKIM/DMARC records).'],
+        'steps' => ['Sign in to Brevo and open your name (top right) → <b>SMTP & API</b>.', 'Open the <b>SMTP</b> tab and copy the <b>SMTP server</b>, <b>Port</b> and <b>Login</b>.', 'Click <b>Generate a new SMTP key</b>, name it "Niyanta" and copy the key, it is shown only once.', 'Under <b>Senders, domains & dedicated IPs</b>, add and authenticate your sending domain (DKIM/DMARC records).'],
         'docs' => 'https://developers.brevo.com/docs/smtp-integration'],
       'mailjet' => ['name' => 'Mailjet', 'tag' => 'Sinch Mailjet', 'host' => 'in-v3.mailjet.com', 'port' => 587, 'enc' => 'tls', 'user' => null,
         'user_hint' => 'Your Mailjet API key', 'pass_hint' => 'Your Mailjet Secret key',
@@ -23,7 +23,7 @@ final class MailPresets {
         'docs' => 'https://www.twilio.com/docs/sendgrid/for-developers/sending-email/integrating-with-the-smtp-api'],
       'mailgun' => ['name' => 'Mailgun', 'tag' => 'Sinch', 'host' => 'smtp.mailgun.org', 'port' => 587, 'enc' => 'tls', 'user' => null,
         'user_hint' => 'The SMTP login of your domain, e.g. postmaster@mg.yourdomain.com', 'pass_hint' => 'The SMTP password of that login',
-        'steps' => ['In Mailgun open <b>Send → Sending → Domain settings</b> and pick your sending domain.', 'Open the <b>SMTP credentials</b> tab; use the default <code>postmaster@…</code> login or <b>Add new SMTP user</b>.', 'Click <b>Reset password</b> (or create a user) and copy the password — it is shown once.', 'Domains in the EU region use <code>smtp.eu.mailgun.org</code> instead.'],
+        'steps' => ['In Mailgun open <b>Send → Sending → Domain settings</b> and pick your sending domain.', 'Open the <b>SMTP credentials</b> tab; use the default <code>postmaster@…</code> login or <b>Add new SMTP user</b>.', 'Click <b>Reset password</b> (or create a user) and copy the password, it is shown once.', 'Domains in the EU region use <code>smtp.eu.mailgun.org</code> instead.'],
         'docs' => 'https://documentation.mailgun.com/docs/mailgun/user-manual/sending-messages/send-smtp'],
       'ses' => ['name' => 'Amazon SES', 'tag' => 'AWS', 'host' => 'email-smtp.ap-south-1.amazonaws.com', 'port' => 587, 'enc' => 'tls', 'user' => null,
         'user_hint' => 'SMTP user name generated in the SES console (looks like AKIA…)', 'pass_hint' => 'SMTP password generated with it (not your AWS secret access key)',
@@ -39,11 +39,11 @@ final class MailPresets {
         'docs' => 'https://www.zoho.com/mail/help/zoho-smtp.html'],
       'google' => ['name' => 'Gmail / Workspace', 'tag' => 'app password', 'host' => 'smtp.gmail.com', 'port' => 587, 'enc' => 'tls', 'user' => null,
         'user_hint' => 'Your full Gmail or Google Workspace address', 'pass_hint' => 'A 16-character app password',
-        'steps' => ['Turn on <b>2-Step Verification</b> for the Google account.', 'Open <b>myaccount.google.com/apppasswords</b>, create an app password named "Niyanta" and copy it.', 'Use your full address as the username; the From address must be that address or a verified alias.', 'Gmail limits sending (about 500/day for Gmail, 2,000/day for Workspace) — use a transactional provider for higher volumes.'],
+        'steps' => ['Turn on <b>2-Step Verification</b> for the Google account.', 'Open <b>myaccount.google.com/apppasswords</b>, create an app password named "Niyanta" and copy it.', 'Use your full address as the username; the From address must be that address or a verified alias.', 'Gmail limits sending (about 500/day for Gmail, 2,000/day for Workspace), use a transactional provider for higher volumes.'],
         'docs' => 'https://support.google.com/accounts/answer/185833'],
       'microsoft' => ['name' => 'Microsoft 365', 'tag' => 'Outlook · Exchange', 'host' => 'smtp.office365.com', 'port' => 587, 'enc' => 'tls', 'user' => null,
         'user_hint' => 'Your full Microsoft 365 mailbox address', 'pass_hint' => 'The mailbox password (or an app password if MFA requires one)',
-        'steps' => ['In the Microsoft 365 admin centre open <b>Users → Active users → (mailbox) → Mail → Manage email apps</b> and tick <b>Authenticated SMTP</b>.', 'If <b>Security defaults</b> are on, SMTP AUTH is blocked — ask your admin to allow it for this mailbox.', 'The From address must be the mailbox (or one it has Send As rights for).', 'Microsoft is phasing out basic SMTP authentication; prefer a transactional provider for long-term use.'],
+        'steps' => ['In the Microsoft 365 admin centre open <b>Users → Active users → (mailbox) → Mail → Manage email apps</b> and tick <b>Authenticated SMTP</b>.', 'If <b>Security defaults</b> are on, SMTP AUTH is blocked, ask your admin to allow it for this mailbox.', 'The From address must be the mailbox (or one it has Send As rights for).', 'Microsoft is phasing out basic SMTP authentication; prefer a transactional provider for long-term use.'],
         'docs' => 'https://learn.microsoft.com/en-us/exchange/mail-flow-best-practices/how-to-set-up-a-multifunction-device-or-application-to-send-email-using-microsoft-365-or-office-365'],
       'hostinger' => ['name' => 'Hostinger', 'tag' => 'Hostinger Email', 'host' => 'smtp.hostinger.com', 'port' => 465, 'enc' => 'ssl', 'user' => null,
         'user_hint' => 'Your full Hostinger mailbox address', 'pass_hint' => 'The mailbox password',
@@ -57,7 +57,7 @@ final class MailPresets {
         'user_hint' => 'Usually the full mailbox address', 'pass_hint' => 'The SMTP password or key',
         'steps' => ['Ask your email provider for the SMTP host, port and encryption.', 'Port 587 normally uses STARTTLS; port 465 uses SSL/TLS.', 'Send a test email after saving to confirm.'], 'docs' => null],
       'mail' => ['name' => 'PHP mail()', 'tag' => 'server default', 'host' => '', 'port' => 0, 'enc' => 'tls', 'user' => null, 'user_hint' => '', 'pass_hint' => '',
-        'steps' => ['Uses the server\'s built-in mail function — no credentials needed.', 'Delivery depends on your host and messages often land in spam. Prefer an SMTP provider for production.'], 'docs' => 'https://www.php.net/manual/en/function.mail.php']]; }
+        'steps' => ['Uses the server\'s built-in mail function, no credentials needed.', 'Delivery depends on your host and messages often land in spam. Prefer an SMTP provider for production.'], 'docs' => 'https://www.php.net/manual/en/function.mail.php']]; }
 
   public static function options(): array { return array_map(static fn ($p) => $p['name'], self::all()); }
 

@@ -21,7 +21,7 @@ $block = static function (string $title, string $ic, string $color, array $items
     </section>
     <?= $block('Accomplishments', 'check-circle', 'mint', $lines($r['accomplishments']), '', 'check', 'Nothing listed.') ?>
     <div class="grid g2">
-      <?= $block('Blockers', 'alert', 'peach', $lines($r['blockers']), 'warn', 'alert', 'No blockers — smooth sailing.') ?>
+      <?= $block('Blockers', 'alert', 'peach', $lines($r['blockers']), 'warn', 'alert', 'No blockers, smooth sailing.') ?>
       <?= $block('Next steps', 'arrow-right', 'sky', $lines($r['next_steps']), 'next', 'chevron-right', 'Nothing planned yet.') ?>
     </div>
     <?php if ($tasks): ?>
@@ -45,7 +45,7 @@ $block = static function (string $title, string $ic, string $color, array $items
         <div class="kv-row"><span><?= icon('clipboard', 'sm') ?> Type</span><span><?= e(ucfirst($r['type'])) ?></span></div>
         <div class="kv-row"><span><?= icon('calendar', 'sm') ?> Period</span><span><?= e($period) ?></span></div>
         <div class="kv-row"><span><?= icon('folder', 'sm') ?> Project</span><span><?= e($r['project_name'] ?? 'General') ?></span></div>
-        <div class="kv-row"><span><?= icon('clock', 'sm') ?> Hours reported</span><b><?= $r['hours'] !== null ? e((float) $r['hours']).'h' : '—' ?></b></div>
+        <div class="kv-row"><span><?= icon('clock', 'sm') ?> Hours reported</span><b><?= $r['hours'] !== null ? e((float) $r['hours']).'h' : '-' ?></b></div>
         <?php if ($logged !== null): ?><div class="kv-row"><span><?= icon('timer', 'sm') ?> Time entries</span><b><?= e(hours($logged)) ?></b></div><?php endif ?>
         <?php if ($r['reviewer']): ?><div class="kv-row"><span><?= icon('user', 'sm') ?> Reviewed by</span><span><?= e($r['reviewer']) ?><span class="xs muted db"><?= e(fdatetime($r['reviewed_at'])) ?></span></span></div><?php endif ?>
       </div>

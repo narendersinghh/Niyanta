@@ -26,8 +26,8 @@ $hasFilter = (bool) array_filter($f);
       <td class="nowrap small"><?= e(fdatetime($a['created_at'])) ?><div class="xs muted"><?= e(ago($a['created_at'])) ?></div></td>
       <td><?php if ($a['user_name']): ?><div class="flex"><?= avatar($a['user_name'], null, 'sm') ?><div><div class="small b"><?= e($a['user_name']) ?></div><div class="xs muted"><?= e($a['user_email']) ?></div></div></div><?php else: ?><span class="muted small"><?= $a['user_id'] ? 'User #'.(int) $a['user_id'] : 'System' ?></span><?php endif ?></td>
       <td><span class="pill pill-<?= $colorFor($a['action']) ?> act"><?= e($a['action']) ?></span></td>
-      <td class="small nowrap"><?= $a['entity_type'] ? e($a['entity_type']).($a['entity_id'] ? ' <span class="muted">#'.(int) $a['entity_id'].'</span>' : '') : '<span class="muted">—</span>' ?></td>
-      <td><?php if ($meta): ?><div class="meta-kv"><?php foreach (array_slice($meta, 0, 6, true) as $k => $v): ?><span title="<?= e($k.': '.$v) ?>"><i><?= e($k) ?></i><?= e(str_limit($v, 60)) ?></span><?php endforeach ?><?= count($meta) > 6 ? '<span>+'.(count($meta) - 6).'</span>' : '' ?></div><?php else: ?><span class="muted">—</span><?php endif ?></td>
+      <td class="small nowrap"><?= $a['entity_type'] ? e($a['entity_type']).($a['entity_id'] ? ' <span class="muted">#'.(int) $a['entity_id'].'</span>' : '') : '<span class="muted">-</span>' ?></td>
+      <td><?php if ($meta): ?><div class="meta-kv"><?php foreach (array_slice($meta, 0, 6, true) as $k => $v): ?><span title="<?= e($k.': '.$v) ?>"><i><?= e($k) ?></i><?= e(str_limit($v, 60)) ?></span><?php endforeach ?><?= count($meta) > 6 ? '<span>+'.(count($meta) - 6).'</span>' : '' ?></div><?php else: ?><span class="muted">-</span><?php endif ?></td>
       <td class="xs muted mono" title="<?= e($a['user_agent'] ?? '') ?>"><?= e($a['ip'] ?? '') ?></td>
     </tr><?php endforeach ?></tbody>
   </table></div>

@@ -130,7 +130,7 @@ final class EmployeeController extends Controller {
       return $log; });
     LeaveService::flush();
     Audit::log('hr.employee.schedule', 'employee', $id, ['hours_per_day' => $hours, 'off_days' => $days, 'quotas' => $changed]);
-    $this->flash('Work schedule saved for '.$emp['name'].($changed ? ' — '.count($changed).' quota change(s) applied to the '.$year.' balance.' : '.'));
+    $this->flash('Work schedule saved for '.$emp['name'].($changed ? ', '.count($changed).' quota change(s) applied to the '.$year.' balance.' : '.'));
     return $this->redirect('/hr/employees/'.$id.'?tab=schedule'); }
 
   public function edit(int $id): Response {

@@ -50,7 +50,7 @@ final class BackupService {
     catch (\Throwable $e) {
       @unlink($sql); @unlink($file);
       error_log('Backup failed: '.$e);
-      DB::update('backups', ['status' => 'failed', 'note' => mb_substr(($note ? $note.' — ' : '').'Error: '.$e->getMessage(), 0, 255)], 'id=?', [$id]); }
+      DB::update('backups', ['status' => 'failed', 'note' => mb_substr(($note ? $note.', ' : '').'Error: '.$e->getMessage(), 0, 255)], 'id=?', [$id]); }
     finally { flock($lock, LOCK_UN); fclose($lock); }
     $row = DB::find('backups', $id);
     Audit::log('backup.create', 'backup', $id, ['type' => $type, 'status' => $row['status'], 'file' => $row['filename']], $by);
@@ -138,7 +138,7 @@ final class BackupService {
     if (is_file(NY_ROOT.'/config/config.php')) { $z->addFile(NY_ROOT.'/config/config.php', 'config/config.php'); }
     $files = 0;
     foreach (['storage/uploads', 'assets/uploads'] as $dir) { $files += self::zipDir($z, NY_ROOT.'/'.$dir, $dir); }
-    $z->addFromString('README.txt', "Niyanta full backup\nVersion: ".NY_VERSION."\nCreated: ".date('c')."\nTables: {$stats['tables']}, rows: {$stats['rows']}, files: $files\n\nContents:\n  database.sql.gz   gzip-compressed SQL dump (import with phpMyAdmin or: gunzip < database.sql.gz | mysql -u USER -p DBNAME)\n  config/config.php application config incl. APP KEY and DB password — keep this archive private\n  storage/uploads/  private uploaded files\n  assets/uploads/   branding files\n");
+    $z->addFromString('README.txt', "Niyanta full backup\nVersion: ".NY_VERSION."\nCreated: ".date('c')."\nTables: {$stats['tables']}, rows: {$stats['rows']}, files: $files\n\nContents:\n  database.sql.gz   gzip-compressed SQL dump (import with phpMyAdmin or: gunzip < database.sql.gz | mysql -u USER -p DBNAME)\n  config/config.php application config incl. APP KEY and DB password, keep this archive private\n  storage/uploads/  private uploaded files\n  assets/uploads/   branding files\n");
     if (!$z->close()) { throw new \RuntimeException('Could not finalise zip archive.'); } }
 
   public static function zipDir(\ZipArchive $z, string $abs, string $prefix, array $exclude = []): int {
@@ -163,7 +163,7 @@ final class BackupService {
     ignore_user_abort(true);
     $src = self::path($row);
     if ($row['status'] !== 'success' || !is_file($src)) { return ['ok' => false, 'statements' => 0, 'safety_id' => 0, 'error' => 'Backup file is missing.']; }
-    if ($row['sha256'] && !hash_equals((string) $row['sha256'], hash_file('sha256', $src))) { return ['ok' => false, 'statements' => 0, 'safety_id' => 0, 'error' => 'Checksum mismatch — the backup file is corrupted or was modified.']; }
+    if ($row['sha256'] && !hash_equals((string) $row['sha256'], hash_file('sha256', $src))) { return ['ok' => false, 'statements' => 0, 'safety_id' => 0, 'error' => 'Checksum mismatch, the backup file is corrupted or was modified.']; }
     $safety = self::create('database', 'Safety backup before restoring #'.$row['id'], $by, false);
     if ($safety['status'] !== 'success') { return ['ok' => false, 'statements' => 0, 'safety_id' => 0, 'error' => 'Safety backup failed: '.$safety['note']]; }
     $keepRows = DB::all('SELECT * FROM backups');

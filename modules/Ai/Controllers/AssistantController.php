@@ -44,7 +44,7 @@ final class AssistantController extends Controller {
     if (preg_match('/^\s*\**subject\**\s*:\s*(.+?)\R+(.*)$/is', $text, $m)) { return [trim($m[1], " *\t"), trim($m[2])]; }
     return ['', trim($text)]; }
 
-  /** POST /ai/run/{tool} — returns JSON {text, model, tokens, ...}. */
+  /** POST /ai/run/{tool}, returns JSON {text, model, tokens, ...}. */
   public function run(string $tool): Response {
     $u = $this->user();
     if (!isset(self::TOOLS[$tool])) { $this->abort(404, 'Unknown tool.'); }
@@ -106,7 +106,7 @@ final class AssistantController extends Controller {
     Audit::log('ai.tasks.proposed', 'ai_action', $id, ['project_id' => $pid, 'count' => count($tasks)]);
     return $this->json(['redirect' => url('/ai/actions/'.$id), 'text' => count($tasks).' tasks are ready for your review.']); }
 
-  /** POST /ai/meeting/save — human-approved journey entry. */
+  /** POST /ai/meeting/save, human-approved journey entry. */
   public function saveMeeting(): Response {
     $u = $this->user();
     if (!Scope::can('crm.clients.manage', $u)) { $this->abort(403, 'You do not have permission to edit the client journey.'); }
@@ -121,7 +121,7 @@ final class AssistantController extends Controller {
     $this->flash('Meeting summary saved to the client journey.');
     return $this->redirect('/clients/'.(int) $d['client_id']); }
 
-  /** POST /ai/reminder/queue — explicit, confirmed queuing of a reminder email to the client. */
+  /** POST /ai/reminder/queue, explicit, confirmed queuing of a reminder email to the client. */
   public function queueReminder(): Response {
     $u = $this->user();
     if (!Scope::can('crm.finance.view', $u) || !Scope::can('crm.finance.manage', $u)) { $this->abort(403, 'You do not have permission to send payment reminders.'); }

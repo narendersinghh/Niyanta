@@ -9,13 +9,13 @@ $num = static fn ($v) => rtrim(rtrim(number_format((float) $v, 2), '0'), '.');
   <div class="pay-banner-body">
     <?= avatar($emp['name'], $emp['avatar'], 'lg') ?>
     <div class="pay-banner-id"><h2><?= e($emp['name']) ?></h2><div class="muted small"><?= e($emp['email']) ?><?= $emp['employee_code'] ? ' · '.e($emp['employee_code']) : '' ?> · <?= e($emp['role_name']) ?></div></div>
-    <div class="pay-current <?= $current ? '' : 'none' ?>"><?php if ($current): ?><span class="xs muted">Current <?= $current['pay_type'] === 'hourly' ? 'hourly rate' : 'monthly salary' ?></span><b><?= e(money($current['amount'])) ?></b><span class="xs muted">since <?= e(fdate($current['effective_from'])) ?></span><?php else: ?><span class="xs muted">Not on payroll yet</span><b>—</b><span class="xs muted">Add a revision to start</span><?php endif ?></div>
+    <div class="pay-current <?= $current ? '' : 'none' ?>"><?php if ($current): ?><span class="xs muted">Current <?= $current['pay_type'] === 'hourly' ? 'hourly rate' : 'monthly salary' ?></span><b><?= e(money($current['amount'])) ?></b><span class="xs muted">since <?= e(fdate($current['effective_from'])) ?></span><?php else: ?><span class="xs muted">Not on payroll yet</span><b>-</b><span class="xs muted">Add a revision to start</span><?php endif ?></div>
   </div>
   <div class="pay-facts">
     <div><span class="xs">Status</span><b><?= badge($emp['status']) ?></b></div>
     <div><span class="xs">Joined</span><b><?= e(fdate($emp['joined_on'])) ?></b></div>
     <div><span class="xs">Bank</span><b><?= $emp['bank_name'] ? e($emp['bank_name']).($emp['has_account'] ? '' : ' · no acc. no.') : '<span class="muted">Not provided</span>' ?></b></div>
-    <div><span class="xs">Work week</span><b><?php if ($sched): ?><?= e(rtrim(rtrim(number_format((float) $sched['hours_per_day'], 2, '.', ''), '0'), '.')) ?> h/day · <?= e(rtrim(rtrim(number_format((float) $days['own'], 1, '.', ''), '0'), '.')) ?> days in <?= e(date('M')) ?><?php else: ?>—<?php endif ?></b></div>
+    <div><span class="xs">Work week</span><b><?php if ($sched): ?><?= e(rtrim(rtrim(number_format((float) $sched['hours_per_day'], 2, '.', ''), '0'), '.')) ?> h/day · <?= e(rtrim(rtrim(number_format((float) $days['own'], 1, '.', ''), '0'), '.')) ?> days in <?= e(date('M')) ?><?php else: ?>-<?php endif ?></b></div>
   </div>
 </div>
 <?php if ($sched && $days && $days['own'] != $days['company']): ?><div class="alert info"><?= icon('info', 'sm') ?><div><?= e(explode(' ', $emp['name'])[0]) ?> has a personal work week (off <?= e($sched['off_days'] ? implode(', ', array_map(static fn ($d) => $dn[$d], $sched['off_days'])) : 'none') ?>): monthly salary is prorated on <b><?= e(rtrim(rtrim(number_format((float) $days['own'], 1, '.', ''), '0'), '.')) ?></b> working days this month instead of the company’s <?= e(rtrim(rtrim(number_format((float) $days['company'], 1, '.', ''), '0'), '.')) ?>.</div></div><?php endif ?>

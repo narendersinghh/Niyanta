@@ -24,8 +24,8 @@ $actions = ($sa ? '<a class="btn ghost" href="'.e(url('/admin/roles')).'">'.icon
       <tr>
         <td><div class="user-cell"><?= avatar($u['name'], $u['avatar'], 'sm') ?><div class="who"><b><?= e($u['name']) ?><?= $me ? ' <span class="pill pill-lav">You</span>' : '' ?></b><div class="xs muted truncate"><?= e($u['email']) ?></div></div></div></td>
         <td><?= badge($u['role_slug'] === 'super_admin' ? 'urgent' : 'review', $u['role_name']) ?></td>
-        <td class="hide-sm"><?= $u['designation'] ? e($u['designation']) : '<span class="muted">—</span>' ?><?= $u['department'] ? '<div class="xs muted">'.e($u['department']).'</div>' : '' ?></td>
-        <td class="hide-sm small"><?= e($u['manager_name'] ?? '—') ?></td>
+        <td class="hide-sm"><?= $u['designation'] ? e($u['designation']) : '<span class="muted">-</span>' ?><?= $u['department'] ? '<div class="xs muted">'.e($u['department']).'</div>' : '' ?></td>
+        <td class="hide-sm small"><?= e($u['manager_name'] ?? '-') ?></td>
         <td class="hide-sm small muted nowrap"><?= e($u['last_login_at'] ? ago($u['last_login_at']) : 'Never') ?></td>
         <td><?= badge($u['status']) ?></td>
         <td class="actions"><?php if ($manage && ($u['role_slug'] !== 'super_admin' || $sa)): ?>

@@ -5,7 +5,7 @@
     <?= csrf_field() ?>
     <h3>Workspace</h3>
     <div class="form-grid">
-      <div class="field"><label>Application name</label><input name="app_name" value="<?= e(old('app_name', 'Niyanta')) ?>" required><?= error_for('app_name') ?></div>
+      <div class="field"><label>Company name</label><input name="app_name" value="<?= e(old('app_name')) ?>" placeholder="e.g. Digital Nil Marketing Agency LLP" required><?= error_for('app_name') ?></div>
       <div class="field"><label>Application URL</label><input type="url" name="app_url" value="<?= e(old('app_url', $guess)) ?>" required><?= error_for('app_url') ?></div>
       <div class="field"><label>Timezone</label><select name="timezone"><?php foreach (DateTimeZone::listIdentifiers() as $tz): ?><option<?= selected($tz, old('timezone', 'Asia/Kolkata')) ?>><?= e($tz) ?></option><?php endforeach ?></select></div>
       <div class="field"><label>Currency symbol</label><input name="currency_symbol" value="<?= e(old('currency_symbol', '₹')) ?>" maxlength="5" required></div>

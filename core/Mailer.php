@@ -8,7 +8,7 @@ final class Mailer {
 
   /** Wrap content in the branded email template. */
   public static function template(string $title, string $bodyHtml, ?string $ctaUrl = null, ?string $ctaLabel = null): string {
-    $app = e(setting('branding.app_name', 'Niyanta'));
+    $app = e(company_name());
     $c = e(setting('branding.primary_color', '#5B4CF5'));
     $cta = $ctaUrl ? '<p style="margin:24px 0"><a href="'.e($ctaUrl).'" style="background:'.$c.';color:#fff;padding:12px 22px;border-radius:999px;text-decoration:none;font-weight:600">'.e($ctaLabel ?? 'Open').'</a></p>' : '';
     return '<div style="background:#f4f4f7;padding:32px;font-family:Arial,sans-serif"><div style="max-width:560px;margin:auto;background:#fff;border-radius:18px;padding:32px"><div style="font-weight:800;font-size:20px;color:#111">'.$app.'</div><h2 style="color:#111">'.e($title).'</h2><div style="color:#444;line-height:1.6">'.$bodyHtml.'</div>'.$cta.'</div></div>'; }
@@ -23,7 +23,7 @@ final class Mailer {
 
   public static function send(string $to, string $subject, string $html, ?string $toName = null): void {
     $from = (string) Settings::get('email.from_address', 'no-reply@'.($_SERVER['HTTP_HOST'] ?? 'localhost'));
-    $fromName = (string) Settings::get('email.from_name', Settings::get('branding.app_name', 'Niyanta'));
+    $fromName = (string) Settings::get('email.from_name', company_name());
     if (!filter_var($to, FILTER_VALIDATE_EMAIL)) { throw new \InvalidArgumentException('Invalid recipient'); }
     $enc = static fn (string $s) => '=?UTF-8?B?'.base64_encode($s).'?=';
     $headers = ['From' => $enc($fromName).' <'.$from.'>', 'To' => ($toName ? $enc($toName).' ' : '').'<'.$to.'>', 'Subject' => $enc($subject), 'Date' => date('r'), 'Message-ID' => '<'.bin2hex(random_bytes(12)).'@'.(explode('@', $from)[1] ?? 'localhost').'>', 'MIME-Version' => '1.0', 'Content-Type' => 'text/html; charset=UTF-8', 'Content-Transfer-Encoding' => 'base64'];

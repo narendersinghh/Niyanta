@@ -4,8 +4,6 @@ $u = user();
 $path = Request::current()->path();
 $nav = Modules::nav();
 $unread = (int) DB::value('SELECT COUNT(*) FROM notifications WHERE user_id=? AND read_at IS NULL', [$u['id']]);
-$logo = setting('branding.logo');
-$appName = (string) setting('branding.app_name', 'Niyanta');
 $isActive = static function (string $url) use ($path): bool { $u = parse_url($url, PHP_URL_PATH) ?: '/'; return $u === '/' ? $path === '/' : ($path === $u || str_starts_with($path, rtrim($u, '/').'/')); };
 $scripts = $scripts ?? [];
 foreach (Modules::hooks('global_scripts') as $gs) { foreach ($gs as $js => $perm) { if (!$perm || \Core\Gate::any((array) $perm)) { $scripts[] = $js; } } }
@@ -16,24 +14,23 @@ echo partial('partials/head', get_defined_vars());
 <div class="app" id="app">
 <aside class="sidebar" aria-label="Main navigation">
   <a class="brand" href="<?= e(url('/')) ?>">
-    <span class="brand-logo"><?php if ($logo): ?><img src="<?= e(url('assets/uploads/branding/'.basename((string) $logo))) ?>" alt=""><?php elseif (is_file(NY_ROOT.'/assets/img/logo.svg')): ?><img src="<?= e(asset('img/logo.svg')) ?>" alt=""><?php else: ?><?= e(mb_substr($appName, 0, 1)) ?><?php endif ?></span>
-    <span><b><?= e($appName) ?></b><small><?= e(setting('branding.tagline', 'Run your agency with ease')) ?></small></span>
+    <span class="brand-logo"><img src="<?= e(asset('img/logo.svg')) ?>" alt=""></span>
+    <span><b><?= e(app_name()) ?></b><small>Run your agency with ease</small></span>
   </a>
+  <div class="company-chip" title="<?= e(company_name()) ?>">
+    <span class="company-logo"><?php if ($clogo = company_logo_url()): ?><img src="<?= e($clogo) ?>" alt=""><?php else: ?><?= e(mb_strtoupper(mb_substr(company_name(), 0, 1))) ?><?php endif ?></span>
+    <span class="truncate"><small>Workspace</small><b class="truncate"><?= e(company_name()) ?></b></span>
+  </div>
   <nav class="nav" data-nav>
     <a href="<?= e(url('/')) ?>" class="<?= $path === '/' ? 'active' : '' ?>"><span class="ni" style="--c:#7C5CFF"><?= icon('home') ?></span> Dashboard</a>
     <?php foreach ($nav as $sec => $items): [$label, $collapsible] = Modules::SECTIONS[$sec];
       $hasActive = (bool) array_filter($items, static fn ($n) => $isActive($n['url']));
       $links = '';
       foreach ($items as $n) { $links .= '<a href="'.e(url($n['url'])).'" class="'.($isActive($n['url']) ? 'active' : '').'"><span class="ni" style="--c:'.e($n['color']).'">'.icon($n['icon'] ?? 'grid').'</span> '.e($n['label']).'</a>'; } ?>
-      <?php if ($collapsible): ?><details class="nav-sec" data-sec="<?= e($sec) ?>"<?= $hasActive ? ' open data-active' : '' ?>><summary><?= e($label) ?><span class="sec-count"><?= count($items) ?></span><?= icon('chevron-down') ?></summary><?= $links ?></details>
+      <?php if ($collapsible): ?><div class="nav-sec<?= $hasActive ? ' open' : '' ?>" data-sec="<?= e($sec) ?>"<?= $hasActive ? ' data-active' : '' ?>><button type="button" class="nav-sec-head" data-sec-toggle aria-expanded="<?= $hasActive ? 'true' : 'false' ?>"><?= e($label) ?><span class="sec-count"><?= count($items) ?></span><?= icon('chevron-down') ?></button><div class="nav-sec-items"><div class="fly-title"><?= e($label) ?></div><?= $links ?></div></div>
       <?php else: ?><?php if ($label): ?><div class="nav-group"><?= e($label) ?></div><?php endif ?><?= $links ?><?php endif ?>
     <?php endforeach ?>
   </nav>
-  <div class="side-card mt2">
-    <?= illus('side-card') ?>
-    <b>Need a hand?</b>
-    <p class="xs mb0">Press <span class="kbd">/</span> to search anything you have access to.</p>
-  </div>
 </aside>
 <div class="overlay" data-nav-close></div>
 <div class="main">

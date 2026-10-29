@@ -13,7 +13,7 @@ $today = date('Y-m-d');
 $more = Ui::more([can('crm.finance.view') ? Ui::link('/invoices', 'receipt', 'Invoices') : '', can('crm.reports.view') ? Ui::link('/crm/reports', 'chart', 'Financial reports') : '']);
 ?>
 <div class="crm">
-<?= partial('partials/page_head', ['title' => 'Quotations', 'subtitle' => 'Proposals and estimates — track every one from draft to accepted.', 'actions' => $more.($m ? '<a class="btn primary" href="'.e(url('/quotations/create')).'">'.icon('plus', 'sm').' New quotation</a>' : '')]) ?>
+<?= partial('partials/page_head', ['title' => 'Quotations', 'subtitle' => 'Proposals and estimates, track every one from draft to accepted.', 'actions' => $more.($m ? '<a class="btn primary" href="'.e(url('/quotations/create')).'">'.icon('plus', 'sm').' New quotation</a>' : '')]) ?>
 <div class="grid g4 mb">
   <?= Ui::tile('sky', 'send', Hooks::compact($open), 'Open · '.($n('sent') + $n('draft')).' awaiting reply', '/quotations?status=sent', money($open)) ?>
   <?= Ui::tile('mint', 'check-circle', Hooks::compact($val('accepted')), 'Accepted · '.$n('accepted').' quotation'.($n('accepted') === 1 ? '' : 's'), '/quotations?status=accepted', money($val('accepted'))) ?>
@@ -35,7 +35,7 @@ $more = Ui::more([can('crm.finance.view') ? Ui::link('/invoices', 'receipt', 'In
     <thead><tr><th>Quotation</th><th>Client</th><th>Issued</th><th>Valid until</th><th class="amt">Amount</th><th>Status</th><th><span class="sr">Actions</span></th></tr></thead>
     <tbody><?php foreach ($p['items'] as $q): $late = $q['valid_until'] && $q['valid_until'] < $today && in_array($q['status'], ['draft', 'sent'], true); ?>
       <tr>
-        <td class="rt-main"><a class="crm-num-link" href="<?= e(url('/quotations/'.$q['id'])) ?>"><?= e($q['number']) ?></a><div class="crm-sub"><?= e(str_limit($q['title'] ?? '', 40) ?: '—') ?></div></td>
+        <td class="rt-main"><a class="crm-num-link" href="<?= e(url('/quotations/'.$q['id'])) ?>"><?= e($q['number']) ?></a><div class="crm-sub"><?= e(str_limit($q['title'] ?? '', 40) ?: '-') ?></div></td>
         <td data-l="Client"><span class="crm-cell"><?= avatar($q['client_company'] ?: $q['client_name'], null, 'sm') ?><span class="small b truncate"><?= e($q['client_company'] ?: $q['client_name']) ?></span></span></td>
         <td class="small" data-l="Issued"><?= e(fdate($q['issue_date'])) ?></td>
         <td class="small <?= $late ? 'crm-late' : '' ?>" data-l="Valid until"><?= e(fdate($q['valid_until'])) ?><?= $late ? ' · lapsed' : '' ?></td>

@@ -33,6 +33,6 @@
   <div class="stack">
     <div class="card"><h4>Appearance</h4><p class="small muted">Light, dark, or follow your device.</p>
       <div class="theme-pick"><button type="button" data-theme-set="light"><span class="tp tp-light"></span>Light</button><button type="button" data-theme-set="dark"><span class="tp tp-dark"></span>Dark</button><button type="button" data-theme-set="system"><span class="tp tp-sys"></span>System</button></div></div>
-    <div class="card"><h4>Security</h4><dl class="kv small"><dt>Last sign in</dt><dd><?= e(fdatetime($u['last_login_at'])) ?></dd><dt>From IP</dt><dd class="mono"><?= e($u['last_login_ip'] ?? '—') ?></dd><dt>Member since</dt><dd><?= e(fdate($u['created_at'])) ?></dd></dl></div>
+    <div class="card"><h4>Security</h4><dl class="kv small"><dt>Last sign in</dt><dd><?= e(fdatetime($u['last_login_at'])) ?></dd><dt>From IP</dt><dd class="mono"><?= e($u['last_login_ip'] ?? '-') ?></dd><dt>Member since</dt><dd><?= e(fdate($u['created_at'])) ?></dd></dl></div>
   </div>
 </div>

@@ -6,7 +6,7 @@ $v = static fn (string $k, mixed $d = '') => is_array($o) && array_key_exists($k
 $prov = (string) $v('provider', 'anthropic');
 $keyRow = static function (string $p, string $label, string $hint): string {
   $saved = AiClient::hasKey($p);
-  return '<div class="field"><label for="ai-'.$p.'-key">'.e($label).' API key</label><div class="ai-key"><input id="ai-'.$p.'-key" type="password" name="ai['.$p.'_key]" autocomplete="new-password" spellcheck="false" placeholder="'.($saved ? '•••• saved — leave blank to keep' : 'Paste key').'">'.($saved ? '<span class="pill pill-mint">'.icon('check', 'sm').' saved</span>' : '<span class="pill pill-gray">not set</span>').'</div>'
+  return '<div class="field"><label for="ai-'.$p.'-key">'.e($label).' API key</label><div class="ai-key"><input id="ai-'.$p.'-key" type="password" name="ai['.$p.'_key]" autocomplete="new-password" spellcheck="false" placeholder="'.($saved ? '•••• saved, leave blank to keep' : 'Paste key').'">'.($saved ? '<span class="pill pill-mint">'.icon('check', 'sm').' saved</span>' : '<span class="pill pill-gray">not set</span>').'</div>'
     .($saved ? '<label class="check xs mt"><input type="checkbox" name="ai[clear_'.$p.'_key]" value="1"> Remove saved key</label>' : '').'<div class="hint">'.e($hint).'</div>'.error_for($p.'_key').'</div>'; };
 ?>
 <div class="form">

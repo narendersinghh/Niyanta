@@ -19,7 +19,7 @@ final class CompensationController extends Controller {
     $stats = DB::first("SELECT COUNT(u.id) AS active, SUM(c.pay_type='monthly') AS monthly, SUM(c.pay_type='hourly') AS hourly, SUM(c.id IS NULL) AS missing, COALESCE(SUM(CASE WHEN c.pay_type='monthly' THEN c.amount END),0) AS monthly_cost FROM users u ".self::CURRENT." WHERE u.status='active'");
     return $this->view('payroll::employees/index', ['title' => 'Compensation', 'p' => $page, 'stats' => $stats, 'sched' => self::schedules(array_column($page['items'], 'id')), 'styles' => ['css/payroll.css']]); }
 
-  /** Employee work schedules from HR (hours/day, weekly off days) — empty when HR is unavailable. */
+  /** Employee work schedules from HR (hours/day, weekly off days), empty when HR is unavailable. */
   private static function schedules(array $ids): array {
     $cls = 'Modules\\Hr\\Services\\LeaveService';
     if (!$ids || !Modules::enabled('hr') || !class_exists($cls) || !method_exists($cls, 'schedules')) { return []; }

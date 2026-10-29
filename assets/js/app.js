@@ -24,8 +24,14 @@ d.addEventListener("click",e=>{if(e.target.closest("[data-nav-toggle]"))$("#app"
 d.addEventListener("click",e=>{$$("details.dd[open]").forEach(x=>{if(!x.contains(e.target))x.removeAttribute("open")})});
 d.addEventListener("keydown",e=>{if(e.key==="Escape")$$("details.dd[open]").forEach(x=>x.removeAttribute("open"));
 if(e.key==="/"&&!/INPUT|TEXTAREA|SELECT/.test(d.activeElement?.tagName||"")&&!d.activeElement?.isContentEditable){const s=$("[data-search]");if(s){e.preventDefault();s.focus()}}});
-/* sidebar sections remember open/closed (active section always opens) */
-$$("details.nav-sec").forEach(x=>{const k="ny-sec-"+x.dataset.sec;try{const v=localStorage.getItem(k);if(v==="1"&&!x.open)x.open=true;if(v==="0"&&!x.hasAttribute("data-active"))x.open=false}catch(e){}x.addEventListener("toggle",()=>{try{localStorage.setItem(k,x.open?"1":"0")}catch(e){}})});
+/* sidebar sections: click toggles (remembered), hover on a collapsed section shows a flyout (desktop) */
+$$(".nav-sec").forEach(x=>{const k="ny-sec-"+x.dataset.sec,h=$(".nav-sec-head",x),it=$(".nav-sec-items",x),set=o=>{x.classList.toggle("open",o);h.setAttribute("aria-expanded",o?"true":"false")};
+try{const v=localStorage.getItem(k);if(v==="1")set(true);if(v==="0"&&!x.hasAttribute("data-active"))set(false)}catch(e){}
+h.addEventListener("click",()=>{const o=!x.classList.contains("open");set(o);x.classList.remove("fly");try{localStorage.setItem(k,o?"1":"0")}catch(e){}});
+let t;x.addEventListener("mouseenter",()=>{if(x.classList.contains("open")||innerWidth<=900)return;clearTimeout(t);const r=h.getBoundingClientRect();it.style.top=Math.min(r.top,innerHeight-it.scrollHeight-16)+"px";x.classList.add("fly")});
+x.addEventListener("mouseleave",()=>{t=setTimeout(()=>x.classList.remove("fly"),120)})});
+/* automatic scheduler: background beacon when the server asks for it */
+if(meta("cron-due")&&navigator.sendBeacon){setTimeout(()=>{try{navigator.sendBeacon(N.url("cron/tick"))}catch(e){}},1500)}
 /* toasts auto-hide */
 $$(".toast").forEach(t=>setTimeout(()=>t.remove(),5000));
 /* confirm forms & buttons */

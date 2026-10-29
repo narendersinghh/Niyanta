@@ -57,7 +57,7 @@ final class CompanyDocController extends Controller {
       Audit::log('hr.company_doc.update', 'company_doc', $id, ['title' => $d['title'], 'category' => $d['category'], 'requires_ack' => $d['requires_ack'], 'file_replaced' => (bool) $file, 'acks_reset' => $reset]); });
     if ($file && $doc['file_id']) { Storage::remove((int) $doc['file_id']); }
     if ($reset) { Notify::permission('hr.company_docs.view', 'Updated: '.$d['title'], 'This document was updated. Please read it again and acknowledge.', '/hr/documents?show=pending'); }
-    $this->flash('Document updated'.($file ? ' with the new file' : '').($reset ? ' — everyone has been asked to acknowledge again.' : '.'));
+    $this->flash('Document updated'.($file ? ' with the new file' : '').($reset ? ', everyone has been asked to acknowledge again.' : '.'));
     return $this->redirect('/hr/documents#doc-'.$id); }
 
   public function destroy(int $id): Response {
@@ -69,13 +69,13 @@ final class CompanyDocController extends Controller {
     $this->flash('“'.$doc['title'].'” deleted.');
     return $this->redirect('/hr/documents'); }
 
-  /** "I have read this" — only for documents that ask for acknowledgement. Idempotent. */
+  /** "I have read this", only for documents that ask for acknowledgement. Idempotent. */
   public function acknowledge(int $id): Response {
     $doc = $this->findOr404('company_documents', $id);
     if (!(int) $doc['requires_ack']) { $this->abort(422, 'This document does not need an acknowledgement.'); }
     if (DB::query('INSERT IGNORE INTO company_document_acks (document_id, user_id, acknowledged_at) VALUES (?,?,?)', [$id, $this->uid(), date('Y-m-d H:i:s')])->rowCount()) { Audit::log('hr.company_doc.ack', 'company_doc', $id, ['title' => $doc['title']]); }
     if ($this->request->wantsJson()) { return $this->json(['ok' => true]); }
-    $this->flash('Thanks — your acknowledgement of “'.$doc['title'].'” was recorded.');
+    $this->flash('Thanks, your acknowledgement of “'.$doc['title'].'” was recorded.');
     return $this->back(); }
 
   /** Dashboard widget: documents still awaiting the user's acknowledgement. */

@@ -27,7 +27,7 @@ final class SettingsSchema {
     $g = static fn (string $k) => self::GROUPS[$k][0];
     return [
       'general' => ['General', 'globe', 'Region, formats, currency and your company identity.', $g('workspace'), 'sky', 'workspace', null],
-      'appearance' => ['Branding & appearance', 'palette', 'Name, logo, colours, typography and theme.', $g('workspace'), 'pink', 'workspace', null],
+      'appearance' => ['Branding & appearance', 'palette', 'Company logo, colours, typography and theme.', $g('workspace'), 'pink', 'workspace', null],
       'email' => ['Email', 'mail', 'Email provider, SMTP credentials and sender identity.', $g('workspace'), 'peach', 'workspace', null],
       'users' => ['Users & security', 'shield', 'Password policy, sessions and sign-in protection.', $g('workspace'), 'lav', 'workspace', null],
       'features' => ['Features', 'puzzle', 'Which bundles and features are switched on.', $g('workspace'), 'mint', 'workspace', null],
@@ -38,12 +38,11 @@ final class SettingsSchema {
       'projects' => ['Projects & tasks', 'kanban', 'Reminders and defaults for projects and work reports.', $g('work'), 'lav', 'work', 'work'],
       'invoicing' => ['Quotations & invoicing', 'receipt', 'Document numbering, tax, payment terms and reminders.', $g('clients'), 'peach', 'clients', 'clients'],
       'overview' => ['System health', 'activity', 'Health of your installation at a glance.', $g('system'), 'mint', 'system', null],
-      'retention' => ['Data retention', 'history', 'How long logs, notifications and activity data are kept.', $g('system'), 'lav', 'system', null],
+      'retention' => ['Storage & data retention', 'database', 'Disk usage, upload limits and how long logs and activity data are kept.', $g('system'), 'lav', 'system', null],
       'demo' => ['Demo data', 'layers', 'Load a realistic sample agency to explore, then remove it.', $g('system'), 'sky', 'system', null],
       'backups' => ['Backups', 'cloud', 'Automatic database and file backups.', $g('system'), 'mint', 'system', null],
       'cron' => ['Cron & scheduler', 'clock', 'Background jobs, reminders and the mail queue.', $g('system'), 'lemon', 'system', null],
-      'updates' => ['Updates', 'refresh', 'Update source, channel and access token.', $g('system'), 'peach', 'system', null],
-      'storage' => ['Storage', 'database', 'Upload limits and disk usage.', $g('system'), 'sky', 'system', null]]; }
+      'updates' => ['Updates', 'refresh', 'Update source, channel and access token.', $g('system'), 'peach', 'system', null],]; }
 
   /** Old tab keys that moved: redirect to their new home. */
   public const MOVED = ['security' => 'users', 'modules' => 'features', 'hr' => 'employees', 'ai' => null];
@@ -53,14 +52,14 @@ final class SettingsSchema {
     return match ($tab) {
       'general' => ['Region' => 'Timezone and how dates and times are displayed everywhere.', 'Money' => 'Currency used on invoices, payroll and reports.', 'Company' => 'Your legal identity, printed on invoices, quotations and payslips.'],
       'appearance' => ['Brand' => 'How your workspace is named across the app, emails and the sign-in page.', 'Colours' => 'Leave a colour at its default to follow the built-in palette (and future design updates).', 'Typography & shape' => 'Font, base size, corner radius and the default light/dark theme.'],
-      'email' => ['SMTP server' => 'Filled in by the provider you pick — adjust if your provider says otherwise.', 'Sender' => 'Use an address on a domain you verified with your provider (SPF/DKIM).', 'Delivery' => 'In-app notifications are always on; email copies are optional.'],
+      'email' => ['SMTP server' => 'Filled in by the provider you pick, adjust if your provider says otherwise.', 'Sender' => 'Use an address on a domain you verified with your provider (SPF/DKIM).', 'Delivery' => 'In-app notifications are always on; email copies are optional.'],
       'users' => ['Passwords & sessions' => 'Applies to every user the next time they sign in or change their password.'],
       'employees' => ['Work schedule' => 'Company defaults. Hours per day and weekly offs can be overridden per employee on their HR profile.', 'Joining' => 'Defaults used when onboarding new employees.'],
       'leave' => ['Holidays' => 'Fixed holidays apply to everyone; optional holidays are a personal pool for festivals or personal needs.', 'Leave year' => 'Balances are allocated for this cycle.'],
       'attendance' => ['Time tracking' => 'Applies to the web timer and the desktop agent.', 'Screenshot monitoring' => 'Only for employees who have given consent. Screenshots older than the retention period are deleted nightly.'],
       'payroll' => ['Payslips' => 'Shown on every payslip PDF.'],
       'invoicing' => ['Numbering' => 'New documents get the next number after the highest existing one with this prefix.', 'Tax & payment terms' => 'Defaults for new invoices and quotations; editable per document.', 'Default terms' => 'Pre-filled on new documents.'],
-      'retention' => ['Logs & activity' => 'Older rows are deleted permanently by the nightly cleanup job. 0 keeps them forever.', 'Files & sessions' => 'Screenshot files and expired login sessions on disk.', 'Backups' => 'Older automatic backups are removed after each new backup.'],
+      'retention' => ['Logs & activity' => 'Older rows are deleted permanently by the nightly cleanup job. 0 keeps them forever.', 'Files & sessions' => 'Screenshot files and expired login sessions on disk.', 'Uploads' => 'Largest file a user can upload anywhere in the app.', 'Backups' => 'Older automatic backups are removed after each new backup.'],
       'backups' => ['Schedule & retention' => 'Automatic backups run from the scheduler at this time (server time).'],
       default => [] }; }
 
@@ -76,8 +75,9 @@ final class SettingsSchema {
         ['key' => 'general.week_start', 'label' => 'Week starts on', 'type' => 'select', 'rules' => 'required', 'options' => ['1' => 'Monday', '7' => 'Sunday', '6' => 'Saturday']],
         ['key' => 'general.currency_symbol', 'label' => 'Currency symbol', 'type' => 'text', 'rules' => 'required|max:5', 'section' => 'Money', 'hint' => 'Shown before amounts, e.g. ₹, $, €.'],
         ['key' => 'general.currency_code', 'label' => 'Currency code', 'type' => 'text', 'rules' => 'required|regex:/^[A-Z]{3}$/', 'hint' => 'ISO 4217 code, e.g. INR, USD, EUR.', 'upper' => true],
-        ['key' => 'general.thousand_sep', 'label' => 'Thousands separator', 'type' => 'select', 'options' => [',' => 'Comma — 1,234,567.00', "'" => "Apostrophe — 1'234'567.00", '' => 'None — 1234567.00'], 'default' => ',', 'span' => true],
-        ['key' => 'company.address', 'label' => 'Registered address', 'type' => 'textarea', 'rules' => 'nullable|max:500', 'section' => 'Company', 'span' => true],
+        ['key' => 'general.thousand_sep', 'label' => 'Thousands separator', 'type' => 'select', 'options' => [',' => 'Comma, 1,234,567.00', "'" => "Apostrophe, 1'234'567.00", '' => 'None, 1234567.00'], 'default' => ',', 'span' => true],
+        ['key' => 'company.name', 'label' => 'Company name', 'type' => 'text', 'rules' => 'required|max:80', 'section' => 'Company', 'span' => true, 'hint' => 'Shown under the Niyanta logo and on invoices, quotations, payslips and emails. The Niyanta product name and logo are fixed.'],
+        ['key' => 'company.address', 'label' => 'Registered address', 'type' => 'textarea', 'rules' => 'nullable|max:500', 'span' => true],
         ['key' => 'company.email', 'label' => 'Billing email', 'type' => 'email', 'rules' => 'nullable|email|max:190'],
         ['key' => 'company.phone', 'label' => 'Billing phone', 'type' => 'text', 'rules' => 'nullable|max:30'],
         ['key' => 'company.tax_id', 'label' => 'Tax ID (GSTIN / VAT)', 'type' => 'text', 'rules' => 'nullable|max:60', 'hint' => 'Printed on invoices and quotations.']],
@@ -86,15 +86,12 @@ final class SettingsSchema {
         $num('security.login_max_attempts', 'Max sign-in attempts per 15 min', 3, 20, 'Per email and IP address. Accounts lock for 30 minutes after 10 failures.'),
         $num('security.session_idle_minutes', 'Session idle timeout (minutes)', 5, 1440, 'Users are signed out after this much inactivity.')],
       'appearance' => [
-        ['key' => 'branding.app_name', 'label' => 'Application name', 'type' => 'text', 'rules' => 'required|max:60', 'section' => 'Brand', 'preview' => 'name'],
-        ['key' => 'branding.tagline', 'label' => 'Tagline', 'type' => 'text', 'rules' => 'nullable|max:80', 'preview' => 'tagline'],
-        ['key' => 'branding.login_headline', 'label' => 'Sign-in page headline', 'type' => 'text', 'rules' => 'nullable|max:140', 'span' => true, 'placeholder' => 'Clients, projects, people & payroll — beautifully in one place.'],
         ['key' => 'appearance.primary_color', 'label' => 'Primary', 'type' => 'color', 'section' => 'Colours', 'var' => '--primary', 'hint' => 'Buttons, links, focus rings.'],
         ['key' => 'appearance.sidebar_color', 'label' => 'Sidebar', 'type' => 'color', 'var' => '--sidebar', 'hint' => 'Keep it dark for contrast.'],
-        ['key' => 'appearance.accent_1', 'label' => 'Accent — indigo', 'type' => 'color', 'var' => '--lav'],
-        ['key' => 'appearance.accent_2', 'label' => 'Accent — teal', 'type' => 'color', 'var' => '--mint'],
-        ['key' => 'appearance.accent_3', 'label' => 'Accent — amber', 'type' => 'color', 'var' => '--lemon'],
-        ['key' => 'appearance.accent_4', 'label' => 'Accent — coral', 'type' => 'color', 'var' => '--peach'],
+        ['key' => 'appearance.accent_1', 'label' => 'Accent: indigo', 'type' => 'color', 'var' => '--lav'],
+        ['key' => 'appearance.accent_2', 'label' => 'Accent: teal', 'type' => 'color', 'var' => '--mint'],
+        ['key' => 'appearance.accent_3', 'label' => 'Accent: amber', 'type' => 'color', 'var' => '--lemon'],
+        ['key' => 'appearance.accent_4', 'label' => 'Accent: coral', 'type' => 'color', 'var' => '--peach'],
         ['key' => 'appearance.font_family', 'label' => 'Font family', 'type' => 'select', 'rules' => 'required', 'options' => self::FONTS, 'section' => 'Typography & shape', 'preview' => 'font', 'default' => 'Plus Jakarta Sans'],
         ['key' => 'appearance.default_theme', 'label' => 'Default theme', 'type' => 'select', 'rules' => 'required', 'options' => ['system' => 'Follow device', 'light' => 'Light', 'dark' => 'Dark'], 'hint' => 'Users can override this from the top bar.', 'default' => 'system'],
         $num('appearance.font_size', 'Base font size', 12, 18, '', ['type' => 'range', 'var' => '--fs', 'unit' => 'px']),
@@ -136,8 +133,8 @@ final class SettingsSchema {
         $days('retention.ai_usage_days', 'AI usage log', 'Token usage records (only if AI was used).', 180),
         $num('attendance.screenshot_retention_days', 'Activity screenshots', 1, 365, 'Image files and their rows. Deleted by the attendance screenshot cleanup job.', ['default' => '30', 'section' => 'Files & sessions', 'unit' => 'days']),
         $days('retention.sessions_days', 'Expired sign-in sessions', 'Session files on disk with no activity for this long. 0 keeps them.', 2),
-        $num('backups.keep', 'Backups to keep', 1, 90, 'The newest successful backups are kept; older ones are deleted.', ['default' => '7', 'section' => 'Backups', 'unit' => 'newest'])],
-      'storage' => [$num('storage.max_upload_mb', 'Maximum upload size (MB)', 1, 512, 'Cannot exceed the PHP limits shown above.', ['default' => '10'])],
+        $num('backups.keep', 'Backups to keep', 1, 90, 'The newest successful backups are kept; older ones are deleted.', ['default' => '7', 'section' => 'Backups', 'unit' => 'newest']),
+        $num('storage.max_upload_mb', 'Maximum upload size (MB)', 1, 512, 'Cannot exceed the PHP upload limit shown above.', ['default' => '10', 'section' => 'Uploads'])],
       'backups' => [
         ['key' => 'backups.enabled', 'label' => 'Automatic daily backups', 'type' => 'toggle', 'default' => '1', 'span' => true, 'section' => 'Schedule & retention'],
         ['key' => 'backups.time', 'label' => 'Run at (server time)', 'type' => 'time', 'rules' => 'required|time', 'default' => '02:30'],

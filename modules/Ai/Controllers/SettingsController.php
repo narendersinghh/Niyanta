@@ -39,7 +39,7 @@ final class SettingsController extends Controller {
     $this->flash('AI settings saved.');
     return $this->redirect('/ai/settings'); }
 
-  /** POST /ai/settings/test — tiny prompt against the saved provider. */
+  /** POST /ai/settings/test, tiny prompt against the saved provider. */
   public function test(): Response {
     try {
       $r = AiClient::ask('test', 'You are a connectivity check. Reply with exactly: OK', 'Reply with OK.', ['test' => true, 'max_tokens' => 200]);

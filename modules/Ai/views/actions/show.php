@@ -44,7 +44,7 @@ $old = Core\Session::getFlash('old', []);
     <?php endif ?>
   </div>
   <div class="stack">
-    <div class="card"><div class="card-head"><h4>Project</h4></div><div class="flex"><span class="notif-ic soft-lav"><?= icon('folder', 'sm') ?></span><b><?= e($data['project'] ?? '—') ?></b></div></div>
+    <div class="card"><div class="card-head"><h4>Project</h4></div><div class="flex"><span class="notif-ic soft-lav"><?= icon('folder', 'sm') ?></span><b><?= e($data['project'] ?? '-') ?></b></div></div>
     <div class="card"><div class="card-head"><h4>Source text</h4></div><div class="ai-out ai-src"><?= e($data['source'] ?? '') ?></div><p class="xs muted mt mb0">Suggested by <?= e($data['model'] ?? 'AI') ?>. Review before approving.</p></div>
   </div>
 </div>

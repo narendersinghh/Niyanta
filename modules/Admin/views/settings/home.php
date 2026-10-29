@@ -12,7 +12,7 @@ $warn = array_keys(array_filter($status, static fn ($s) => $s[1] === 'warn'));
 <div class="card set-hero">
   <div class="grow">
     <span class="pill pill-<?= $warn ? 'lemon' : 'mint' ?>"><?= $warn ? count($warn).' item'.(count($warn) > 1 ? 's need' : ' needs').' attention' : 'Everything looks good' ?></span>
-    <h2><?= e(setting('branding.app_name', 'Niyanta')) ?> workspace</h2>
+    <h2><?= e(company_name()) ?> workspace</h2>
     <p class="muted small mb0">Start with <b>General</b> and <b>Email</b>, then tune each product area. Need sample data to explore? Load the <a href="<?= e(url('/admin/settings/demo')) ?>">demo agency</a>.</p>
     <?php if ($warn): ?><div class="chips mt"><?php foreach ($warn as $k): ?><a class="chip" href="<?= e(url($pages[$k] ?? '/admin/settings/'.$k)) ?>"><span class="tone-dot warn"></span><?= e($tabs[$k][0]) ?> · <?= e($status[$k][0]) ?></a><?php endforeach ?></div><?php endif ?>
   </div>

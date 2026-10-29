@@ -33,7 +33,7 @@ final class RunController extends Controller {
     return $this->view('payroll::runs/show', ['title' => 'Payroll · '.PayrollService::monthLabel($run['period_month']), 'run' => $run, 'p' => $p, 'totals' => $totals, 'missing' => $missing, 'styles' => ['css/payroll.css']]); }
 
   public function generate(int $id): Response {
-    try { $r = PayrollService::generate($id); $this->flash('Payslips regenerated: '.$r['count'].' employees, net '.money($r['total']).($r['flagged'] ? ' — '.$r['flagged'].' flagged' : '').'.'); }
+    try { $r = PayrollService::generate($id); $this->flash('Payslips regenerated: '.$r['count'].' employees, net '.money($r['total']).($r['flagged'] ? ', '.$r['flagged'].' flagged' : '').'.'); }
     catch (\DomainException $e) { $this->flash($e->getMessage(), 'error'); }
     return $this->redirect('/payroll/runs/'.$id); }
 

@@ -6,7 +6,7 @@
 .set-nav .grp{font-size:.66rem;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);padding:14px 10px 5px;font-weight:700}
 .set-nav a{display:flex;align-items:center;gap:.6rem;padding:6px 10px 6px 6px;border-radius:12px;font-weight:600;font-size:.88rem;color:var(--muted);transition:background .15s,color .15s;min-width:0}
 .set-nav a:hover{background:var(--surface);color:var(--text)}
-.set-nav a.active{background:var(--surface);color:var(--text);box-shadow:var(--shadow),inset 3px 0 0 var(--primary)}
+.set-nav a.active{background:var(--surface);color:var(--text);box-shadow:var(--shadow)}
 .sn-ic{--c:var(--primary);width:28px;height:28px;border-radius:9px;display:grid;place-items:center;flex:none;background:color-mix(in srgb,var(--c) 14%,transparent);color:var(--c)}
 .set-nav a.active .sn-ic{background:var(--c);color:#fff}
 .ic-chip{--c:var(--primary);width:44px;height:44px;border-radius:14px;display:grid;place-items:center;flex:none;color:#fff;background:linear-gradient(135deg,var(--c),color-mix(in srgb,var(--c) 68%,#fff));box-shadow:0 10px 20px -12px var(--c)}
@@ -96,7 +96,8 @@
 .ret-t,.demo-c{display:flex;align-items:center;gap:.7rem;padding:12px 14px;border-radius:16px;background:var(--surface);border:1px solid var(--border)}
 .demo-c{background:var(--surface-2)}
 .ret-t b,.demo-c b{display:block;font-size:1.1rem;letter-spacing:-.02em}
-.ret-t span,.demo-c span{display:block}
+.ret-t>div>span,.demo-c>div>span{display:block}
+.ret-t .ic-chip,.demo-c .ic-chip{display:grid;place-items:center}
 .demo-facts{list-style:none;display:flex;flex-wrap:wrap;gap:.4rem 1.2rem;padding:0;margin:.6rem 0 0}
 .demo-facts li{display:flex;align-items:center;gap:.35rem;font-weight:600}
 .demo-pass code{background:var(--surface);border-radius:6px;padding:1px 6px}
@@ -128,7 +129,7 @@ input[type=file]::file-selector-button{font:inherit;font-weight:600;font-size:.8
 .pv-brand b{display:block;font-size:.95em;line-height:1.1}
 .pv-brand small{display:block;font-size:.65em;opacity:.7}
 .pv-nav{padding:.45em .7em;border-radius:.8em;font-size:.78em;font-weight:600}
-.pv-nav.on{background:color-mix(in srgb,var(--primary) 38%,transparent);color:#fff;box-shadow:inset 3px 0 0 var(--primary)}
+.pv-nav.on{background:color-mix(in srgb,var(--primary) 38%,transparent);color:#fff;}
 .pv-body{padding:1em;display:flex;flex-direction:column;gap:.7em;min-width:0}
 .pv-body h5{margin:0;font-size:1.15em;letter-spacing:-.02em}
 .pv-tiles{display:grid;grid-template-columns:1fr 1fr;gap:.5em}

@@ -40,13 +40,13 @@ $tel = static fn (string $p) => 'tel:'.preg_replace('/[^\d+]/', '', $p);
     <div class="crm-ccard">
       <div class="crm-ccard-top">
         <?= avatar($c['company'] ?: $c['name'], null, 'lg') ?>
-        <a class="grow" href="<?= e(url('/clients/'.$cid)) ?>"><b class="truncate"><?= e($c['company'] ?: $c['name']) ?></b><div class="crm-sub truncate"><?= e(implode(' · ', array_filter([$c['company'] ? $c['name'] : null, $c['industry'], $c['city']])) ?: '—') ?></div></a>
+        <a class="grow" href="<?= e(url('/clients/'.$cid)) ?>"><b class="truncate"><?= e($c['company'] ?: $c['name']) ?></b><div class="crm-sub truncate"><?= e(implode(' · ', array_filter([$c['company'] ? $c['name'] : null, $c['industry'], $c['city']])) ?: '-') ?></div></a>
         <?= badge($c['status'], $statuses[$c['status']] ?? null) ?>
       </div>
       <div class="chips"><?php foreach (array_slice($tags[$cid] ?? [], 0, 4) as $t): ?><span class="pill pill-<?= e($t['color']) ?>"><?= e($t['name']) ?></span><?php endforeach ?></div>
       <div class="crm-ccard-stats">
         <div><span>Account team</span><?php if (!empty($managers[$cid])): ?><div class="avatars"><?php foreach (array_slice($managers[$cid], 0, 4) as $m): ?><?= avatar($m['name'], $m['avatar'], 'sm') ?><?php endforeach ?></div><?php else: ?><b class="small muted">Unassigned</b><?php endif ?></div>
-        <?php if ($fin): ?><div class="right"><span>Outstanding</span><b class="<?= !empty($due[$cid]) ? '' : 'muted' ?>"><?= !empty($due[$cid]) ? e(Hooks::compact((float) $due[$cid])) : '—' ?></b></div><?php else: ?><div class="right"><span>Client since</span><b class="small"><?= e(fdate($c['created_at'], 'M Y')) ?></b></div><?php endif ?>
+        <?php if ($fin): ?><div class="right"><span>Outstanding</span><b class="<?= !empty($due[$cid]) ? '' : 'muted' ?>"><?= !empty($due[$cid]) ? e(Hooks::compact((float) $due[$cid])) : '-' ?></b></div><?php else: ?><div class="right"><span>Client since</span><b class="small"><?= e(fdate($c['created_at'], 'M Y')) ?></b></div><?php endif ?>
       </div>
       <div class="crm-ccard-foot">
         <div class="crm-qbtns">
@@ -65,11 +65,11 @@ $tel = static fn (string $p) => 'tel:'.preg_replace('/[^\d+]/', '', $p);
     <thead><tr><th>Client</th><th>Contact</th><th>Tags</th><th>Team</th><?php if ($fin): ?><th class="amt">Outstanding</th><?php endif ?><th>Status</th><th><span class="sr">Actions</span></th></tr></thead>
     <tbody><?php foreach ($p['items'] as $c): $cid = (int) $c['id']; ?>
       <tr>
-        <td class="rt-main"><a class="crm-cell" href="<?= e(url('/clients/'.$cid)) ?>"><?= avatar($c['company'] ?: $c['name'], null) ?><div class="grow"><b><?= e($c['company'] ?: $c['name']) ?></b><div class="crm-sub"><?= e(implode(' · ', array_filter([$c['company'] ? $c['name'] : null, $c['industry']])) ?: '—') ?></div></div></a></td>
-        <td data-l="Contact"><div class="small"><?= e($c['email'] ?: '—') ?></div><?php if ($c['phone']): ?><div class="crm-sub rt-hide"><?= e($c['phone']) ?></div><?php endif ?></td>
-        <td class="rt-hide"><div class="chips"><?php foreach (array_slice($tags[$cid] ?? [], 0, 3) as $t): ?><span class="pill pill-<?= e($t['color']) ?>"><?= e($t['name']) ?></span><?php endforeach ?><?php if (count($tags[$cid] ?? []) > 3): ?><span class="pill pill-gray">+<?= count($tags[$cid]) - 3 ?></span><?php endif ?><?= empty($tags[$cid]) ? '<span class="muted">—</span>' : '' ?></div></td>
+        <td class="rt-main"><a class="crm-cell" href="<?= e(url('/clients/'.$cid)) ?>"><?= avatar($c['company'] ?: $c['name'], null) ?><div class="grow"><b><?= e($c['company'] ?: $c['name']) ?></b><div class="crm-sub"><?= e(implode(' · ', array_filter([$c['company'] ? $c['name'] : null, $c['industry']])) ?: '-') ?></div></div></a></td>
+        <td data-l="Contact"><div class="small"><?= e($c['email'] ?: '-') ?></div><?php if ($c['phone']): ?><div class="crm-sub rt-hide"><?= e($c['phone']) ?></div><?php endif ?></td>
+        <td class="rt-hide"><div class="chips"><?php foreach (array_slice($tags[$cid] ?? [], 0, 3) as $t): ?><span class="pill pill-<?= e($t['color']) ?>"><?= e($t['name']) ?></span><?php endforeach ?><?php if (count($tags[$cid] ?? []) > 3): ?><span class="pill pill-gray">+<?= count($tags[$cid]) - 3 ?></span><?php endif ?><?= empty($tags[$cid]) ? '<span class="muted">-</span>' : '' ?></div></td>
         <td data-l="Team"><div class="avatars"><?php foreach (array_slice($managers[$cid] ?? [], 0, 4) as $m): ?><?= avatar($m['name'], $m['avatar'], 'sm') ?><?php endforeach ?><?php if (empty($managers[$cid])): ?><span class="crm-sub">Unassigned</span><?php endif ?></div></td>
-        <?php if ($fin): ?><td class="amt" data-l="Outstanding"><?= !empty($due[$cid]) ? '<b>'.e(money($due[$cid])).'</b>' : '<span class="muted">—</span>' ?></td><?php endif ?>
+        <?php if ($fin): ?><td class="amt" data-l="Outstanding"><?= !empty($due[$cid]) ? '<b>'.e(money($due[$cid])).'</b>' : '<span class="muted">-</span>' ?></td><?php endif ?>
         <td class="rt-side"><?= badge($c['status'], $statuses[$c['status']] ?? null) ?></td>
         <td class="actions rt-hide"><span class="crm-row-actions"><?php if ($manage): ?><a class="crm-go" href="<?= e(url('/clients/'.$cid.'/edit')) ?>" title="Edit" aria-label="Edit"><?= icon('edit', 'sm') ?></a><?php endif ?><a class="crm-go" href="<?= e(url('/clients/'.$cid)) ?>" title="Open" aria-label="Open"><?= icon('chevron-right', 'sm') ?></a></span></td>
       </tr>

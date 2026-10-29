@@ -5,7 +5,7 @@ use Core\Pdf;
 /** Renders a payslip row (joined with employee + run data) into a professional A4 PDF. */
 final class PayslipPdf {
   public static function render(array $s): string {
-    $company = (string) setting('branding.app_name', 'Niyanta');
+    $company = company_name();
     $period = PayrollService::monthLabel($s['period_month']);
     $earn = json_decode((string) $s['earnings'], true) ?: [];
     $ded = json_decode((string) $s['deductions'], true) ?: [];
@@ -14,7 +14,7 @@ final class PayslipPdf {
     $pdf->rect(0, 0, $W, 104, '#16161d');
     $pdf->rect(0, 104, $W, 5, '#c8b6ff');
     $pdf->font(true, 20)->text($L, 50, $company, '#ffffff');
-    $pdf->font(false, 9.5)->text($L, 70, (string) setting('branding.tagline', 'Salary statement'), '#a3a3b2');
+    $pdf->font(false, 9.5)->text($L, 70, 'Salary statement', '#a3a3b2');
     $pdf->font(true, 11)->text($R, 46, 'PAYSLIP', '#c8b6ff', 'right');
     $pdf->font(true, 16)->text($R, 68, $period, '#ffffff', 'right');
     $pdf->font(false, 8.5)->text($R, 86, 'Slip #'.str_pad((string) $s['id'], 6, '0', STR_PAD_LEFT), '#a3a3b2', 'right');

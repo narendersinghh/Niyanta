@@ -47,5 +47,5 @@ final class BackupController extends Controller {
     if ($this->request->str('confirm') !== 'RESTORE') { $this->flash('Type RESTORE in capitals to confirm the restore.', 'error'); return $this->redirect('/admin/backups'); }
     $r = BackupService::restore($b, $this->uid());
     if ($r['ok']) { $this->flash('Database restored from '.$b['filename'].' ('.$r['statements'].' statements). Safety backup: '.$r['safety_file'].'.'); }
-    else { $this->flash('Restore failed: '.mb_substr((string) $r['error'], 0, 250).($r['safety_id'] ? ' A safety backup was kept ('.($r['safety_file'] ?? '').') — restore it if data looks wrong.' : ''), 'error'); }
+    else { $this->flash('Restore failed: '.mb_substr((string) $r['error'], 0, 250).($r['safety_id'] ? ' A safety backup was kept ('.($r['safety_file'] ?? '').'), restore it if data looks wrong.' : ''), 'error'); }
     return $this->redirect('/admin/backups'); } }

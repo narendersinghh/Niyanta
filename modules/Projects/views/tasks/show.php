@@ -57,7 +57,7 @@ $more = ($canManage ? '<button type="button" data-modal="task-edit">'.icon('edit
           <?= $s['assignee'] ? avatar($s['assignee'], $s['avatar'], 'sm') : '' ?>
         </div>
         <?php endforeach ?>
-        <?php if (!$subs): ?><p class="muted small mb0">Break this task into smaller steps<?= $canEdit ? ' — add the first one below.' : '.' ?></p><?php endif ?>
+        <?php if (!$subs): ?><p class="muted small mb0">Break this task into smaller steps<?= $canEdit ? ', add the first one below.' : '.' ?></p><?php endif ?>
       </div>
       <?php if ($canEdit): ?>
       <form class="inline-add" method="post" action="<?= e(url('/tasks/'.$id.'/subtasks')) ?>"><?= csrf_field() ?>
@@ -134,17 +134,17 @@ $more = ($canManage ? '<button type="button" data-modal="task-edit">'.icon('edit
         <div class="kv-row"><span><?= icon('flag', 'sm') ?> Priority</span><span><?= badge($t['priority'], PS::PRIORITIES[$t['priority']]) ?></span></div>
         <div class="kv-row"><span><?= icon('calendar', 'sm') ?> Due</span><span><?= PS::dueChip($t['due_date'], $t['status']) ?></span></div>
         <div class="kv-row"><span><?= icon('play', 'sm') ?> Start</span><span><?= e(fdate($t['start_date'])) ?></span></div>
-        <div class="kv-row"><span><?= icon('target', 'sm') ?> Milestone</span><span><?= e($t['milestone'] ?? '—') ?></span></div>
-        <div class="kv-row"><span><?= icon('timer', 'sm') ?> Estimate</span><span><?= $est !== null ? e((float) $est).'h' : '—' ?></span></div>
+        <div class="kv-row"><span><?= icon('target', 'sm') ?> Milestone</span><span><?= e($t['milestone'] ?? '-') ?></span></div>
+        <div class="kv-row"><span><?= icon('timer', 'sm') ?> Estimate</span><span><?= $est !== null ? e((float) $est).'h' : '-' ?></span></div>
         <div class="kv-row"><span><?= icon('wallet', 'sm') ?> Billable</span><span><?= $t['billable'] ? 'Yes' : 'No' ?></span></div>
-        <div class="kv-row"><span><?= icon('history', 'sm') ?> Created</span><span class="small"><?= e($t['creator'] ?? '—') ?> · <?= e(ago($t['created_at'])) ?></span></div>
+        <div class="kv-row"><span><?= icon('history', 'sm') ?> Created</span><span class="small"><?= e($t['creator'] ?? '-') ?> · <?= e(ago($t['created_at'])) ?></span></div>
         <?php if ($t['completed_at']): ?><div class="kv-row"><span><?= icon('check-circle', 'sm') ?> Completed</span><span class="small"><?= e(fdatetime($t['completed_at'])) ?></span></div><?php endif ?>
       </div>
     </section>
     <?php if ($time): ?>
     <section class="card">
       <div class="card-head"><h4 class="mb0">Time tracked</h4><span class="pill pill-lav"><?= $est !== null ? e((float) $est).'h estimate' : 'No estimate' ?></span></div>
-      <div class="time-box"><div class="ring" style="--v:<?= min(100, $pct) ?>;--c:<?= $est && $actH > $est ? 'var(--red)' : 'var(--primary)' ?>" data-label="<?= $est ? $pct.'%' : '—' ?>"></div>
+      <div class="time-box"><div class="ring" style="--v:<?= min(100, $pct) ?>;--c:<?= $est && $actH > $est ? 'var(--red)' : 'var(--primary)' ?>" data-label="<?= $est ? $pct.'%' : '-' ?>"></div>
         <div><b><?= e(hours($logged)) ?></b><span class="xs muted">logged<?= $subSec ? ' (incl. '.e(hours($subSec)).' on subtasks)' : '' ?></span></div></div>
       <?php if ($sec['total']): ?>
       <div class="split-bar" title="Billable vs non-billable"><span class="bg-mint" style="flex:<?= max(1, $sec['billable']) ?>"></span><span class="bg-gray" style="flex:<?= max(0, $sec['total'] - $sec['billable']) ?>"></span></div>

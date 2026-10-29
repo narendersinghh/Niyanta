@@ -87,5 +87,5 @@ final class UserController extends Controller {
     $u = DB::find('users', $id);
     $token = \Core\Crypto::token(32);
     DB::insert('password_resets', ['user_id' => $id, 'token_hash' => hash('sha256', $token), 'expires_at' => date('Y-m-d H:i:s', time() + 7 * 86400), 'created_at' => date('Y-m-d H:i:s')]);
-    $app = setting('branding.app_name', 'Niyanta');
+    $app = company_name();
     Mailer::queue($u['email'], "You're invited to $app", Mailer::template("Welcome to $app", '<p>Hi '.e($u['name']).',</p><p>An account has been created for you. Set your password to get started (link valid for 7 days).</p>', absolute_url('/reset-password/'.$token), 'Set my password'), $u['name']); } }

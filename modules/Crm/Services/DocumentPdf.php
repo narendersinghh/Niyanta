@@ -11,7 +11,7 @@ final class DocumentPdf {
 
   public static function render(string $kind, array $doc, array $items, array $client, array $payments = []): string {
     $isInv = $kind === 'invoice';
-    $app = (string) setting('branding.app_name', 'Niyanta');
+    $app = company_name();
     $brand = self::hex((string) (setting('appearance.primary_color') ?: setting('branding.primary_color', '#5B4CF5')), '#5B4CF5');
     $pdf = new Pdf(($isInv ? 'Invoice ' : 'Quotation ').$doc['number']);
     $money = static fn ($v) => money($v);
@@ -97,7 +97,7 @@ final class DocumentPdf {
     $pdf->rect(self::L, 34, 34, 34, '#ffffff');
     $pdf->font(true, 18)->text(self::L + 17, 57, mb_strtoupper(mb_substr($app, 0, 1)), $brand, 'center');
     $pdf->font(true, 20)->text(self::L + 46, 50, $app, '#ffffff');
-    $pdf->font(false, 9)->text(self::L + 46, 66, (string) setting('branding.tagline', ''), '#f1edff');
+    $pdf->font(false, 9)->text(self::L + 46, 66, (string) setting('company.email', ''), '#f1edff');
     $pdf->font(true, 24)->text(self::R, 56, $label, '#ffffff', 'right');
     $pdf->font(false, 11)->text(self::R, 76, '# '.$number, '#f1edff', 'right'); }
 

@@ -33,7 +33,7 @@ final class UpdateController extends Controller {
   public function upload(): Response {
     if ($this->request->str('confirm') !== 'UPDATE') { $this->flash('Type UPDATE in capitals to confirm.', 'error'); return $this->redirect('/admin/updates'); }
     $f = $this->request->file('package');
-    if (!$f || $f['error'] !== UPLOAD_ERR_OK || !is_uploaded_file($f['tmp_name'])) { $this->flash('Upload failed — check that the file is below the PHP upload limit.', 'error'); return $this->redirect('/admin/updates'); }
+    if (!$f || $f['error'] !== UPLOAD_ERR_OK || !is_uploaded_file($f['tmp_name'])) { $this->flash('Upload failed, check that the file is below the PHP upload limit.', 'error'); return $this->redirect('/admin/updates'); }
     $mime = (new \finfo(FILEINFO_MIME_TYPE))->file($f['tmp_name']);
     if (strtolower(pathinfo((string) $f['name'], PATHINFO_EXTENSION)) !== 'zip' || !in_array($mime, ['application/zip', 'application/x-zip-compressed'], true)) { $this->flash('Please upload a .zip update package.', 'error'); return $this->redirect('/admin/updates'); }
     $path = UpdateService::dir().'/upload-'.bin2hex(random_bytes(8)).'.zip';
@@ -43,7 +43,7 @@ final class UpdateController extends Controller {
     return $this->finish($row); }
 
   private function finish(array $row): Response {
-    $msg = ['success' => 'Updated to '.$row['to_version'].' successfully.', 'rolled_back' => 'The update failed and the previous code was restored. See the log for details.', 'failed' => 'The update could not be applied. Nothing was changed — see the log.'][$row['status']] ?? 'Update finished with status '.$row['status'].'.';
+    $msg = ['success' => 'Updated to '.$row['to_version'].' successfully.', 'rolled_back' => 'The update failed and the previous code was restored. See the log for details.', 'failed' => 'The update could not be applied. Nothing was changed, see the log.'][$row['status']] ?? 'Update finished with status '.$row['status'].'.';
     $this->flash($msg, $row['status'] === 'success' ? 'success' : 'error');
     return $this->redirect('/admin/updates/'.$row['id']); }
 

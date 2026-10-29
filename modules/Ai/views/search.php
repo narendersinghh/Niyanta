@@ -2,7 +2,7 @@
 $labels = ['entity' => 'Looking in', 'keywords' => 'Matching', 'status' => 'Status', 'date_from' => 'From', 'date_to' => 'To', 'assignee_me' => 'Assigned to me', 'overdue' => 'Overdue only'];
 $examples = ['My overdue tasks', 'Active clients in healthcare', 'Projects with a deadline this month', 'Unpaid invoices from last month', 'Designers in the marketing team'];
 ?>
-<?= partial('partials/page_head', ['title' => 'Ask your workspace', 'subtitle' => 'Ask in plain English. The assistant only interprets your question — results come straight from records you are allowed to see.', 'crumbs' => [['AI Assistant', '/ai'], ['Search']]]) ?>
+<?= partial('partials/page_head', ['title' => 'Ask your workspace', 'subtitle' => 'Ask in plain English. The assistant only interprets your question, results come straight from records you are allowed to see.', 'crumbs' => [['AI Assistant', '/ai'], ['Search']]]) ?>
 <div class="card hero ai-hero mb">
   <div>
     <form class="ai-ask" method="get" action="<?= e(url('/ai/search')) ?>" role="search" style="margin-top:0"><?= icon('sparkles', 'sm') ?><input type="search" name="q" value="<?= e($q) ?>" maxlength="300" placeholder="e.g. overdue invoices for Acme" aria-label="Ask your workspace" autofocus><button class="btn primary sm"><?= icon('search', 'sm') ?> Ask</button></form>

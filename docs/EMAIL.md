@@ -27,7 +27,7 @@ The chosen preset is stored as `email.provider`. Every preset except *PHP mail()
 | Hostinger | `smtp.hostinger.com` | 465 | SSL/TLS | Full mailbox address | Mailbox password |
 | cPanel / hosting mail | `mail.yourdomain.com` (see *Connect Devices*) | 465 | SSL/TLS | Full mailbox address | Mailbox password |
 | Custom SMTP | from your provider | 587 / 465 | STARTTLS / SSL | as provided | as provided |
-| PHP mail() | — | — | — | — | — |
+| PHP mail() |, |, |, |, |, |
 
 Port 587 always pairs with **STARTTLS** and port 465 with **SSL/TLS**. Mixing them up is the most common cause of timeouts.
 

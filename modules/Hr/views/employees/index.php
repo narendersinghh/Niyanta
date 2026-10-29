@@ -25,7 +25,7 @@ $actions = (can('hr.employees.manage') ? '<a class="btn ghost" href="'.e(url('/h
     <tbody><?php foreach ($p['items'] as $u): $uid = (int) $u['id']; $pr = $prog[$uid]['onboarding'] ?? null; $pct = $pr ? (int) round($pr['done'] / max(1, $pr['total']) * 100) : null; $sc = $sched[$uid] ?? null; ?>
       <tr>
         <td><a class="hr-who" href="<?= e(url('/hr/employees/'.$uid)) ?>"><?= avatar($u['name'], $u['avatar'], 'sm') ?><div><b class="small row-link"><?= e($u['name']) ?></b><div class="xs muted"><?= e($u['employee_code'] ? $u['employee_code'].' · '.$u['email'] : $u['email']) ?></div></div></a></td>
-        <td class="small"><?= e($u['department'] ?: ($u['designation'] ?: '—')) ?><div class="xs muted"><?= e(implode(' · ', array_filter([$u['department'] ? $u['designation'] : null, $u['manager_name'] ? 'reports to '.$u['manager_name'] : null]))) ?></div></td>
+        <td class="small"><?= e($u['department'] ?: ($u['designation'] ?: '-')) ?><div class="xs muted"><?= e(implode(' · ', array_filter([$u['department'] ? $u['designation'] : null, $u['manager_name'] ? 'reports to '.$u['manager_name'] : null]))) ?></div></td>
         <td><span class="pill pill-gray"><?= e($types[$u['employment_type'] ?? 'full_time'] ?? 'Full-time') ?></span></td>
         <td class="small nowrap"><?php if ($sc): ?><?= e(LS::num($sc['hours_per_day'])) ?> h/day<div class="xs muted">Off <?= e(LS::daysLabel($sc['off_days'])) ?><?= $sc['custom_hours'] || $sc['custom_days'] ? ' · <span class="pill pill-lav">Custom</span>' : '' ?></div><?php endif ?></td>
         <td class="small nowrap"><?= fdate($u['joined_on']) ?></td>

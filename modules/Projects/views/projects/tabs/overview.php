@@ -8,7 +8,7 @@ $cost = $time && $rate ? $billH * $rate : null;
 $hrsPct = $est ? (int) round($actualH / $est * 100) : 0;
 $budPct = $cost !== null && (float) $pr['budget'] > 0 ? (int) round($cost / (float) $pr['budget'] * 100) : null;
 $deliv = array_values(array_filter(array_map('trim', preg_split('/\r?\n/', (string) $pr['deliverables']))));
-$fmtH = static fn (?float $h) => $h === null ? '—' : rtrim(rtrim(number_format($h, 2), '0'), '.').'h';
+$fmtH = static fn (?float $h) => $h === null ? '-' : rtrim(rtrim(number_format($h, 2), '0'), '.').'h';
 $maxLoad = max([1, ...array_map('intval', $load)]);
 $people = $team;
 if ($pr['manager_id'] && !in_array((int) $pr['manager_id'], array_map('intval', array_column($team, 'id')), true) && $pr['manager_name']) { array_unshift($people, ['id' => $pr['manager_id'], 'name' => $pr['manager_name'], 'avatar' => $pr['manager_avatar'], 'role' => null, 'designation' => null]); }
@@ -63,9 +63,9 @@ if ($pr['manager_id'] && !in_array((int) $pr['manager_id'], array_map('intval', 
     <section class="card">
       <div class="card-head"><div class="sec-head mb0"><span class="sec-ic"><?= icon('wallet') ?></span><h3>Budget<?= $time ? ' &amp; hours' : '' ?></h3></div><span class="pill pill-gray"><?= e(PS::BILLING[$pr['billing_type']]) ?></span></div>
       <div class="kv-list">
-        <div class="kv-row"><span>Budget</span><b><?= $pr['budget'] !== null ? e(money($pr['budget'])) : '—' ?></b></div>
+        <div class="kv-row"><span>Budget</span><b><?= $pr['budget'] !== null ? e(money($pr['budget'])) : '-' ?></b></div>
         <?php if ($rate): ?><div class="kv-row"><span>Hourly rate</span><b><?= e(money($rate)) ?>/h</b></div><?php endif ?>
-        <?php if ($time): ?><div class="kv-row"><span>Cost to date</span><b><?= $cost !== null ? e(money($cost)) : '—' ?></b></div><?php endif ?>
+        <?php if ($time): ?><div class="kv-row"><span>Cost to date</span><b><?= $cost !== null ? e(money($cost)) : '-' ?></b></div><?php endif ?>
         <div class="kv-row"><span>Estimated effort</span><b><?= e($fmtH($est)) ?></b></div>
         <?php if ($time): ?><div class="kv-row"><span>Actual hours</span><b><?= e(hours($sec['total'])) ?></b></div><?php endif ?>
       </div>

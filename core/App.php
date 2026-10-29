@@ -46,7 +46,8 @@ final class App {
         (new Response(View::render('errors/maintenance', [], 'layouts/blank'), 503))->send(); return; }
       require NY_ROOT.'/core/routes.php';
       Modules::registerRoutes($r); }
-    $r->dispatch($req)->send(); }
+    $r->dispatch($req)->send();
+    if (self::installed()) { AutoCron::afterResponse(); } }
 
   public static function handleException(\Throwable $e, ?Request $req = null): void {
     $id = substr(bin2hex(random_bytes(4)), 0, 8);

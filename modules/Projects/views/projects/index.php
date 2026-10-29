@@ -6,7 +6,7 @@ $manage = can('projects.manage');
 $today = date('Y-m-d');
 $actions = $manage ? '<a class="btn primary" href="'.e(url('/projects/create')).'">'.icon('plus', 'sm').' New project</a>' : '';
 $initials = static fn (string $n) => mb_strtoupper(implode('', array_map(static fn ($w) => mb_substr($w, 0, 1), array_slice(preg_split('/\s+/', trim($n)) ?: [], 0, 2))));
-/** [used, budget, pct] or null — cost = billable hours × hourly rate. */
+/** [used, budget, pct] or null, cost = billable hours × hourly rate. */
 $budget = static function (array $pr) use ($sec): ?array {
   $b = (float) $pr['budget']; $rate = (float) $pr['hourly_rate'];
   if ($b <= 0 || !$rate || !PS::on('time')) { return null; }
@@ -80,12 +80,12 @@ $showClient = PS::on('crm') || $clients;
     <tbody><?php foreach ($p['items'] as $pr): $c = $counts[$pr['id']] ?? ['total' => 0, 'done' => 0]; $ms = $members[$pr['id']] ?? []; [$cd, $tone] = PS::countdown($pr['deadline'], $pr['status']); $bu = $budget($pr); ?>
       <tr class="ac-<?= e($pr['color']) ?>">
         <td class="wrap"><a class="row-link pname" href="<?= e(url('/projects/'.$pr['id'])) ?>"><span class="p-ic"><?= e($initials($pr['name'])) ?></span><span><?= e($pr['name']) ?><?php if ($pr['code']): ?><span class="xs muted mono db"><?= e($pr['code']) ?></span><?php endif ?></span></a></td>
-        <?php if ($showClient): ?><td><?= PS::client($pr['client_id'] ? (int) $pr['client_id'] : null, $pr['client_name'], '—') ?></td><?php endif ?>
-        <td><?php if ($pr['manager_name']): ?><span class="tcell"><?= avatar($pr['manager_name'], $pr['manager_avatar'], 'sm') ?> <?= e($pr['manager_name']) ?></span><?php else: ?><span class="muted">—</span><?php endif ?></td>
-        <td><?= PS::stack($ms, 3, '—') ?></td>
+        <?php if ($showClient): ?><td><?= PS::client($pr['client_id'] ? (int) $pr['client_id'] : null, $pr['client_name'], '-') ?></td><?php endif ?>
+        <td><?php if ($pr['manager_name']): ?><span class="tcell"><?= avatar($pr['manager_name'], $pr['manager_avatar'], 'sm') ?> <?= e($pr['manager_name']) ?></span><?php else: ?><span class="muted">-</span><?php endif ?></td>
+        <td><?= PS::stack($ms, 3, '-') ?></td>
         <td class="num-r"><?= (int) $c['done'] ?>/<?= (int) $c['total'] ?></td>
         <td><div class="mini-prog"><div class="progress"><span style="width:<?= (int) $pr['progress'] ?>%"></span></div><b><?= (int) $pr['progress'] ?>%</b></div></td>
-        <td class="num-r"><?php if ($bu): ?><?= e(money($bu[1])) ?><div class="xs <?= $bu[2] >= 100 ? 'late-text' : 'muted' ?>"><?= $bu[2] ?>% used</div><?php elseif ((float) $pr['budget'] > 0): ?><?= e(money($pr['budget'])) ?><?php else: ?><span class="muted">—</span><?php endif ?></td>
+        <td class="num-r"><?php if ($bu): ?><?= e(money($bu[1])) ?><div class="xs <?= $bu[2] >= 100 ? 'late-text' : 'muted' ?>"><?= $bu[2] ?>% used</div><?php elseif ((float) $pr['budget'] > 0): ?><?= e(money($pr['budget'])) ?><?php else: ?><span class="muted">-</span><?php endif ?></td>
         <td><?php if ($pr['deadline']): ?><div class="small"><?= e(fdate($pr['deadline'])) ?></div><?php endif ?><span class="pill pill-<?= e($tone) ?>"><?= e($cd) ?></span></td>
         <td><?= badge($pr['status'], PS::STATUSES[$pr['status']]) ?></td>
       </tr>

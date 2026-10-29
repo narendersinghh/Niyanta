@@ -9,7 +9,7 @@ $reqFail = array_filter($h['requirements'], static fn ($r) => !$r[1]);
   <div class="flex wrap grow" style="gap:1.4rem">
     <div class="health-ring" style="--v:<?= $pct ?>"><div><span><b><?= $ok ?>/<?= count($h['checks']) ?></b><span class="xs muted">checks</span></span></div></div>
     <div><span class="pill pill-<?= $pct === 100 ? 'mint' : ($pct >= 60 ? 'lemon' : 'red') ?>"><?= $pct === 100 ? 'All systems go' : ($pct >= 60 ? 'Needs a little attention' : 'Action required') ?></span>
-      <h2><?= e(setting('branding.app_name', 'Niyanta')) ?> v<?= e($h['version']) ?></h2>
+      <h2><?= e(app_name()) ?> v<?= e($h['version']) ?></h2>
       <p class="small muted mb0">PHP <?= e($h['php']) ?> · <?= e(str_contains(strtolower($h['mysql']), 'mariadb') ? 'MariaDB' : 'MySQL') ?> <?= e(preg_replace('/-.*/', '', $h['mysql'])) ?> · <?= e($h['timezone']) ?><?= $h['maintenance'] ? ' · <b>Maintenance mode is ON</b>' : '' ?></p></div>
   </div>
   <?= illus('security-shield', 'set-hero-illus') ?>
@@ -29,13 +29,13 @@ $reqFail = array_filter($h['requirements'], static fn ($r) => !$r[1]);
       <dt>App URL</dt><dd class="mono"><?= e((string) \Core\App::config('app_url', '')) ?></dd>
       <dt>PHP</dt><dd><?= e($h['php']) ?> (<?= e($h['sapi']) ?>, <?= e($h['os']) ?>)<?= $h['opcache'] ? ' · OPcache on' : '' ?></dd>
       <dt>Database</dt><dd><?= e($h['mysql']) ?></dd>
-      <dt>Debug mode</dt><dd><?= $h['debug'] ? badge('failed', 'On — disable in production') : badge('success', 'Off') ?></dd>
+      <dt>Debug mode</dt><dd><?= $h['debug'] ? badge('failed', 'On, disable in production') : badge('success', 'Off') ?></dd>
       <dt>Mail driver</dt><dd><?= e($h['mail_driver'] === 'smtp' ? 'SMTP ('.setting('email.smtp_host', 'not set').')' : 'PHP mail()') ?></dd>
       <dt>Users</dt><dd><?= (int) ($counts['active'] ?? 0) ?> active<?= !empty($counts['inactive']) ? ', '.(int) $counts['inactive'].' inactive' : '' ?></dd>
       <dt>Bundles</dt><dd><?= count(array_filter(array_keys(\Core\Features::bundles()), [\Core\Features::class, 'bundleEnabled'])) ?> of <?= count(\Core\Features::bundles()) ?> on</dd>
-      <dt>Disk free</dt><dd><?= $h['disk_free'] !== null ? e(BackupService::size($h['disk_free'])).($h['disk_total'] ? ' of '.e(BackupService::size($h['disk_total'])) : '') : '—' ?></dd>
+      <dt>Disk free</dt><dd><?= $h['disk_free'] !== null ? e(BackupService::size($h['disk_free'])).($h['disk_total'] ? ' of '.e(BackupService::size($h['disk_total'])) : '') : '-' ?></dd>
       <dt>PHP limits</dt><dd class="small">memory <?= e($h['limits']['memory_limit']) ?> · upload <?= e($h['limits']['upload_max_filesize']) ?> · post <?= e($h['limits']['post_max_size']) ?> · time <?= e($h['limits']['max_execution_time']) ?>s</dd>
-      <dt>Update check</dt><dd><?= !empty($lastCheck['checked_at']) ? e(ago($lastCheck['checked_at'])).(!empty($lastCheck['error']) ? ' — failed' : '') : 'Never' ?></dd>
+      <dt>Update check</dt><dd><?= !empty($lastCheck['checked_at']) ? e(ago($lastCheck['checked_at'])).(!empty($lastCheck['error']) ? ', failed' : '') : 'Never' ?></dd>
     </dl></div>
 </div>
 <div class="grid g2">

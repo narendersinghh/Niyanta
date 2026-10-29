@@ -22,13 +22,13 @@ $nextDue = array_values(array_filter($milestones, static fn ($m) => $m['status']
 ?>
 <div class="grid g4 mb">
   <div class="tile bg-mint"><span class="tile-ic"><?= icon('check-circle') ?></span><div><div class="num"><?= $nums['ms_done'] ?>/<?= $nums['ms'] ?></div><div class="lbl">Milestones completed</div></div></div>
-  <div class="tile bg-lav"><span class="tile-ic"><?= icon('flag') ?></span><div><div class="num num-sm"><?= $nextDue ? e(fdate($nextDue['due_date'], 'd M')) : '—' ?></div><div class="lbl"><?= $nextDue ? 'Next: '.e(str_limit($nextDue['title'], 28)) : 'No upcoming milestone' ?></div></div></div>
+  <div class="tile bg-lav"><span class="tile-ic"><?= icon('flag') ?></span><div><div class="num num-sm"><?= $nextDue ? e(fdate($nextDue['due_date'], 'd M')) : '-' ?></div><div class="lbl"><?= $nextDue ? 'Next: '.e(str_limit($nextDue['title'], 28)) : 'No upcoming milestone' ?></div></div></div>
   <div class="tile bg-peach"><span class="tile-ic"><?= icon('alert') ?></span><div><div class="num"><?= $late ?></div><div class="lbl">Overdue</div></div></div>
-  <div class="tile bg-sky"><span class="tile-ic"><?= icon('wallet') ?></span><div><div class="num num-sm"><?= $value ? e(money($valueDone)) : '—' ?></div><div class="lbl"><?= $value ? 'Earned of '.e(money($value)) : 'No payment stages' ?></div></div></div>
+  <div class="tile bg-sky"><span class="tile-ic"><?= icon('wallet') ?></span><div><div class="num num-sm"><?= $value ? e(money($valueDone)) : '-' ?></div><div class="lbl"><?= $value ? 'Earned of '.e(money($value)) : 'No payment stages' ?></div></div></div>
 </div>
 <div class="card">
   <div class="card-head"><div><h3>Milestones</h3><p class="xs muted mb0">Checkpoints and payment stages with their task progress.</p></div></div>
-  <?php if (!$milestones): ?><?= empty_state('No milestones yet', 'Break the project into meaningful checkpoints — design sign-off, beta, launch.', 'rocket', $canManage ? '<button type="button" class="btn primary mt" data-modal="ms-new">'.icon('plus', 'sm').' Add milestone</button>' : '') ?><?php else: ?>
+  <?php if (!$milestones): ?><?= empty_state('No milestones yet', 'Break the project into meaningful checkpoints, design sign-off, beta, launch.', 'rocket', $canManage ? '<button type="button" class="btn primary mt" data-modal="ms-new">'.icon('plus', 'sm').' Add milestone</button>' : '') ?><?php else: ?>
   <div class="ms-list">
     <?php foreach ($milestones as $i => $m): $pct = $m['total'] ? (int) round($m['done'] / $m['total'] * 100) : ($m['status'] === 'completed' ? 100 : 0); $isDone = $m['status'] === 'completed'; $mlate = !$isDone && $m['due_date'] && $m['due_date'] < $today; $open = (int) $m['total'] - (int) $m['done']; ?>
     <div class="ms-item<?= $isDone ? ' is-done' : '' ?>">

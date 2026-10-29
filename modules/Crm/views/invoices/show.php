@@ -26,7 +26,7 @@ $balClass = match (true) { $st === 'cancelled' => 'is-muted', $st === 'paid' || 
 <div class="crm">
 <?= partial('partials/page_head', ['title' => 'Invoice '.$doc['number'], 'subtitle' => $client_label.($doc['title'] ? ' · '.$doc['title'] : ''), 'crumbs' => [['Invoices', '/invoices'], [$doc['number']]], 'actions' => $pdf.$more.$primary]) ?>
 <?php if ($st === 'overdue'): ?><div class="alert error"><?= icon('alert') ?><div>This invoice is <b><?= $days ?> day<?= $days === 1 ? '' : 's' ?> overdue</b> with <?= e(money($bal)) ?> outstanding.<?php if ($m): ?> Send a reminder or record a payment.<?php endif ?></div></div>
-<?php elseif ($st === 'draft'): ?><div class="alert info"><?= icon('info') ?><div>This is a <b>draft</b> — it does not count as outstanding until it is sent.</div></div>
+<?php elseif ($st === 'draft'): ?><div class="alert info"><?= icon('info') ?><div>This is a <b>draft</b>, it does not count as outstanding until it is sent.</div></div>
 <?php elseif ($st === 'cancelled'): ?><div class="alert warn"><?= icon('info') ?><div>This invoice was cancelled and is excluded from all totals.</div></div><?php endif ?>
 <div class="grid g-side">
   <div><?= partial('crm::partials/doc_paper', ['kind' => 'invoice', 'doc' => $doc, 'items' => $items, 'client' => $client]) ?></div>
@@ -43,7 +43,7 @@ $balClass = match (true) { $st === 'cancelled' => 'is-muted', $st === 'paid' || 
       <?php if (!$payments): ?><div class="list-item"><span class="crm-ic crm-c-mint"><?= icon('wallet', 'sm') ?></span><p class="small muted mb0">No payments recorded yet. Partial payments are supported.</p></div><?php else: ?>
       <?php foreach ($payments as $py): ?>
         <div class="crm-pay"><span class="crm-ic crm-c-mint"><?= icon('check', 'sm') ?></span>
-          <div class="grow"><div class="flex between"><b class="crm-pos amt">+<?= e(money($py['amount'])) ?></b><span class="xs muted"><?= e(fdate($py['paid_on'])) ?></span></div><div class="crm-sub"><?= e(Finance::METHODS[$py['method']] ?? $py['method']) ?><?= $py['reference'] ? ' · '.e($py['reference']) : '' ?> · by <?= e($py['recorder'] ?? '—') ?></div><?php if ($py['note']): ?><div class="crm-sub"><?= e($py['note']) ?></div><?php endif ?></div>
+          <div class="grow"><div class="flex between"><b class="crm-pos amt">+<?= e(money($py['amount'])) ?></b><span class="xs muted"><?= e(fdate($py['paid_on'])) ?></span></div><div class="crm-sub"><?= e(Finance::METHODS[$py['method']] ?? $py['method']) ?><?= $py['reference'] ? ' · '.e($py['reference']) : '' ?> · by <?= e($py['recorder'] ?? '-') ?></div><?php if ($py['note']): ?><div class="crm-sub"><?= e($py['note']) ?></div><?php endif ?></div>
           <?php if ($m): ?><form method="post" action="<?= e(url('/invoices/'.$id.'/payments/'.$py['id'].'/delete')) ?>" data-confirm="Remove this payment? The invoice balance will be recalculated."><?= csrf_field() ?><button class="crm-go" title="Remove payment" aria-label="Remove payment"><?= icon('trash', 'sm') ?></button></form><?php endif ?>
         </div>
       <?php endforeach ?>

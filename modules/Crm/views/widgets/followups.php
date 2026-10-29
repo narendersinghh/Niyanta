@@ -11,7 +11,7 @@
     </div>
   <?php endforeach ?></div>
   <?php else: ?>
-  <div class="card-head"><div><h3>Recent client activity</h3><p class="xs muted mb0">No follow-ups due this week — here is what happened lately</p></div><a class="btn sm ghost" href="<?= e(url('/clients')) ?>">Clients <?= icon('arrow-right', 'sm') ?></a></div>
+  <div class="card-head"><div><h3>Recent client activity</h3><p class="xs muted mb0">No follow-ups due this week, here is what happened lately</p></div><a class="btn sm ghost" href="<?= e(url('/clients')) ?>">Clients <?= icon('arrow-right', 'sm') ?></a></div>
   <?php if (!$recent): ?><?= empty_state('No client activity yet', 'Log meetings and calls on a client profile to see them here.', 'clients-handshake') ?><?php else: ?>
   <div class="list"><?php foreach ($recent as $r): [$tl, $ti, $tc] = $types[$r['type']] ?? $types['other']; ?>
     <a class="list-item" href="<?= e(url('/clients/'.$r['client_id'].'#journey')) ?>"><span class="crm-ic solid crm-c-<?= e($tc) ?>"><?= icon($ti, 'sm') ?></span><div class="grow"><b class="small"><?= e($r['title']) ?></b><div class="meta"><?= e($r['client']) ?> · <?= e($tl) ?> · <?= e($r['user_name'] ?? 'System') ?></div></div><span class="xs muted nowrap"><?= e(ago($r['occurred_at'])) ?></span></a>

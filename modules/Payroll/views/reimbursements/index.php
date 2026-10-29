@@ -32,7 +32,7 @@ $me = (int) user()['id']; $sa = user()['role_slug'] === 'super_admin';
         <td class="pay-claim"><b class="small"><?= e($r['title']) ?></b><?php if ($r['description']): ?><div class="xs muted"><?= e(str_limit($r['description'], 80)) ?></div><?php endif ?><div class="xs muted">Submitted <?= e(ago($r['created_at'])) ?></div></td>
         <td class="small nowrap"><?= e(fdate($r['expense_date'])) ?></td>
         <td class="num"><b><?= e(money($r['amount'])) ?></b></td>
-        <td class="small"><?php foreach ($files[(int) $r['id']] ?? [] as $f): ?><a class="chip" href="<?= e(url('/files/'.$f['id'].'/view')) ?>" target="_blank" rel="noopener"><?= icon('paperclip', 'sm') ?> <?= e(str_limit($f['original_name'], 18)) ?></a><?php endforeach ?><?= empty($files[(int) $r['id']]) ? '<span class="muted">—</span>' : '' ?></td>
+        <td class="small"><?php foreach ($files[(int) $r['id']] ?? [] as $f): ?><a class="chip" href="<?= e(url('/files/'.$f['id'].'/view')) ?>" target="_blank" rel="noopener"><?= icon('paperclip', 'sm') ?> <?= e(str_limit($f['original_name'], 18)) ?></a><?php endforeach ?><?= empty($files[(int) $r['id']]) ? '<span class="muted">-</span>' : '' ?></td>
         <td><?= badge($r['status']) ?><?php if ($r['reviewer']): ?><div class="xs muted"><?= e($r['reviewer']) ?> · <?= e(fdate($r['reviewed_at'])) ?></div><?php endif ?><?php if ($r['review_note']): ?><div class="xs muted">“<?= e(str_limit($r['review_note'], 60)) ?>”</div><?php endif ?><?php if ($r['period_month']): ?><div class="xs muted">Payroll <?= e(date('M Y', strtotime($r['period_month']))) ?></div><?php endif ?></td>
         <td class="actions">
           <?php if ($tab === 'queue' && $r['status'] === 'pending' && (!$own || $sa)): ?><button class="btn sm primary" type="button" data-modal="rv-<?= (int) $r['id'] ?>"><?= icon('check', 'sm') ?> Review</button>
@@ -65,7 +65,7 @@ $me = (int) user()['id']; $sa = user()['role_slug'] === 'super_admin';
       <div class="field"><label for="c-amount">Amount *</label><input id="c-amount" type="number" name="amount" step="0.01" min="0.01" value="<?= e(old('amount')) ?>" required><?= error_for('amount') ?></div>
       <div class="field"><label for="c-date">Expense date *</label><input id="c-date" type="date" name="expense_date" value="<?= e(old('expense_date', date('Y-m-d'))) ?>" max="<?= date('Y-m-d') ?>" required><?= error_for('expense_date') ?></div>
     </div>
-    <div class="field"><label for="c-desc">Details</label><textarea id="c-desc" name="description" maxlength="2000" placeholder="Who, where and why — helps approvers decide faster."><?= e(old('description')) ?></textarea><?= error_for('description') ?></div>
+    <div class="field"><label for="c-desc">Details</label><textarea id="c-desc" name="description" maxlength="2000" placeholder="Who, where and why, helps approvers decide faster."><?= e(old('description')) ?></textarea><?= error_for('description') ?></div>
     <div class="field"><label for="c-receipt">Receipt</label><input id="c-receipt" class="pay-file" type="file" name="receipt" accept=".pdf,.png,.jpg,.jpeg,.webp"><div class="hint">A clear photo or PDF (PNG, JPG, WEBP or PDF) speeds up approval.</div><?= error_for('file') ?></div>
     <div class="form-actions"><button class="btn ghost" type="button" data-close>Cancel</button><button class="btn primary"><?= icon('send', 'sm') ?> Submit claim</button></div>
   </form>

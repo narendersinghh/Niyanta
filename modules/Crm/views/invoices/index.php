@@ -25,13 +25,13 @@ $more = Ui::more([can('crm.quotations.view') ? Ui::link('/quotations', 'file-tex
     <?php if ($filtered): ?><a class="crm-clear" href="<?= e(url('/invoices'.($status !== '' ? '?status='.rawurlencode($status) : ''))) ?>"><?= icon('x', 'sm') ?> Clear</a><?php endif ?>
   </form>
   <?php if (!$p['items']): ?>
-    <?= $filtered || $status !== '' ? empty_state('No invoices here', 'Nothing matches this view right now.', 'empty-box') : empty_state('No invoices yet', 'Create your first invoice — or convert an accepted quotation.', 'invoice-paper', $m ? '<a class="btn primary" href="'.e(url('/invoices/create')).'">'.icon('plus', 'sm').' Create your first invoice</a>' : '') ?>
+    <?= $filtered || $status !== '' ? empty_state('No invoices here', 'Nothing matches this view right now.', 'empty-box') : empty_state('No invoices yet', 'Create your first invoice, or convert an accepted quotation.', 'invoice-paper', $m ? '<a class="btn primary" href="'.e(url('/invoices/create')).'">'.icon('plus', 'sm').' Create your first invoice</a>' : '') ?>
   <?php else: ?>
   <div class="table-wrap"><table class="table crm-rt">
     <thead><tr><th>Invoice</th><th>Client</th><th>Issued</th><th>Due</th><th class="amt">Total</th><th class="amt">Balance</th><th>Status</th><th><span class="sr">Actions</span></th></tr></thead>
     <tbody><?php foreach ($p['items'] as $i): $bal = $i['status'] === 'cancelled' ? 0 : (float) $i['total'] - (float) $i['amount_paid']; $late = $bal > 0 && $i['due_date'] && $i['due_date'] < $today && $i['status'] !== 'draft'; $paidPct = (float) $i['total'] > 0 ? (int) min(100, round((float) $i['amount_paid'] / (float) $i['total'] * 100)) : 0; ?>
       <tr>
-        <td class="rt-main"><a class="crm-num-link" href="<?= e(url('/invoices/'.$i['id'])) ?>"><?= e($i['number']) ?></a><div class="crm-sub"><?= e(str_limit($i['title'] ?? '', 40) ?: '—') ?></div></td>
+        <td class="rt-main"><a class="crm-num-link" href="<?= e(url('/invoices/'.$i['id'])) ?>"><?= e($i['number']) ?></a><div class="crm-sub"><?= e(str_limit($i['title'] ?? '', 40) ?: '-') ?></div></td>
         <td data-l="Client"><span class="crm-cell"><?= avatar($i['client_company'] ?: $i['client_name'], null, 'sm') ?><span class="small b truncate"><?= e($i['client_company'] ?: $i['client_name']) ?></span></span></td>
         <td class="small" data-l="Issued"><?= e(fdate($i['issue_date'])) ?></td>
         <td class="small <?= $late ? 'crm-late' : '' ?>" data-l="Due"><span><?= e(fdate($i['due_date'])) ?><?php if ($late): ?><span class="crm-sub crm-late"> · <?= Ui::daysPast($i['due_date']) ?>d late</span><?php endif ?></span></td>

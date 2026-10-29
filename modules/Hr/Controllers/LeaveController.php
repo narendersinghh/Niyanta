@@ -33,7 +33,7 @@ final class LeaveController extends Controller {
     $hol = DB::column('SELECT name FROM holidays WHERE optional=0 AND holiday_date BETWEEN ? AND ? ORDER BY holiday_date', [$from, $to]);
     $days = LeaveService::requestDaysFor($this->uid(), $from, $to, $half && $from === $to);
     $off = LeaveService::daysLabel(LeaveService::scheduleFor($this->uid())['off_days']);
-    return $this->json(['days' => $days, 'note' => $days ? ($days == 1 ? '1 working day' : rtrim(rtrim(number_format($days, 1), '0'), '.').' working days').($hol ? ' (excludes '.implode(', ', $hol).')' : '') : 'No working days in this range — your weekly off: '.$off.'.']); }
+    return $this->json(['days' => $days, 'note' => $days ? ($days == 1 ? '1 working day' : rtrim(rtrim(number_format($days, 1), '0'), '.').' working days').($hol ? ' (excludes '.implode(', ', $hol).')' : '') : 'No working days in this range, your weekly off: '.$off.'.']); }
 
   private function isDate(string $v): bool { $d = \DateTime::createFromFormat('Y-m-d', $v); return $d && $d->format('Y-m-d') === $v; }
 
@@ -48,7 +48,7 @@ final class LeaveController extends Controller {
     if ($d['start_date'] < date('Y-m-d', strtotime('-60 days'))) { throw new ValidationException(['start_date' => 'Leave older than 60 days cannot be requested. Contact HR.']); }
     $uid = $this->uid(); $year = (int) substr($d['start_date'], 0, 4);
     $days = LeaveService::requestDaysFor($uid, $d['start_date'], $d['end_date'], (bool) $d['half_day']);
-    if ($days <= 0) { throw new ValidationException(['start_date' => 'The selected dates fall on your weekly off days or fixed holidays — no working days to request.']); }
+    if ($days <= 0) { throw new ValidationException(['start_date' => 'The selected dates fall on your weekly off days or fixed holidays, no working days to request.']); }
     $id = DB::transaction(function () use ($d, $type, $days, $uid, $year): int {
       DB::value('SELECT id FROM users WHERE id=? FOR UPDATE', [$uid]);
       $clash = DB::first("SELECT start_date, end_date, status FROM leave_requests WHERE user_id=? AND status IN ('pending','approved') AND start_date<=? AND end_date>=? LIMIT 1", [$uid, $d['end_date'], $d['start_date']]);
@@ -193,7 +193,7 @@ final class LeaveController extends Controller {
       if (!$d['apply_current'] || $q == $old) { return 0; }
       return DB::query('UPDATE leave_balances b LEFT JOIN employee_leave_quotas eq ON eq.user_id=b.user_id AND eq.leave_type_id=b.leave_type_id SET b.allocated=GREATEST(0, b.allocated + ?) WHERE b.leave_type_id=? AND b.year=? AND eq.user_id IS NULL', [$q - $old, $oh['id'], $year])->rowCount(); });
     Audit::log('hr.leave.optional_quota', 'leave_type', (int) $oh['id'], ['from' => (float) $oh['annual_quota'], 'to' => $q, 'balances_updated' => $n]);
-    $this->flash('Optional holidays set to '.rtrim(rtrim(number_format($q, 1), '0'), '.').' days per year'.($n ? " — $n employee balance(s) for $year updated." : '.'));
+    $this->flash('Optional holidays set to '.rtrim(rtrim(number_format($q, 1), '0'), '.').' days per year'.($n ? ", $n employee balance(s) for $year updated." : '.'));
     return $this->redirect('/hr/leave/types'); }
 
   private function typeData(?int $id): array {

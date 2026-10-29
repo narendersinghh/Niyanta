@@ -37,11 +37,11 @@ final class CronAdminController extends Controller {
     Audit::log('cron.run', 'cron', null, ['job' => $job ?: 'all-due', 'result' => $res]);
     if (isset($res['skipped'])) { $this->flash($res['skipped'], 'error'); }
     elseif (!$res) { $this->flash('No jobs were due. Use "Run now" on a job to force it.'); }
-    else { $failed = array_keys(array_filter($res, static fn ($s) => $s === 'failed')); $this->flash(count($res).' job(s) ran'.($failed ? ' — failed: '.implode(', ', $failed) : ' successfully').'.', $failed ? 'error' : 'success'); }
+    else { $failed = array_keys(array_filter($res, static fn ($s) => $s === 'failed')); $this->flash(count($res).' job(s) ran'.($failed ? ', failed: '.implode(', ', $failed) : ' successfully').'.', $failed ? 'error' : 'success'); }
     return $this->redirect('/admin/cron'); }
 
   public function regenerateToken(): Response {
     Settings::set('cron.web_token', Crypto::token(24));
     Audit::log('cron.token_regenerated', 'cron');
-    $this->flash('A new web cron URL was generated. Update your external pinger — the old URL no longer works.');
+    $this->flash('A new web cron URL was generated. Update your external pinger, the old URL no longer works.');
     return $this->redirect('/admin/cron'); } }

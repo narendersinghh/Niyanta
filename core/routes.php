@@ -25,4 +25,5 @@ $r->post('/notifications/read', [NotificationController::class, 'markRead']);
 $r->get('/files/{id}', [FileController::class, 'download']);
 $r->get('/files/{id}/view', [FileController::class, 'inline']);
 $r->post('/files/{id}/delete', [FileController::class, 'delete']);
+$r->post('/cron/tick', [CronController::class, 'tick'], ['auth' => false, 'csrf' => false, 'throttle' => [4, 60]]);
 $r->any('/cron/run/{token}', [CronController::class, 'web'], ['auth' => false, 'csrf' => false, 'throttle' => [6, 60]]);

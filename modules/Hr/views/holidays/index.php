@@ -14,8 +14,8 @@ $holForm = static function (array $h, bool $opt): string { ob_start(); ?>
     <div class="field"><label>Name *</label><input type="text" name="name" maxlength="150" value="<?= e($h['name'] ?? '') ?>" placeholder="<?= $opt ? 'e.g. Ganesh Chaturthi' : 'e.g. Diwali' ?>" required></div>
   </div>
   <div class="field"><label>Kind</label>
-    <label class="check"><input type="radio" name="optional" value="0"<?= checked(!$opt) ?>> Fixed holiday — office closed for everyone</label>
-    <label class="check mt"><input type="radio" name="optional" value="1"<?= checked($opt) ?>> Optional festival day — employees may take it from their optional days</label>
+    <label class="check"><input type="radio" name="optional" value="0"<?= checked(!$opt) ?>> Fixed holiday, office closed for everyone</label>
+    <label class="check mt"><input type="radio" name="optional" value="1"<?= checked($opt) ?>> Optional festival day, employees may take it from their optional days</label>
   </div>
 <?php return (string) ob_get_clean(); };
 ?>
@@ -46,7 +46,7 @@ $holForm = static function (array $h, bool $opt): string { ob_start(); ?>
   <div class="tile bg-lav"><span class="tile-ic"><?= icon('clock') ?></span><div><div class="num"><?= count(array_filter($fixed, static fn ($h) => $h['holiday_date'] >= $today)) ?></div><div class="lbl">Fixed holidays still ahead</div></div></div>
 </div>
 <div class="card mb">
-  <div class="card-head"><div><h3><?= icon('calendar') ?> Fixed holidays</h3><p class="small muted mb0">Office closed — never deducted from leave.</p></div><?php if ($manage && $fixed): ?><button type="button" class="btn sm ghost" data-modal="hol-new"><?= icon('plus', 'sm') ?> Add</button><?php endif ?></div>
+  <div class="card-head"><div><h3><?= icon('calendar') ?> Fixed holidays</h3><p class="small muted mb0">Office closed, never deducted from leave.</p></div><?php if ($manage && $fixed): ?><button type="button" class="btn sm ghost" data-modal="hol-new"><?= icon('plus', 'sm') ?> Add</button><?php endif ?></div>
   <?php if (!$fixed): ?><?= empty_state('No fixed holidays for '.$year, $manage ? 'Add company-wide days off such as Republic Day, Holi or Diwali.' : 'HR has not published the holiday list yet.', 'holidays', $manage ? '<button type="button" class="btn primary" data-modal="hol-new">'.icon('plus', 'sm').' Add fixed holiday</button>' : '') ?><?php else: ?>
   <div class="grid g-main hr-top">
     <div class="list hr-hlist">
@@ -83,7 +83,7 @@ $holForm = static function (array $h, bool $opt): string { ob_start(); ?>
   <?php endif ?>
 </div>
 <div class="card">
-  <div class="card-head"><div><h3><?= icon('gift') ?> Optional festival days</h3><p class="small muted mb0">Suggested dates — take the ones that matter to you from your optional-day pool.</p></div><?php if ($manage && $optional): ?><button type="button" class="btn sm ghost" data-modal="hol-new-opt"><?= icon('plus', 'sm') ?> Add</button><?php endif ?></div>
+  <div class="card-head"><div><h3><?= icon('gift') ?> Optional festival days</h3><p class="small muted mb0">Suggested dates, take the ones that matter to you from your optional-day pool.</p></div><?php if ($manage && $optional): ?><button type="button" class="btn sm ghost" data-modal="hol-new-opt"><?= icon('plus', 'sm') ?> Add</button><?php endif ?></div>
   <?php if (!$optional): ?><?= empty_state('No optional festival days yet', $manage ? 'Suggest festivals like Ganesh Chaturthi, Onam or Eid that people can take from their optional days.' : 'You can still use your optional days for any personal reason from the Leave page.', 'calendar-person', $manage ? '<button type="button" class="btn primary" data-modal="hol-new-opt">'.icon('plus', 'sm').' Add optional day</button>' : (can('hr.leave.request') ? '<a class="btn primary" href="'.e(url('/hr/leave')).'">'.icon('plus', 'sm').' Request leave</a>' : '')) ?><?php else: ?>
   <div class="hr-opts">
     <?php foreach ($optional as $h): $d = $h['holiday_date']; $past = $d < $today; $mine = $taken[$d] ?? null; $off = in_array((int) date('N', strtotime($d)), $offDays, true) || LS::isHoliday($d); ?>

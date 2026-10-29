@@ -14,7 +14,7 @@ $wipLimit = max(3, count($team));
     <?php if ($canTasks): ?>
     <div class="kadd" data-kadd>
       <button type="button" class="kadd-btn" data-kadd-open><?= icon('plus', 'sm') ?> Add task</button>
-      <form class="kadd-form" data-kadd-form data-status="<?= e($st) ?>"><textarea name="title" maxlength="255" rows="2" placeholder="Task title — press Enter to add" aria-label="New task title in <?= e($label) ?>" required></textarea>
+      <form class="kadd-form" data-kadd-form data-status="<?= e($st) ?>"><textarea name="title" maxlength="255" rows="2" placeholder="Task title, press Enter to add" aria-label="New task title in <?= e($label) ?>" required></textarea>
         <div class="flex"><button type="button" class="btn sm ghost" data-kadd-close>Cancel</button><button class="btn sm primary"><?= icon('plus', 'sm') ?> Add</button></div></form>
     </div>
     <?php endif ?>

@@ -79,18 +79,18 @@ $moreMenu = Ui::more([
       <div class="card-head"><h3>Key details</h3><?php if ($manage): ?><a class="btn sm ghost" href="<?= e(url($base.'/edit')) ?>"><?= icon('edit', 'sm') ?> Edit</a><?php endif ?></div>
       <dl class="kv crm-kv">
         <dt>Primary contact</dt><dd><?= e($c['name']) ?></dd>
-        <dt>Email</dt><dd><?= $c['email'] ? '<a href="mailto:'.e($c['email']).'">'.e($c['email']).'</a>' : '<span class="muted">—</span>' ?></dd>
-        <dt>Phone</dt><dd><?= $c['phone'] ? '<a href="'.e($tel($c['phone'])).'">'.e($c['phone']).'</a>' : '<span class="muted">—</span>' ?><?= $c['whatsapp'] && $c['whatsapp'] !== $c['phone'] ? ' <span class="crm-sub">· WhatsApp '.e($c['whatsapp']).'</span>' : '' ?></dd>
-        <dt>Website</dt><dd><?= $c['website'] ? '<a href="'.e($c['website']).'" target="_blank" rel="noopener noreferrer">'.e(preg_replace('#^https?://#', '', $c['website'])).'</a>' : '<span class="muted">—</span>' ?></dd>
-        <dt>Industry</dt><dd><?= e($c['industry'] ?: '—') ?></dd>
-        <dt>Billing address</dt><dd><?= nl2br(e(implode("\n", array_filter([$c['address'], trim(implode(', ', array_filter([$c['city'], $c['state'], $c['postal_code']]))), $c['country']])) ?: '—')) ?></dd>
-        <dt>Tax ID</dt><dd><?= e($c['tax_id'] ?: '—') ?></dd>
+        <dt>Email</dt><dd><?= $c['email'] ? '<a href="mailto:'.e($c['email']).'">'.e($c['email']).'</a>' : '<span class="muted">-</span>' ?></dd>
+        <dt>Phone</dt><dd><?= $c['phone'] ? '<a href="'.e($tel($c['phone'])).'">'.e($c['phone']).'</a>' : '<span class="muted">-</span>' ?><?= $c['whatsapp'] && $c['whatsapp'] !== $c['phone'] ? ' <span class="crm-sub">· WhatsApp '.e($c['whatsapp']).'</span>' : '' ?></dd>
+        <dt>Website</dt><dd><?= $c['website'] ? '<a href="'.e($c['website']).'" target="_blank" rel="noopener noreferrer">'.e(preg_replace('#^https?://#', '', $c['website'])).'</a>' : '<span class="muted">-</span>' ?></dd>
+        <dt>Industry</dt><dd><?= e($c['industry'] ?: '-') ?></dd>
+        <dt>Billing address</dt><dd><?= nl2br(e(implode("\n", array_filter([$c['address'], trim(implode(', ', array_filter([$c['city'], $c['state'], $c['postal_code']]))), $c['country']])) ?: '-')) ?></dd>
+        <dt>Tax ID</dt><dd><?= e($c['tax_id'] ?: '-') ?></dd>
         <dt>Currency</dt><dd><?= e($c['currency'] ?: setting('general.currency_code', 'INR')) ?></dd>
       </dl>
     </div>
     <div class="card">
       <div class="card-head"><div><h3>Contacts</h3><p class="xs muted mb0">People you work with at <?= e($label) ?></p></div><?php if ($manage): ?><button type="button" class="btn sm soft" data-modal="contact-modal" data-contact-new><?= icon('user-plus', 'sm') ?> Add contact</button><?php endif ?></div>
-      <?php if (!$contacts): ?><div class="list-item"><span class="crm-ic"><?= icon('users', 'sm') ?></span><p class="small muted mb0">No additional contacts yet — add finance, marketing or the founder so the team knows who to reach.</p></div><?php else: ?>
+      <?php if (!$contacts): ?><div class="list-item"><span class="crm-ic"><?= icon('users', 'sm') ?></span><p class="small muted mb0">No additional contacts yet, add finance, marketing or the founder so the team knows who to reach.</p></div><?php else: ?>
       <div class="list"><?php foreach ($contacts as $ct): ?>
         <div class="list-item">
           <?= avatar($ct['name'], null) ?>
@@ -139,7 +139,7 @@ $moreMenu = Ui::more([
     </div>
     <div class="card">
       <div class="card-head"><h3>Account team</h3><?php if ($manage): ?><a class="btn icon sm ghost" href="<?= e(url($base.'/edit')) ?>" title="Change team" aria-label="Change team"><?= icon('user-plus', 'sm') ?></a><?php endif ?></div>
-      <?php if (!$managers): ?><p class="muted small mb0">No managers assigned — only admins can see this client.</p><?php else: ?>
+      <?php if (!$managers): ?><p class="muted small mb0">No managers assigned, only admins can see this client.</p><?php else: ?>
       <div class="list"><?php foreach ($managers as $m): ?><div class="list-item"><?= avatar($m['name'], $m['avatar']) ?><div class="grow"><b><?= e($m['name']) ?></b><div class="meta"><?= e($m['designation'] ?: $m['email']) ?></div></div></div><?php endforeach ?></div>
       <?php endif ?>
     </div>
@@ -203,7 +203,7 @@ $moreMenu = Ui::more([
         <tbody><?php foreach ($docs as $f): ?>
           <tr>
             <td class="rt-main"><a class="crm-cell" href="<?= e(url('/files/'.$f['id'].'/view')) ?>" target="_blank" rel="noopener"><?= Ui::ext($f['original_name']) ?><div class="grow"><b class="truncate"><?= e(str_limit($f['original_name'], 60)) ?></b><div class="crm-sub"><?= e(fdatetime($f['created_at'])) ?></div></div></a></td>
-            <td data-l="Uploaded by" class="small"><?= e($f['uploader'] ?? '—') ?></td>
+            <td data-l="Uploaded by" class="small"><?= e($f['uploader'] ?? '-') ?></td>
             <td class="amt small muted" data-l="Size"><?= e(Ui::size($f['size'])) ?></td>
             <td class="actions rt-side"><span class="crm-row-actions"><a class="crm-go" href="<?= e(url('/files/'.$f['id'])) ?>" title="Download" aria-label="Download"><?= icon('download', 'sm') ?></a><?php if ($docManage): ?><form method="post" action="<?= e(url('/files/'.$f['id'].'/delete')) ?>" data-confirm="Delete this document permanently?"><?= csrf_field() ?><button class="crm-go" title="Delete" aria-label="Delete"><?= icon('trash', 'sm') ?></button></form><?php endif ?></span></td>
           </tr>
@@ -227,11 +227,11 @@ $moreMenu = Ui::more([
   <?php if ($fin): ?>
   <div class="card crm-list">
     <div class="crm-bar"><div class="grow"><h3 class="mb0">Invoices</h3><div class="crm-sub"><?= count($invoices) ?> most recent</div></div><?php if ($finManage): ?><a class="btn sm primary" href="<?= e(url('/invoices/create?client_id='.$cid)) ?>"><?= icon('plus', 'sm') ?> New invoice</a><?php endif ?></div>
-    <?php if (!$invoices): ?><?= empty_state('No invoices yet', 'Bill this client for work delivered — or convert an accepted quotation.', 'invoice-paper', $finManage ? '<a class="btn primary" href="'.e(url('/invoices/create?client_id='.$cid)).'">'.icon('plus', 'sm').' Create invoice</a>' : '') ?><?php else: ?>
+    <?php if (!$invoices): ?><?= empty_state('No invoices yet', 'Bill this client for work delivered, or convert an accepted quotation.', 'invoice-paper', $finManage ? '<a class="btn primary" href="'.e(url('/invoices/create?client_id='.$cid)).'">'.icon('plus', 'sm').' Create invoice</a>' : '') ?><?php else: ?>
     <div class="table-wrap"><table class="table crm-rt">
       <thead><tr><th>Invoice</th><th>Issued</th><th>Due</th><th class="amt">Total</th><th class="amt">Balance</th><th>Status</th></tr></thead>
       <tbody><?php foreach ($invoices as $i): $b = $i['status'] === 'cancelled' ? 0 : (float) $i['total'] - (float) $i['amount_paid']; ?><tr>
-        <td class="rt-main"><a class="crm-num-link" href="<?= e(url('/invoices/'.$i['id'])) ?>"><?= e($i['number']) ?></a><div class="crm-sub"><?= e(str_limit($i['title'] ?? '', 40) ?: '—') ?></div></td>
+        <td class="rt-main"><a class="crm-num-link" href="<?= e(url('/invoices/'.$i['id'])) ?>"><?= e($i['number']) ?></a><div class="crm-sub"><?= e(str_limit($i['title'] ?? '', 40) ?: '-') ?></div></td>
         <td class="small" data-l="Issued"><?= e(fdate($i['issue_date'])) ?></td>
         <td class="small <?= $i['status'] === 'overdue' ? 'crm-late' : '' ?>" data-l="Due"><?= e(fdate($i['due_date'])) ?></td>
         <td class="amt" data-l="Total"><?= e(money($i['total'])) ?></td>
@@ -280,7 +280,7 @@ $moreMenu = Ui::more([
         <?php if ($projectOptions): ?><div class="field full"><label for="a-proj">Related project</label><select id="a-proj" name="project_id"><option value="">None</option><?php foreach ($projectOptions as $pid => $pn): ?><option value="<?= (int) $pid ?>"><?= e($pn) ?></option><?php endforeach ?></select></div><?php endif ?>
       </div>
       <div class="field"><label for="a-body">Details</label><textarea id="a-body" name="body" rows="4" maxlength="5000" placeholder="What was discussed, decisions, next steps…"></textarea></div>
-      <label class="flex"><span class="switch"><input type="checkbox" name="is_internal" value="1"><span></span></span><span><b class="small">Internal only</b><span class="xs muted"> — team-only context, never shared with the client</span></span></label>
+      <label class="flex"><span class="switch"><input type="checkbox" name="is_internal" value="1"><span></span></span><span><b class="small">Internal only</b><span class="xs muted">, team-only context, never shared with the client</span></span></label>
       <div class="form-actions"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary"><?= icon('check', 'sm') ?> Save entry</button></div>
     </div>
   </form>

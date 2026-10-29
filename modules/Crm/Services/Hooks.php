@@ -50,10 +50,10 @@ final class Hooks {
       DB::all("SELECT c.id, c.name, c.company, c.email, c.phone, c.status FROM clients c WHERE $w AND (c.name LIKE ? OR c.company LIKE ? OR c.email LIKE ? OR c.phone LIKE ?) ORDER BY c.status='active' DESC, c.name LIMIT 8", [...$p, $l, $l, $l, $l]));
     [$wi, $pi] = ClientAccess::where($u, 'd.client_id');
     if (Gate::allows('crm.finance.view', $u)) {
-      $out['Invoices'] = array_map(static fn ($r) => ['title' => $r['number'].($r['title'] ? ' — '.$r['title'] : ''), 'meta' => $r['client'].' · '.money($r['total']).' · '.ucfirst($r['status']), 'url' => '/invoices/'.$r['id'], 'icon' => 'receipt'],
+      $out['Invoices'] = array_map(static fn ($r) => ['title' => $r['number'].($r['title'] ? ', '.$r['title'] : ''), 'meta' => $r['client'].' · '.money($r['total']).' · '.ucfirst($r['status']), 'url' => '/invoices/'.$r['id'], 'icon' => 'receipt'],
         DB::all("SELECT d.id, d.number, d.title, d.total, d.status, COALESCE(NULLIF(c.company,''), c.name) AS client FROM invoices d JOIN clients c ON c.id=d.client_id WHERE $wi AND (d.number LIKE ? OR d.title LIKE ?) ORDER BY d.id DESC LIMIT 8", [...$pi, $l, $l])); }
     if (Gate::allows('crm.quotations.view', $u)) {
-      $out['Quotations'] = array_map(static fn ($r) => ['title' => $r['number'].($r['title'] ? ' — '.$r['title'] : ''), 'meta' => $r['client'].' · '.money($r['total']).' · '.ucfirst($r['status']), 'url' => '/quotations/'.$r['id'], 'icon' => 'file-text'],
+      $out['Quotations'] = array_map(static fn ($r) => ['title' => $r['number'].($r['title'] ? ', '.$r['title'] : ''), 'meta' => $r['client'].' · '.money($r['total']).' · '.ucfirst($r['status']), 'url' => '/quotations/'.$r['id'], 'icon' => 'file-text'],
         DB::all("SELECT d.id, d.number, d.title, d.total, d.status, COALESCE(NULLIF(c.company,''), c.name) AS client FROM quotations d JOIN clients c ON c.id=d.client_id WHERE $wi AND (d.number LIKE ? OR d.title LIKE ?) ORDER BY d.id DESC LIMIT 8", [...$pi, $l, $l])); }
     return $out; }
 

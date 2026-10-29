@@ -5,7 +5,7 @@ $first = explode(' ', $u['name'])[0];
 $ringCls = $pct >= 100 ? 'full' : ($pct >= 80 ? 'warn' : '');
 $clientOpts = static function (bool $optional) use ($clients): string {
   $h = '<option value="">'.($optional ? 'No client (optional)' : 'Choose a client…').'</option>';
-  foreach ($clients as $c) { $h .= '<option value="'.(int) $c['id'].'">'.e($c['name'].($c['company'] ? ' — '.$c['company'] : '')).'</option>'; }
+  foreach ($clients as $c) { $h .= '<option value="'.(int) $c['id'].'">'.e($c['name'].($c['company'] ? ', '.$c['company'] : '')).'</option>'; }
   return $h; };
 $modalHead = static fn (string $key, array $t): string => '<div class="modal-head"><div class="flex"><span class="ai-ic bg-'.e($t[2]).'">'.icon($t[3]).'</span><div><h3>'.e($t[0]).'</h3><div class="xs muted">'.e($t[1]).'</div></div></div><button type="button" class="btn icon ghost sm" data-close aria-label="Close">'.icon('x', 'sm').'</button></div>';
 $result = static fn (string $extra = ''): string => '<div class="ai-result hide" data-ai-result><div class="ai-msg"><span class="ai-avatar">'.icon('bot', 'sm').'</span><div class="ai-bubble"><div class="ai-meta"><span><b>Assistant</b> · <span data-ai-meta>thinking…</span></span><span class="pill pill-lav">Draft · review before use</span></div><div class="ai-out" data-ai-out aria-live="polite"></div><div class="ai-acts"><button type="button" class="btn sm soft" data-copy="" data-ai-copy disabled>'.icon('copy', 'sm').' Copy</button><button type="button" class="btn sm ghost" data-ai-regen>'.icon('refresh', 'sm').' Regenerate</button></div>'.$extra.'</div></div></div>';
@@ -14,7 +14,7 @@ $result = static fn (string $extra = ''): string => '<div class="ai-result hide"
   <div>
     <span class="pill pill-lav"><?= icon('sparkles', 'sm') ?> <?= e(AiClient::providers()[AiClient::provider()] ?? 'AI') ?> · <?= e(AiClient::model()) ?></span>
     <h1>Hi <?= e($first) ?>, how can I help today?</h1>
-    <p class="muted mb0">Summaries, drafts, reports and smart search over the records you already have access to. Everything I produce is a draft — nothing is saved or sent until you approve it.</p>
+    <p class="muted mb0">Summaries, drafts, reports and smart search over the records you already have access to. Everything I produce is a draft, nothing is saved or sent until you approve it.</p>
     <?php if (can('ai.search')): ?>
     <form class="ai-ask" method="get" action="<?= e(url('/ai/search')) ?>" role="search"><?= icon('search', 'sm') ?><input type="search" name="q" maxlength="300" placeholder="Ask anything, e.g. “overdue invoices for Acme”" aria-label="Ask your workspace"><button class="btn primary sm"><?= icon('sparkles', 'sm') ?> Ask</button></form>
     <div class="ai-chips"><?php foreach (['My overdue tasks', 'Active clients in retail', 'Projects due this month', 'Unpaid invoices'] as $ex): ?><a href="<?= e(url('/ai/search').'?q='.rawurlencode($ex)) ?>"><?= e($ex) ?></a><?php endforeach ?></div>
@@ -72,7 +72,7 @@ $result = static fn (string $extra = ''): string => '<div class="ai-result hide"
       <div class="field"><label for="em-tone">Tone</label><select id="em-tone" name="tone"><?php foreach (Modules\Ai\Controllers\AssistantController::TONES as $k => $l): ?><option value="<?= e($k) ?>"><?= e($l) ?></option><?php endforeach ?></select></div>
       <?php if ($clients): ?><div class="field full"><label for="em-client">Client (optional)</label><select id="em-client" name="client_id"><?= $clientOpts(true) ?></select><div class="hint">Adds the client name and last 5 interactions as context.</div></div><?php endif ?>
     </div>
-    <div class="ai-note"><?= icon('lock', 'sm') ?> Drafts are never sent automatically — copy it into your mail app.</div>
+    <div class="ai-note"><?= icon('lock', 'sm') ?> Drafts are never sent automatically, copy it into your mail app.</div>
     <div class="form-actions"><button class="btn primary" type="submit"><?= icon('sparkles', 'sm') ?> Draft email</button></div>
   </form><?= $result() ?></div></dialog>
 <?php endif ?>
@@ -106,9 +106,9 @@ $result = static fn (string $extra = ''): string => '<div class="ai-result hide"
 
 <?php if (isset($tools['reminder'])): $t = $tools['reminder']; ?>
 <dialog class="modal wide ai-modal" id="ai-m-reminder"><?= $modalHead('reminder', $t) ?><div class="modal-body">
-  <?php if (!$invoices): ?><?= empty_state('No overdue invoices', 'Great news — nothing is overdue among the invoices you can see.', 'money-wallet') ?><?php else: ?>
+  <?php if (!$invoices): ?><?= empty_state('No overdue invoices', 'Great news, nothing is overdue among the invoices you can see.', 'money-wallet') ?><?php else: ?>
   <form class="form" method="post" action="<?= e(url('/ai/run/reminder')) ?>" data-ai-tool><?= csrf_field() ?>
-    <div class="field"><label for="rm-inv">Overdue invoice</label><select id="rm-inv" name="invoice_id" required><option value="">Choose an invoice…</option><?php foreach ($invoices as $i): ?><option value="<?= (int) $i['id'] ?>"><?= e($i['number'].' — '.$i['client'].' — '.money((float) $i['total'] - (float) $i['amount_paid']).' — due '.fdate($i['due_date'])) ?></option><?php endforeach ?></select></div>
+    <div class="field"><label for="rm-inv">Overdue invoice</label><select id="rm-inv" name="invoice_id" required><option value="">Choose an invoice…</option><?php foreach ($invoices as $i): ?><option value="<?= (int) $i['id'] ?>"><?= e($i['number'].', '.$i['client'].', '.money((float) $i['total'] - (float) $i['amount_paid']).', due '.fdate($i['due_date'])) ?></option><?php endforeach ?></select></div>
     <div class="form-actions"><button class="btn primary" type="submit"><?= icon('sparkles', 'sm') ?> Draft reminder</button></div>
   </form>
   <?= $result($canSend ? '<form class="ai-followup form hide" method="post" action="'.e(url('/ai/reminder/queue')).'" data-ai-queue data-confirm="Queue this email to the client now?">'.csrf_field().'<input type="hidden" name="invoice_id" data-ai-fill="invoice_id"><div class="ai-note">'.icon('mail', 'sm').' To: <b data-ai-fill-text="to"></b></div><div class="field"><label>Subject</label><input type="text" name="subject" maxlength="250" required data-ai-fill="subject"></div><div class="field"><label>Message</label><textarea name="body" rows="9" maxlength="10000" required data-ai-fill="body"></textarea></div><label class="check"><input type="checkbox" name="confirm" value="1" required> I have reviewed this email and want to send it to the client</label><div class="form-actions"><button class="btn primary" type="submit">'.icon('send', 'sm').' Queue email to client</button></div></form><div class="ai-note hide mt" data-ai-noemail>'.icon('alert', 'sm').' This client has no email address on file, so the reminder can only be copied.</div>' : '') ?>

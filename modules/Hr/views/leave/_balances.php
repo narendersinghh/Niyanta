@@ -9,7 +9,7 @@ usort($tiles, static fn ($a, $b) => ($b['code'] === LS::OPTIONAL_CODE) <=> ($a['
     <span class="tile-ic"><?= icon($oh ? 'gift' : ($paid ? 'umbrella' : 'calendar')) ?></span>
     <div>
       <?php if ($paid && !$b['allocated_row']): ?>
-        <div class="num">—</div><div class="lbl"><?= e($b['name']) ?></div><div class="hr-tsub">Not allocated for <?= (int) $year ?> yet</div>
+        <div class="num">-</div><div class="lbl"><?= e($b['name']) ?></div><div class="hr-tsub">Not allocated for <?= (int) $year ?> yet</div>
       <?php elseif ($paid): $pct = (float) $b['allocated'] > 0 ? min(100, (int) round(((float) $b['used'] + (float) $b['pending']) / (float) $b['allocated'] * 100)) : 0; ?>
         <div class="num"><?= e(LS::num(max(0, (float) $b['available']))) ?><small>/ <?= e(LS::num($b['allocated'])) ?></small></div>
         <div class="lbl"><?= $oh ? e(LS::num(max(0, (float) $b['available']))).' of '.e(LS::num($b['allocated'])).' optional days left' : e($b['name']).' left' ?></div>

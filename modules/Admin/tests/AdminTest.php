@@ -18,7 +18,7 @@ return [
     assert_true(!array_key_exists('email.smtp_password', $v), 'blank secret is not saved');
     $v = SettingsSchema::validate('email', ['email.driver' => 'smtp', 'email.smtp_encryption' => 'tls'], ['email.smtp_password' => 1]);
     assert_true(array_key_exists('email.smtp_password', $v) && $v['email.smtp_password'] === null, 'clear removes secret');
-    $g = SettingsSchema::validate('general', ['general.timezone' => 'UTC', 'general.date_format' => 'd M Y', 'general.time_format' => 'H:i', 'general.week_start' => '1', 'general.currency_symbol' => '$', 'general.currency_code' => 'usd', 'general.thousand_sep' => '']);
+    $g = SettingsSchema::validate('general', ['company.name' => 'Acme Ltd', 'general.timezone' => 'UTC', 'general.date_format' => 'd M Y', 'general.time_format' => 'H:i', 'general.week_start' => '1', 'general.currency_symbol' => '$', 'general.currency_code' => 'usd', 'general.thousand_sep' => '']);
     assert_eq('USD', $g['general.currency_code']); assert_eq('', $g['general.thousand_sep']);
     $w = SettingsSchema::validate('employees', ['hr.work_hours_per_day' => '8', 'general.weekend_days' => ['7', '6', '9']]);
     assert_eq('6,7', $w['general.weekend_days']);
@@ -26,7 +26,7 @@ return [
     assert_eq('mail', $e['email.driver'], 'PHP mail() preset selects the mail driver');
     assert_throws(ValidationException::class, fn () => SettingsSchema::validate('email', ['email.provider' => 'nope']), 'unknown provider'); },
   'appearance save stores only real overrides' => function () {
-    $in = ['branding.app_name' => 'X', 'appearance.font_family' => 'Inter', 'appearance.default_theme' => 'system', 'appearance.font_size' => '14', 'appearance.radius' => '22'];
+    $in = [ 'appearance.font_family' => 'Inter', 'appearance.default_theme' => 'system', 'appearance.font_size' => '14', 'appearance.radius' => '22'];
     foreach (SettingsSchema::THEME_KEYS as $k) { if (str_contains($k, 'color') || str_contains($k, 'accent')) { $in[$k] = strtoupper(SettingsSchema::DEFAULTS[$k]); } }
     $in['appearance.accent_4'] = '#123456';
     $v = SettingsSchema::validate('appearance', $in);

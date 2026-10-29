@@ -2,7 +2,7 @@
 /**
  * Product structure: 3 bundles, each with switchable features. A feature owns permission
  * prefixes; disabling a feature (or its whole bundle) denies those permissions for everyone,
- * hides navigation/widgets and blocks the routes — data is never deleted.
+ * hides navigation/widgets and blocks the routes, data is never deleted.
  */
 return [
   'people' => ['name' => 'HR & Employee Management', 'icon' => 'users', 'color' => '#12B5A0', 'description' => 'Employees, attendance & time, leave & holidays, payroll, reimbursements and company documents.', 'features' => [

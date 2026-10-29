@@ -195,7 +195,7 @@ final class UpdateService {
       error_log('Update failed: '.$e);
       if ($copying && $codeBackup) {
         try { $r = self::rollback($codeBackup, $created); $status = 'rolled_back'; $log("Code restored from backup ($r files, removed ".count($created).' new files). Database migrations that already ran are kept; restore the pre-update backup if needed.'); }
-        catch (\Throwable $r) { $log('ROLLBACK FAILED: '.$r->getMessage().' — restore manually from storage/updates/'.basename($codeBackup).' (see docs/UPDATES.md)'); } }
+        catch (\Throwable $r) { $log('ROLLBACK FAILED: '.$r->getMessage().', restore manually from storage/updates/'.basename($codeBackup).' (see docs/UPDATES.md)'); } }
       Cache::flush(); }
     finally {
       BackupService::maintenance(false);
@@ -225,7 +225,7 @@ final class UpdateService {
         $bytes += (int) $s['size'];
         if (basename($name) === 'niyanta.json' && substr_count($name, '/') <= 1) { $p = substr($name, 0, -strlen('niyanta.json')); if ($prefix === null || strlen($p) < strlen($prefix)) { $prefix = $p; } } }
       if ($bytes > self::MAX_UNPACKED) { throw new \RuntimeException('Package unpacks to more than '.BackupService::size(self::MAX_UNPACKED).'.'); }
-      if ($prefix === null) { throw new \RuntimeException('niyanta.json not found — this is not a Niyanta package.'); }
+      if ($prefix === null) { throw new \RuntimeException('niyanta.json not found, this is not a Niyanta package.'); }
       $m = json_decode((string) $z->getFromName($prefix.'niyanta.json'), true);
       $vp = (string) $z->getFromName($prefix.'core/version.php');
       if (!is_array($m) || ($m['name'] ?? '') !== 'niyanta' || empty($m['version'])) { throw new \RuntimeException('niyanta.json in the package is invalid.'); }

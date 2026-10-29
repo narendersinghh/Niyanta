@@ -4,7 +4,7 @@ $lead = ((int) date('N', $ts) - $weekStart + 7) % 7; $daysIn = (int) date('t', $
 $dows = $weekStart === 7 ? ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] : ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 $weekend = Modules\Hr\Services\LeaveService::weekendDays(); $today = date('Y-m-d');
 ?>
-<?= partial('partials/page_head', ['title' => 'Team leave calendar', 'subtitle' => 'Who is away and when — plan around it.', 'crumbs' => [['My HR'], ['Leave', '/hr/leave'], ['Calendar']], 'actions' => can('hr.leave.request') ? '<a class="btn primary" href="'.e(url('/hr/leave')).'">'.icon('plus', 'sm').' Request leave</a>' : '']) ?>
+<?= partial('partials/page_head', ['title' => 'Team leave calendar', 'subtitle' => 'Who is away and when, plan around it.', 'crumbs' => [['My HR'], ['Leave', '/hr/leave'], ['Calendar']], 'actions' => can('hr.leave.request') ? '<a class="btn primary" href="'.e(url('/hr/leave')).'">'.icon('plus', 'sm').' Request leave</a>' : '']) ?>
 <?= partial('hr::leave/_tabs', ['tab' => $tab, 'pendingCount' => $pendingCount]) ?>
 <div class="card">
   <div class="card-head">

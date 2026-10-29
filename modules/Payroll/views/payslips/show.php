@@ -12,17 +12,17 @@ $crumbs = $own ? [['My HR'], ['My Payslips', '/payslips'], [$label]] : [['HR Adm
 <div class="grid g-side pay-top">
   <div class="card pay-slip">
     <div class="pay-slip-head">
-      <div><div class="xs pay-up">Payslip</div><h2 class="mb0"><?= e($label) ?></h2><div class="small muted"><?= e(setting('branding.app_name', 'Niyanta')) ?> · Slip #<?= e(str_pad((string) $s['id'], 6, '0', STR_PAD_LEFT)) ?></div></div>
+      <div><div class="xs pay-up">Payslip</div><h2 class="mb0"><?= e($label) ?></h2><div class="small muted"><?= e(company_name()) ?> · Slip #<?= e(str_pad((string) $s['id'], 6, '0', STR_PAD_LEFT)) ?></div></div>
       <?= badge($s['run_status'] === 'paid' ? 'paid' : ($s['run_status'] === 'draft' ? 'draft' : 'finalized'), $s['run_status'] === 'paid' ? 'Paid' : ($s['run_status'] === 'draft' ? 'Draft' : 'Published')) ?>
     </div>
     <div class="grid g2 pay-info">
-      <dl class="kv"><dt>Employee</dt><dd><?= e($s['name']) ?></dd><dt>Employee code</dt><dd><?= e($s['employee_code'] ?: '—') ?></dd><dt>Designation</dt><dd><?= e($s['designation'] ?: '—') ?></dd><dt>Department</dt><dd><?= e($s['department'] ?: '—') ?></dd></dl>
+      <dl class="kv"><dt>Employee</dt><dd><?= e($s['name']) ?></dd><dt>Employee code</dt><dd><?= e($s['employee_code'] ?: '-') ?></dd><dt>Designation</dt><dd><?= e($s['designation'] ?: '-') ?></dd><dt>Department</dt><dd><?= e($s['department'] ?: '-') ?></dd></dl>
       <dl class="kv"><?php if ($s['pay_type'] === 'hourly'): ?><dt>Pay type</dt><dd>Hourly</dd><dt>Hourly rate</dt><dd><?= e(money($s['rate'])) ?></dd><dt>Hours worked</dt><dd><?= e(number_format((float) $s['worked_hours'], 2)) ?> h</dd><?php else: ?><dt>Pay type</dt><dd>Monthly · <?= e(money($s['rate'])) ?></dd><dt>Working days</dt><dd><?= e($n1($s['working_days'])) ?></dd><dt>Paid days</dt><dd><?= e($n1($s['paid_days'])) ?></dd><dt>Unpaid leave</dt><dd><?= e($n1($s['unpaid_leave_days'])) ?></dd><?php endif ?></dl>
     </div>
     <div class="grid g2 mt pay-top">
       <?php foreach ([['Earnings', $earn, 'Gross earnings', $s['gross'], ''], ['Deductions', $ded, 'Total deductions', $s['total_deductions'], ' ded']] as [$t, $rows, $tl, $tot, $c]): ?>
       <div class="pay-box<?= $c ?>"><div class="pay-box-head"><b><?= e($t) ?></b><span class="xs">Amount</span></div>
-        <?php if (!$rows): ?><div class="pay-line muted"><span>None</span><span>—</span></div><?php endif ?>
+        <?php if (!$rows): ?><div class="pay-line muted"><span>None</span><span>-</span></div><?php endif ?>
         <?php foreach ($rows as $r): ?><div class="pay-line"><span><?= e($r['name']) ?></span><span><?= e(money($r['amount'])) ?></span></div><?php endforeach ?>
         <div class="pay-line total"><span><?= e($tl) ?></span><span><?= e(money($tot)) ?></span></div>
       </div>

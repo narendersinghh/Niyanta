@@ -1,12 +1,11 @@
-<?php $app = setting('branding.app_name', 'Niyanta'); ?>
+<?php $app = company_name(); ?>
 <div class="auth"><?= partial('partials/auth_tools') ?>
   <div class="auth-art">
-    <div class="flex"><span class="brand-logo"><?php if ($l = setting('branding.logo')): ?><img src="<?= e(url('assets/uploads/branding/'.basename((string) $l))) ?>" alt=""><?php elseif (is_file(NY_ROOT.'/assets/img/logo.svg')): ?><img src="<?= e(asset('img/logo.svg')) ?>" alt=""><?php else: ?><?= e(mb_substr($app, 0, 1)) ?><?php endif ?></span><b style="font-size:1.2rem"><?= e($app) ?></b></div>
+    <div class="flex"><span class="brand-logo"><img src="<?= e(asset('img/logo.svg')) ?>" alt=""></span><b style="font-size:1.2rem"><?= e(app_name()) ?></b></div>
     <?= illus('login-hero') ?>
-    <div>
-      <h2><?= e(setting('branding.login_headline', 'Clients, projects, people & payroll — beautifully in one place.')) ?></h2>
-      <div class="chips mt"><span class="chip">CRM</span><span class="chip">Projects</span><span class="chip">HR</span><span class="chip">Time</span><span class="chip">Payroll</span><span class="chip">AI</span></div>
-    </div>
+    <?php $quotes = [['Alone we can do so little; together we can do so much.', 'Helen Keller'], ['Great things are done by a series of small things brought together.', 'Vincent van Gogh'], ['Arise, awake, and stop not till the goal is reached.', 'Swami Vivekananda'], ['Coming together is a beginning, staying together is progress, and working together is success.', 'Henry Ford'], ['It always seems impossible until it is done.', 'Nelson Mandela'], ['Done is better than perfect.', 'Sheryl Sandberg'], ['The secret of getting ahead is getting started.', 'Mark Twain']];
+    [$q, $who] = $quotes[array_rand($quotes)]; ?>
+    <figure class="auth-quote"><blockquote>“<?= e($q) ?>”</blockquote><figcaption><?= e($who) ?></figcaption></figure>
   </div>
   <div class="auth-form">
     <form class="auth-box form" method="post" action="<?= e(url('/login')) ?>">

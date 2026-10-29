@@ -18,6 +18,7 @@ final class SettingsController extends Controller {
   public function index(string $tab = 'home'): Response {
     if (array_key_exists($tab, SettingsSchema::MOVED)) { return $this->redirect('/admin/settings'.(SettingsSchema::MOVED[$tab] ? '/'.SettingsSchema::MOVED[$tab] : '')); }
     if ($tab === 'home') { return $this->view('admin::settings/home', $this->base('home', 'Settings') + ['status' => $this->statuses()]); }
+    if ($tab === 'storage') { return $this->redirect('/admin/settings/retention'); }
     $tabs = SettingsSchema::tabs();
     if (!isset($tabs[$tab])) { $this->abort(404, 'Unknown settings section.'); }
     if (isset(self::PAGES[$tab])) { return $this->redirect(self::PAGES[$tab]); }
@@ -28,10 +29,9 @@ final class SettingsController extends Controller {
         'sessions' => (int) DB::value("SELECT COUNT(*) FROM users WHERE status='active' AND id<>?", [$this->uid()]), 'failed' => $this->auditCount('auth.failed'), 'denied' => $this->auditCount('access.denied')],
       'features' => ['bundles' => Features::bundles(), 'raw' => DB::pairs("SELECT `key`, enabled FROM modules WHERE `key` LIKE 'feature:%'")],
       'email' => ['presets' => MailPresets::all()],
-      'retention' => ['last' => Settings::json('retention.last_cleanup'), 'sizes' => $this->tableSizes(['audit_logs', 'notifications', 'mail_queue', 'cron_logs', 'ai_usage', 'screenshots'])],
+      'retention' => ['last' => Settings::json('retention.last_cleanup'), 'sizes' => $this->tableSizes(['audit_logs', 'notifications', 'mail_queue', 'cron_logs', 'ai_usage', 'screenshots']), 'usage' => SystemHealth::usage(), 'health' => SystemHealth::snapshot()],
       'demo' => ['demo' => DemoData::counts(), 'demoMeta' => Settings::json('demo.imported'), 'password' => Session::getFlash('demo_password')],
       'leave' => ['ohQuota' => $this->has('leave_types') ? DB::value("SELECT annual_quota FROM leave_types WHERE code='OH'") : null, 'holidays' => $this->has('holidays') ? DB::pairs('SELECT optional, COUNT(*) FROM holidays WHERE YEAR(holiday_date)=? GROUP BY optional', [(int) date('Y')]) : []],
-      'storage' => ['usage' => SystemHealth::usage(), 'health' => SystemHealth::snapshot()],
       default => [] };
     return $this->view('admin::settings/index', $data); }
 
@@ -71,8 +71,7 @@ final class SettingsController extends Controller {
       'demo' => [$demo ? number_format($demo).' demo records' : 'Not imported', $demo ? 'warn' : 'info'],
       'backups' => [$last ? 'Last '.ago($last['created_at']) : 'No backups yet', $last && strtotime($last['created_at']) > time() - 172800 ? 'ok' : 'warn'],
       'cron' => [$h['heartbeat'] ? 'Heartbeat '.ago($h['heartbeat']) : 'Never ran', $h['state'] === 'healthy' ? 'ok' : 'warn'],
-      'updates' => ['v'.NY_VERSION, 'info'],
-      'storage' => ['Max upload '.(int) Settings::get('storage.max_upload_mb', 10).' MB', 'info']]; }
+      'updates' => ['v'.NY_VERSION, 'info']]; }
 
   public function save(string $tab): Response {
     $fields = SettingsSchema::fields($tab);
@@ -141,7 +140,7 @@ final class SettingsController extends Controller {
 
   public function testEmail(): Response {
     $u = $this->user();
-    $app = (string) setting('branding.app_name', 'Niyanta');
+    $app = company_name();
     $meta = ['driver' => Settings::get('email.driver', 'mail'), 'provider' => Settings::get('email.provider')];
     try {
       Mailer::send($u['email'], "Test email from $app", Mailer::template('It works!', '<p>Hi '.e($u['name']).',</p><p>This test message confirms that '.e($app).' can send email using <b>'.e(MailPresets::get((string) SettingsSchema::value(['key' => 'email.provider']))['name'] ?? 'PHP mail()').'</b>.</p><p style="color:#888;font-size:12px">Sent '.e(date('c')).'</p>'), $u['name']);
@@ -150,7 +149,7 @@ final class SettingsController extends Controller {
     catch (\Throwable $e) {
       Audit::log('settings.email_test', 'settings', null, ['ok' => false] + $meta);
       Session::flash('mail_error', mb_substr($e->getMessage(), 0, 500));
-      $this->flash('Test email failed — see the error below the form.', 'error'); }
+      $this->flash('Test email failed, see the error below the form.', 'error'); }
     return $this->redirect('/admin/settings/email'); }
 
   /** Run the retention cleanup now (same job and lock as the nightly cron). */

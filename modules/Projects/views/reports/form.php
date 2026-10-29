@@ -13,7 +13,7 @@ $rejected = $id && $r['status'] === 'rejected';
   <div class="grid g-side">
     <div class="stack">
       <section class="card form">
-        <?= $sec('calendar', 'sky', 'Period', 'Pick the day — or any day in the week for a weekly report.') ?>
+        <?= $sec('calendar', 'sky', 'Period', 'Pick the day, or any day in the week for a weekly report.') ?>
         <div class="form-grid g3">
           <div class="field"><label>Report type</label>
             <div class="type-seg" role="radiogroup" aria-label="Report type"><?php foreach (['daily' => 'Daily', 'weekly' => 'Weekly'] as $k => $l): ?><label><input type="radio" name="type" value="<?= $k ?>"<?= checked($type === $k) ?> class="sr"><?= icon($k === 'daily' ? 'clock' : 'calendar', 'sm') ?> <?= $l ?></label><?php endforeach ?></div></div>
@@ -23,9 +23,9 @@ $rejected = $id && $r['status'] === 'rejected';
         </div>
       </section>
       <section class="card form">
-        <?= $sec('edit', 'lav', 'Update', 'Outcomes over activities — one item per line in the lists.') ?>
+        <?= $sec('edit', 'lav', 'Update', 'Outcomes over activities, one item per line in the lists.') ?>
         <div class="field<?= error_for('summary') ? ' has-error' : '' ?>"><label for="r-summary">Summary *</label><textarea id="r-summary" name="summary" rows="3" required maxlength="5000" placeholder="A short overview of the day or week"><?= e($v('summary')) ?></textarea><?= error_for('summary') ?></div>
-        <div class="field"><label for="r-acc">Accomplishments</label><textarea id="r-acc" name="accomplishments" rows="4" placeholder="What you completed — one item per line"><?= e($v('accomplishments')) ?></textarea></div>
+        <div class="field"><label for="r-acc">Accomplishments</label><textarea id="r-acc" name="accomplishments" rows="4" placeholder="What you completed, one item per line"><?= e($v('accomplishments')) ?></textarea></div>
         <div class="form-grid">
           <div class="field"><label for="r-block">Blockers</label><textarea id="r-block" name="blockers" rows="3" placeholder="Anything slowing you down?"><?= e($v('blockers')) ?></textarea><div class="hint">Your manager sees these first.</div></div>
           <div class="field"><label for="r-next">Next steps</label><textarea id="r-next" name="next_steps" rows="3" placeholder="What's planned next"><?= e($v('next_steps')) ?></textarea></div>

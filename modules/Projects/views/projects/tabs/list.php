@@ -26,7 +26,7 @@ $th = static function (string $key, string $label, string $cls = '') use ($sort,
         <td><?php if ($t['assignee']): ?><span class="tcell"><?= avatar($t['assignee'], $t['avatar'], 'sm') ?> <?= e($t['assignee']) ?></span><?php else: ?><span class="muted">Unassigned</span><?php endif ?></td>
         <td><?= badge($t['priority'], PS::PRIORITIES[$t['priority']]) ?></td>
         <td class="nowrap"><?= PS::dueChip($t['due_date'], $t['status']) ?></td>
-        <td class="num-r"><?= $t['estimated_hours'] !== null ? e((float) $t['estimated_hours']).'h' : '<span class="muted">—</span>' ?></td>
+        <td class="num-r"><?= $t['estimated_hours'] !== null ? e((float) $t['estimated_hours']).'h' : '<span class="muted">-</span>' ?></td>
         <td><?php if ($t['editable']): ?>
           <form method="post" action="<?= e(url('/tasks/'.$t['id'].'/status')) ?>" class="status-form"><?= csrf_field() ?><?= PS::returnField() ?><select name="status" data-autosubmit class="status-select st-<?= e($t['status']) ?>" aria-label="Status of <?= e($t['title']) ?>"><?php foreach (PS::TASK_STATUSES as $k => $l): ?><option value="<?= e($k) ?>"<?= selected($k, $t['status']) ?>><?= e($l) ?></option><?php endforeach ?></select></form>
         <?php else: ?><?= badge($t['status'], PS::TASK_STATUSES[$t['status']]) ?><?php endif ?></td>

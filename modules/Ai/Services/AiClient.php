@@ -38,7 +38,7 @@ final class AiClient {
 
   /**
    * Run one completion for $feature. Returns ['text','model','input_tokens','output_tokens'].
-   * Options: max_tokens (capped by settings), test (bool: settings connection test — skips enabled/quota checks).
+   * Options: max_tokens (capped by settings), test (bool: settings connection test, skips enabled/quota checks).
    * Throws AiException with a user-safe message; every attempt is logged in ai_usage.
    */
   public static function ask(string $feature, string $system, string $prompt, array $opts = []): array {

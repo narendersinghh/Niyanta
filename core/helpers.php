@@ -36,12 +36,12 @@ function currency_symbol(): string { return (string) setting('general.currency_s
 function money(mixed $v, bool $symbol = true): string {
   $n = number_format((float) $v, 2, '.', setting('general.thousand_sep', ','));
   return $symbol ? currency_symbol().$n : $n; }
-function fdate(?string $d, ?string $fmt = null): string { if (!$d || str_starts_with($d, '0000')) { return '—'; } return date($fmt ?? setting('general.date_format', 'd M Y'), strtotime($d)); }
-function fdatetime(?string $d): string { return $d ? fdate($d, setting('general.date_format', 'd M Y').' '.setting('general.time_format', 'h:i A')) : '—'; }
-function ftime(?string $d): string { return $d ? date(setting('general.time_format', 'h:i A'), strtotime($d)) : '—'; }
+function fdate(?string $d, ?string $fmt = null): string { if (!$d || str_starts_with($d, '0000')) { return '-'; } return date($fmt ?? setting('general.date_format', 'd M Y'), strtotime($d)); }
+function fdatetime(?string $d): string { return $d ? fdate($d, setting('general.date_format', 'd M Y').' '.setting('general.time_format', 'h:i A')) : '-'; }
+function ftime(?string $d): string { return $d ? date(setting('general.time_format', 'h:i A'), strtotime($d)) : '-'; }
 function hours(mixed $seconds): string { $s = (int) $seconds; return sprintf('%dh %02dm', intdiv($s, 3600), intdiv($s % 3600, 60)); }
 function ago(?string $d): string {
-  if (!$d) { return '—'; }
+  if (!$d) { return '-'; }
   $s = time() - strtotime($d);
   if ($s < 60) { return 'just now'; }
   foreach ([31536000 => 'y', 2592000 => 'mo', 604800 => 'w', 86400 => 'd', 3600 => 'h', 60 => 'm'] as $u => $l) { if ($s >= $u) { return intdiv($s, $u).$l.' ago'; } }
@@ -82,3 +82,12 @@ function empty_state(string $title, string $text = '', string $illus = 'empty-bo
 function wa_link(?string $phone, string $text = ''): string { $d = preg_replace('/\D+/', '', (string) $phone); return 'https://wa.me/'.$d.($text ? '?text='.rawurlencode($text) : ''); }
 function str_limit(?string $s, int $n = 80): string { $s = (string) $s; return mb_strlen($s) > $n ? mb_substr($s, 0, $n - 1).'…' : $s; }
 function query_merge(array $add): string { return '?'.http_build_query(array_merge($_GET, $add)); }
+
+/** Product name is fixed; the customer's company identity is configurable. */
+function app_name(): string { return 'Niyanta'; }
+function company_name(): string {
+  $n = trim((string) setting('company.name', ''));
+  if ($n === '') { $legacy = trim((string) setting('branding.app_name', '')); $n = $legacy !== '' && $legacy !== 'Niyanta' ? $legacy : ''; }
+  return $n !== '' ? $n : 'Your Company'; }
+/** Uploaded company logo URL or null. */
+function company_logo_url(): ?string { $l = setting('branding.logo'); return $l ? url('assets/uploads/branding/'.basename((string) $l)) : null; }

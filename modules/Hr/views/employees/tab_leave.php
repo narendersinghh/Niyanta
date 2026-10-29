@@ -11,7 +11,7 @@
       <td class="num b"><?= e(LS::num($r['days'])) ?></td>
       <td class="small hr-reason"><?= e(str_limit($r['reason'], 60)) ?></td>
       <td><?= badge($r['status']) ?></td>
-      <td class="small"><?= e($r['reviewer'] ?? '—') ?><?php if ($r['review_note']): ?><div class="xs muted"><?= e(str_limit($r['review_note'], 60)) ?></div><?php endif ?></td>
+      <td class="small"><?= e($r['reviewer'] ?? '-') ?><?php if ($r['review_note']): ?><div class="xs muted"><?= e(str_limit($r['review_note'], 60)) ?></div><?php endif ?></td>
     </tr><?php endforeach ?></tbody>
   </table></div>
   <?= pager($history) ?>

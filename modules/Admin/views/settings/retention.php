@@ -5,9 +5,18 @@ $tables = ['audit_logs' => ['Audit log', 'history', 'lav'], 'notifications' => [
 $run = '<form method="post" action="'.e(url('/admin/settings/retention/run')).'" data-no-lock="1" data-busy="Cleaning up…" data-confirm="Delete everything older than the retention periods now? This cannot be undone.">'.csrf_field().'<button class="btn primary">'.icon('play', 'sm').' Run cleanup now</button></form>';
 ?>
 <?= partial('admin::settings/_head', ['tabs' => $tabs, 'tab' => 'retention', 'actions' => $run]) ?>
+<?php $max = max(1, array_sum(array_column($usage, 1))); ?>
+<div class="grid g3 mini-stats mb">
+  <div class="tile bg-sky"><span class="tile-ic"><?= icon('database') ?></span><div><div class="num"><?= e(BackupService::size(array_sum(array_column($usage, 1)))) ?></div><div class="lbl">Used by Niyanta files</div></div></div>
+  <div class="tile bg-mint"><span class="tile-ic"><?= icon('server') ?></span><div><div class="num"><?= $health['disk_free'] !== null ? e(BackupService::size($health['disk_free'])) : '-' ?></div><div class="lbl">Free disk space</div></div></div>
+  <div class="tile bg-lemon"><span class="tile-ic"><?= icon('upload') ?></span><div><div class="num"><?= e($health['limits']['upload_max_filesize']) ?></div><div class="lbl">PHP upload limit (post <?= e($health['limits']['post_max_size']) ?>)</div></div></div>
+</div>
+<div class="card mb"><div class="card-head"><h3>Disk usage</h3><span class="xs muted">Private folders, never served directly</span></div>
+  <div class="usage"><?php foreach ($usage as $label => [$dir, $bytes, $c]): ?><div class="row"><div><b><?= e($label) ?></b><div class="xs muted mono"><?= e($dir) ?></div></div><div class="progress"><span style="width:<?= round($bytes / $max * 100, 1) ?>%;background:var(--<?= e($c) ?>)"></span></div><div class="right b"><?= e(BackupService::size($bytes)) ?></div></div><?php endforeach ?></div></div>
+<h3 class="mt">Database records</h3>
 <div class="card ret-summary">
   <div class="ret-last"><span class="ic-chip" style="--c:var(--<?= $last ? 'mint' : 'lemon' ?>)"><?= icon($last ? 'check-circle' : 'clock') ?></span>
-    <div><div class="xs muted">Last cleanup</div><b><?= $last ? e(ago($last['at'])).' — removed '.number_format((int) $last['total']) : 'Not run yet' ?></b><div class="xs muted"><?= $last ? e(fdatetime($last['at'])) : 'Runs nightly at 03:10 through the scheduler' ?></div></div></div>
+    <div><div class="xs muted">Last cleanup</div><b><?= $last ? e(ago($last['at'])).', removed '.number_format((int) $last['total']) : 'Not run yet' ?></b><div class="xs muted"><?= $last ? e(fdatetime($last['at'])) : 'Runs nightly at 03:10 through the scheduler' ?></div></div></div>
   <?php if ($last && array_filter($last['counts'] ?? [])): ?><div class="chips"><?php foreach (array_filter($last['counts']) as $k => $n): ?><span class="chip"><?= e($labels[$k] ?? $k) ?> <b><?= number_format((int) $n) ?></b></span><?php endforeach ?></div><?php endif ?>
 </div>
 <div class="ret-tables">

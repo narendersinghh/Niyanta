@@ -2,7 +2,7 @@
 /**
  * AI module tests (no network): task JSON parsing, NL filter validation, PII redaction, AiClient with a fake provider
  * (redaction before send, usage logging, error logging, budget blocking) and scoped NL search.
- * Run: php modules/Ai/tests/ai_test.php   — everything runs inside a DB transaction that is rolled back.
+ * Run: php modules/Ai/tests/ai_test.php  , everything runs inside a DB transaction that is rolled back.
  */
 require dirname(__DIR__, 3).'/core/bootstrap.php';
 use Core\{App, DB, Settings};

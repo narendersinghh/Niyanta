@@ -42,7 +42,7 @@ final class TaskController extends Controller {
   /** Titles of unfinished dependencies blocking a task. */
   private function openDeps(int $id): array { return DB::column("SELECT d.title FROM task_dependencies td JOIN tasks d ON d.id=td.depends_on_id WHERE td.task_id=? AND d.status<>'done'", [$id]); }
 
-  private function blockedMsg(array $titles): string { return 'This task is blocked — finish '.implode(', ', array_map(static fn ($t) => '“'.$t.'”', array_slice($titles, 0, 3))).(count($titles) > 3 ? ' and '.(count($titles) - 3).' more' : '').' first.'; }
+  private function blockedMsg(array $titles): string { return 'This task is blocked, finish '.implode(', ', array_map(static fn ($t) => '“'.$t.'”', array_slice($titles, 0, 3))).(count($titles) > 3 ? ' and '.(count($titles) - 3).' more' : '').' first.'; }
 
   public function store(int $id): Response {
     if (!PA::canManageTasks($this->user(), $id)) { $this->abort(404, 'Project not found.'); }

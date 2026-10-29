@@ -9,7 +9,7 @@ $statusOpts = ['lead' => ['Lead', 'lav'], 'active' => ['Active', 'mint'], 'on_ho
 $sec = static fn (string $icon, string $color, string $title, string $hint) => '<div class="crm-sec-h"><span class="crm-ic crm-c-'.$color.'">'.icon($icon, 'sm').'</span><div class="grow"><h3>'.e($title).'</h3><p>'.e($hint).'</p></div></div>';
 ?>
 <div class="crm">
-<?= partial('partials/page_head', ['title' => $id ? 'Edit '.$label : 'New client', 'subtitle' => $id ? 'Update profile details, tags and the account team.' : 'Capture the essentials — contacts, documents and journey entries come next.', 'crumbs' => [['Clients', '/clients'], ...($id ? [[$label, '/clients/'.$id], ['Edit']] : [['New client']])]]) ?>
+<?= partial('partials/page_head', ['title' => $id ? 'Edit '.$label : 'New client', 'subtitle' => $id ? 'Update profile details, tags and the account team.' : 'Capture the essentials, contacts, documents and journey entries come next.', 'crumbs' => [['Clients', '/clients'], ...($id ? [[$label, '/clients/'.$id], ['Edit']] : [['New client']])]]) ?>
 <form method="post" action="<?= e(url($id ? '/clients/'.$id : '/clients')) ?>"><?= csrf_field() ?>
 <div class="grid g-side">
   <div class="stack">
@@ -37,7 +37,7 @@ $sec = static fn (string $icon, string $color, string $title, string $hint) => '
       </div>
     </section>
     <section class="card form">
-      <?= $sec('file-text', 'lemon', 'Internal notes', 'Only your team sees these — background, preferences, how they like to be contacted.') ?>
+      <?= $sec('file-text', 'lemon', 'Internal notes', 'Only your team sees these, background, preferences, how they like to be contacted.') ?>
       <div class="field"><textarea name="notes" rows="4" maxlength="5000" aria-label="Notes" placeholder="Prefers WhatsApp over e-mail. Decision maker is the founder."><?= e($v('notes')) ?></textarea><?= error_for('notes') ?></div>
     </section>
   </div>

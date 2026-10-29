@@ -3,7 +3,7 @@
 use Modules\Crm\Services\Ui;
 $isInv = $kind === 'invoice';
 $bal = $isInv ? max(0, (float) $doc['total'] - (float) $doc['amount_paid']) : 0;
-$app = (string) setting('branding.app_name', 'Niyanta');
+$app = company_name();
 $from = array_filter([(string) setting('company.address', ''), (string) setting('company.email', ''), (string) setting('company.phone', ''), ($t = (string) setting('company.tax_id', '')) !== '' ? 'Tax ID: '.$t : '']);
 $stamp = ['paid' => 'Paid', 'overdue' => 'Overdue', 'cancelled' => 'Cancelled', 'draft' => 'Draft', 'accepted' => 'Accepted', 'rejected' => 'Rejected', 'expired' => 'Expired'][$doc['status']] ?? null;
 ?>

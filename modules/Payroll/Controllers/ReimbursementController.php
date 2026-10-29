@@ -36,7 +36,7 @@ final class ReimbursementController extends Controller {
       Audit::log('payroll.reimbursement.create', 'reimbursement', $id, ['amount' => round((float) $d['amount'], 2)]);
       return $id; });
     $me = $this->user();
-    Notify::permission('payroll.reimbursements.approve', 'New reimbursement claim from '.$me['name'], $d['title'].' — '.money($d['amount']), '/reimbursements?tab=queue');
+    Notify::permission('payroll.reimbursements.approve', 'New reimbursement claim from '.$me['name'], $d['title'].', '.money($d['amount']), '/reimbursements?tab=queue');
     $this->flash('Claim submitted for approval.');
     return $this->redirect('/reimbursements'); }
 
@@ -58,7 +58,7 @@ final class ReimbursementController extends Controller {
         Audit::log('payroll.reimbursement.'.($status === 'approved' ? 'approve' : 'reject'), 'reimbursement', $id, ['amount' => (float) $r['amount'], 'note' => $d['note']]);
         return $r; }); }
     catch (\DomainException $e) { $this->flash($e->getMessage(), 'error'); return $this->back(); }
-    $body = $r['title'].' — '.money($r['amount']).($status === 'approved' ? '. It will be paid with your next payslip.' : '.').($d['note'] ? "\nNote: ".$d['note'] : '');
+    $body = $r['title'].', '.money($r['amount']).($status === 'approved' ? '. It will be paid with your next payslip.' : '.').($d['note'] ? "\nNote: ".$d['note'] : '');
     Notify::user((int) $r['user_id'], 'Your reimbursement claim was '.$status, $body, '/reimbursements', true, 'receipt');
     $this->flash('Claim '.$status.'.');
     return $this->back(); }

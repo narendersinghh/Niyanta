@@ -13,7 +13,7 @@ $extra = '<div class="tile bg-lemon"><span class="tile-ic">'.icon('clock').'</sp
   <div class="card">
     <div class="card-head"><h3>My requests</h3><span class="small muted"><?= (int) $p['total'] ?> total</span></div>
     <div class="hr-toolbar"><div class="chips" role="tablist" aria-label="Filter by status"><?php foreach ($statuses as $k => $l): ?><a class="chip<?= $cur === $k ? ' on' : '' ?>" href="<?= e(url('/hr/leave').query_merge(['status' => $k, 'page' => 1])) ?>"><?= e($l) ?></a><?php endforeach ?></div></div>
-    <?php if (!$p['items']): ?><?= empty_state($cur ? 'No '.$cur.' requests' : 'No leave requests yet', $cur ? 'Try another status filter.' : 'Plan a break — use optional days for festivals, personal errands or a sick day.', 'leave-beach', $cur ? '' : '<button type="button" class="btn primary" data-modal="leave-req">'.icon('plus', 'sm').' Request leave</button>') ?><?php else: ?>
+    <?php if (!$p['items']): ?><?= empty_state($cur ? 'No '.$cur.' requests' : 'No leave requests yet', $cur ? 'Try another status filter.' : 'Plan a break, use optional days for festivals, personal errands or a sick day.', 'leave-beach', $cur ? '' : '<button type="button" class="btn primary" data-modal="leave-req">'.icon('plus', 'sm').' Request leave</button>') ?><?php else: ?>
     <div class="table-wrap"><table class="table">
       <thead><tr><th>Type</th><th>Dates</th><th class="num">Days</th><th>Status</th><th>Review</th><th><span class="sr">Actions</span></th></tr></thead>
       <tbody><?php foreach ($p['items'] as $r): ?><tr>
@@ -21,7 +21,7 @@ $extra = '<div class="tile bg-lemon"><span class="tile-ic">'.icon('clock').'</sp
         <td class="nowrap"><b class="small"><?= fdate($r['start_date'], 'd M Y') ?><?= $r['end_date'] !== $r['start_date'] ? ' – '.fdate($r['end_date'], 'd M Y') : '' ?></b><?= $r['half_day'] ? ' <span class="pill pill-gray">½ day</span>' : '' ?><div class="xs muted">Requested <?= e(ago($r['created_at'])) ?></div></td>
         <td class="num b"><?= e(LS::num($r['days'])) ?></td>
         <td><?= badge($r['status']) ?></td>
-        <td class="small"><?php if ($r['reviewer']): ?><?= e($r['reviewer']) ?><div class="xs muted"><?= e(str_limit($r['review_note'] ?: fdate($r['reviewed_at']), 50)) ?></div><?php elseif ($r['status'] === 'pending'): ?><span class="muted">Awaiting <?= e($manager ?? 'HR') ?></span><?php else: ?><span class="muted"><?= e($r['review_note'] ?? '—') ?></span><?php endif ?></td>
+        <td class="small"><?php if ($r['reviewer']): ?><?= e($r['reviewer']) ?><div class="xs muted"><?= e(str_limit($r['review_note'] ?: fdate($r['reviewed_at']), 50)) ?></div><?php elseif ($r['status'] === 'pending'): ?><span class="muted">Awaiting <?= e($manager ?? 'HR') ?></span><?php else: ?><span class="muted"><?= e($r['review_note'] ?? '-') ?></span><?php endif ?></td>
         <td class="actions"><?php if ($r['status'] === 'pending'): ?><form method="post" action="<?= e(url('/hr/leave/'.$r['id'].'/cancel')) ?>" data-confirm="Cancel this leave request?"><?= csrf_field() ?><button class="btn sm ghost"><?= icon('x', 'sm') ?> Cancel</button></form><?php endif ?></td>
       </tr><?php endforeach ?></tbody>
     </table></div>
@@ -31,7 +31,7 @@ $extra = '<div class="tile bg-lemon"><span class="tile-ic">'.icon('clock').'</sp
   <div class="stack">
     <div class="card">
       <div class="hr-side-head"><span class="hr-ic sky"><?= icon('gift') ?></span><div><h4 class="mb0">How optional days work</h4><div class="xs muted">One simple pool for everything</div></div></div>
-      <p class="small mb0">Fixed holidays are off for everyone. On top of that you get <b><?= e(LS::num($optional['annual_quota'] ?? 0)) ?> optional days</b> a year — use them for festivals, personal errands or medical emergencies.</p>
+      <p class="small mb0">Fixed holidays are off for everyone. On top of that you get <b><?= e(LS::num($optional['annual_quota'] ?? 0)) ?> optional days</b> a year, use them for festivals, personal errands or medical emergencies.</p>
       <div class="flex wrap mt"><a class="btn sm soft" href="<?= e(url('/hr/holidays')) ?>"><?= icon('calendar', 'sm') ?> See festival days</a></div>
     </div>
     <div class="card">
@@ -51,7 +51,7 @@ $extra = '<div class="tile bg-lemon"><span class="tile-ic">'.icon('clock').'</sp
   <div class="modal-head"><h3 id="leave-req-t">Request leave</h3><button type="button" class="btn icon sm ghost" data-close aria-label="Close"><?= icon('x', 'sm') ?></button></div>
   <form class="modal-body form" method="post" action="<?= e(url('/hr/leave')) ?>" data-leave-form data-preview="hr/leave/preview"><?= csrf_field() ?>
     <div class="hr-optbox"><?= icon('info') ?><p>Use <b>optional days</b> for festivals, personal errands or medical emergencies. Your approver: <b><?= e($manager ?? 'HR team') ?></b>.</p></div>
-    <div class="field"><label for="lr-type">Leave type *</label><select id="lr-type" name="leave_type_id" required><option value="">Choose…</option><?php foreach ($balances as $b): ?><option value="<?= (int) $b['id'] ?>"<?= selected($b['id'], $defaultType) ?>><?= e($b['name']) ?><?= (int) $b['paid'] ? ' — '.($b['allocated_row'] ? e(LS::num(max(0, (float) $b['available']))).' days left' : 'not allocated') : ' — unpaid' ?></option><?php endforeach ?></select><?= error_for('leave_type_id') ?></div>
+    <div class="field"><label for="lr-type">Leave type *</label><select id="lr-type" name="leave_type_id" required><option value="">Choose…</option><?php foreach ($balances as $b): ?><option value="<?= (int) $b['id'] ?>"<?= selected($b['id'], $defaultType) ?>><?= e($b['name']) ?><?= (int) $b['paid'] ? ', '.($b['allocated_row'] ? e(LS::num(max(0, (float) $b['available']))).' days left' : 'not allocated') : ', unpaid' ?></option><?php endforeach ?></select><?= error_for('leave_type_id') ?></div>
     <div class="form-grid">
       <div class="field"><label for="lr-from">From *</label><input id="lr-from" type="date" name="start_date" value="<?= e(old('start_date', $_GET['date'] ?? '')) ?>" required><?= error_for('start_date') ?></div>
       <div class="field"><label for="lr-to">To</label><input id="lr-to" type="date" name="end_date" value="<?= e(old('end_date', $_GET['date'] ?? '')) ?>"><div class="hint">Leave empty for a single day.</div><?= error_for('end_date') ?></div>

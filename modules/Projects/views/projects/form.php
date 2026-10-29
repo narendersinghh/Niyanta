@@ -8,7 +8,7 @@ $cur = e(currency_symbol());
 $sec = static fn (string $ic, string $color, string $title, string $help) => '<div class="fsec-head ac-'.$color.'"><span class="sec-ic">'.icon($ic).'</span><div><h3>'.e($title).'</h3><p>'.e($help).'</p></div></div>';
 ?>
 <div class="pj">
-<?= partial('partials/page_head', ['title' => $id ? 'Edit project' : 'New project', 'subtitle' => $id ? 'Update the plan, budget and team for '.$pr['name'].'.' : 'Set up the scope, team and budget — everything can be changed later.', 'crumbs' => [['Work'], ['Projects', '/projects'], $id ? [$pr['name'], '/projects/'.$id] : ['New project']]]) ?>
+<?= partial('partials/page_head', ['title' => $id ? 'Edit project' : 'New project', 'subtitle' => $id ? 'Update the plan, budget and team for '.$pr['name'].'.' : 'Set up the scope, team and budget, everything can be changed later.', 'crumbs' => [['Work'], ['Projects', '/projects'], $id ? [$pr['name'], '/projects/'.$id] : ['New project']]]) ?>
 <form method="post" action="<?= e(url($id ? '/projects/'.$id : '/projects')) ?>"><?= csrf_field() ?>
   <div class="grid g-side">
     <div class="stack">
@@ -19,7 +19,7 @@ $sec = static fn (string $ic, string $color, string $title, string $help) => '<d
           <?php if ($crm): ?>
           <div class="field<?= error_for('client_id') ? ' has-error' : '' ?>"><label for="p-client">Client</label><select id="p-client" name="client_id"><option value="">Internal / no client</option><?php foreach ($clients as $cid => $cn): ?><option value="<?= (int) $cid ?>"<?= selected($cid, $v('client_id')) ?>><?= e($cn) ?></option><?php endforeach ?></select><div class="hint">Leave empty for internal work.</div><?= error_for('client_id') ?></div>
           <?php else: ?><input type="hidden" name="client_id" value="<?= e($v('client_id')) ?>"><?php endif ?>
-          <div class="field<?= error_for('code') ? ' has-error' : '' ?>"><label for="p-code">Project code</label><input id="p-code" type="text" name="code" value="<?= e($v('code')) ?>" maxlength="30" placeholder="e.g. WEB-24"><div class="hint">Short reference — letters, numbers, dot, dash or underscore.</div><?= error_for('code') ?></div>
+          <div class="field<?= error_for('code') ? ' has-error' : '' ?>"><label for="p-code">Project code</label><input id="p-code" type="text" name="code" value="<?= e($v('code')) ?>" maxlength="30" placeholder="e.g. WEB-24"><div class="hint">Short reference, letters, numbers, dot, dash or underscore.</div><?= error_for('code') ?></div>
         </div>
       </section>
       <section class="card form">
@@ -32,7 +32,7 @@ $sec = static fn (string $ic, string $color, string $title, string $help) => '<d
         </div>
       </section>
       <section class="card form">
-        <?= $sec('target', 'mint', 'Scope & deliverables', 'What the team is building — shown on the project overview.') ?>
+        <?= $sec('target', 'mint', 'Scope & deliverables', 'What the team is building, shown on the project overview.') ?>
         <div class="form-grid">
           <div class="field full"><label for="p-desc">Description</label><textarea id="p-desc" name="description" rows="3" placeholder="What is this project about?"><?= e($v('description')) ?></textarea></div>
           <div class="field"><label for="p-scope">Scope</label><textarea id="p-scope" name="scope" rows="5" placeholder="What's in (and out of) scope"><?= e($v('scope')) ?></textarea></div>

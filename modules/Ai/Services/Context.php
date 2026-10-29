@@ -26,7 +26,7 @@ final class Context {
     if ($journey > 0) {
       $acts = DB::all('SELECT type, title, body, is_internal, occurred_at, follow_up_at, follow_up_done FROM client_activities WHERE client_id=? ORDER BY occurred_at DESC, id DESC LIMIT '.(int) $journey, [$id]);
       $txt .= "\n\nCLIENT JOURNEY (latest first, ".count($acts)." entries)";
-      foreach ($acts as $a) { $txt .= "\n- ".substr($a['occurred_at'], 0, 10).' ['.$a['type'].($a['is_internal'] ? ', internal' : '').'] '.self::cut($a['title'], 120).($a['body'] ? ' — '.self::cut($a['body'], 300) : '').($a['follow_up_at'] ? ' (follow-up '.substr($a['follow_up_at'], 0, 10).($a['follow_up_done'] ? ' done' : ' pending').')' : ''); }
+      foreach ($acts as $a) { $txt .= "\n- ".substr($a['occurred_at'], 0, 10).' ['.$a['type'].($a['is_internal'] ? ', internal' : '').'] '.self::cut($a['title'], 120).($a['body'] ? ', '.self::cut($a['body'], 300) : '').($a['follow_up_at'] ? ' (follow-up '.substr($a['follow_up_at'], 0, 10).($a['follow_up_done'] ? ' done' : ' pending').')' : ''); }
       if (!$acts) { $txt .= "\n(none recorded)"; } }
     if ($invoices && Scope::can('crm.finance.view', $u)) {
       $inv = DB::all("SELECT number, title, issue_date, due_date, status, currency, total, amount_paid FROM invoices WHERE client_id=? AND status IN ('sent','partial','overdue') ORDER BY due_date LIMIT 20", [$id]);
@@ -59,7 +59,7 @@ final class Context {
     if (!$ms) { $txt .= "\n(none)"; }
     $od = DB::all("SELECT t.title, t.due_date, t.priority, t.status, u.name AS assignee FROM tasks t LEFT JOIN users u ON u.id=t.assignee_id WHERE t.project_id=? AND t.status<>'done' AND t.due_date<? ORDER BY t.due_date LIMIT 15", [$id, $today]);
     $txt .= "\n\nOVERDUE TASKS (".count($od).')';
-    foreach ($od as $t) { $txt .= "\n- ".self::cut($t['title'], 100).' — due '.$t['due_date'].', '.$t['priority'].', '.$t['status'].($t['assignee'] ? ', '.explode(' ', $t['assignee'])[0] : ', unassigned'); }
+    foreach ($od as $t) { $txt .= "\n- ".self::cut($t['title'], 100).', due '.$t['due_date'].', '.$t['priority'].', '.$t['status'].($t['assignee'] ? ', '.explode(' ', $t['assignee'])[0] : ', unassigned'); }
     try {
       $h = DB::first('SELECT COALESCE(SUM(duration_seconds),0) AS total, COALESCE(SUM(CASE WHEN started_at>=? THEN duration_seconds END),0) AS week FROM time_entries WHERE project_id=?', [date('Y-m-d', strtotime('-7 days')), $id]);
       $txt .= "\n\nHOURS LOGGED: ".round($h['total'] / 3600, 1).' total, '.round($h['week'] / 3600, 1).' in the last 7 days'; }

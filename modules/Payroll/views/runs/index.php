@@ -5,7 +5,7 @@ $nextLabel = PayrollService::monthLabel($next);
 <?= partial('partials/page_head', ['title' => 'Payroll', 'subtitle' => 'Prepare monthly runs, review every payslip and pay your team on time.', 'crumbs' => [['HR Admin'], ['Payroll']], 'actions' => '<button class="btn primary" type="button" data-modal="newRun">'.icon('plus', 'sm').' New payroll run</button>']) ?>
 <?= partial('payroll::_tabs', ['active' => 'runs']) ?>
 <div class="grid g4 mb">
-  <div class="tile bg-lav"><span class="tile-ic"><?= icon('wallet') ?></span><div><div class="num pay-num"><?= e($last ? money($last['total_net']) : '—') ?></div><div class="lbl">Last net payout<?= $last ? ' · '.e(date('M Y', strtotime($last['period_month']))) : '' ?></div></div></div>
+  <div class="tile bg-lav"><span class="tile-ic"><?= icon('wallet') ?></span><div><div class="num pay-num"><?= e($last ? money($last['total_net']) : '-') ?></div><div class="lbl">Last net payout<?= $last ? ' · '.e(date('M Y', strtotime($last['period_month']))) : '' ?></div></div></div>
   <div class="tile bg-mint"><span class="tile-ic"><?= icon('users') ?></span><div><div class="num"><?= (int) ($last['slips'] ?? 0) ?></div><div class="lbl">Employees paid last run</div><div class="pay-sub"><?= (int) $staff ?> with pay set up</div></div></div>
   <a class="tile bg-lemon" href="<?= e(url(can('payroll.reimbursements.approve') ? '/reimbursements?tab=queue' : '/payroll')) ?>"><span class="tile-ic"><?= icon('receipt') ?></span><div><div class="num"><?= (int) ($reimb['pending'] ?? 0) ?></div><div class="lbl">Claims to review</div><div class="pay-sub"><?= e(money($reimb['pending_amt'] ?? 0)) ?> pending</div></div></a>
   <div class="tile bg-sky"><span class="tile-ic"><?= icon('calendar') ?></span><div><div class="num pay-num"><?= e(date('M Y', strtotime($next))) ?></div><div class="lbl">Next run month</div><div class="pay-sub"><?= (int) ($reimb['queued'] ?? 0) ?> approved claim(s) to include</div></div></div>
@@ -37,9 +37,9 @@ $nextLabel = PayrollService::monthLabel($next);
     <div class="card">
       <div class="card-head"><h4>How a run works</h4></div>
       <ol class="pay-steps">
-        <li><div><b>Draft</b> — payslips use each person’s own working days, unpaid leave, approved hours, components and approved claims. Regenerate anytime.</div></li>
-        <li><div><b>Finalize</b> — numbers are locked and every employee is notified that their payslip is ready.</div></li>
-        <li><div><b>Paid</b> — export the bank transfer sheet, pay, then mark the run as paid to settle reimbursements.</div></li>
+        <li><div><b>Draft</b>, payslips use each person’s own working days, unpaid leave, approved hours, components and approved claims. Regenerate anytime.</div></li>
+        <li><div><b>Finalize</b>, numbers are locked and every employee is notified that their payslip is ready.</div></li>
+        <li><div><b>Paid</b>, export the bank transfer sheet, pay, then mark the run as paid to settle reimbursements.</div></li>
       </ol>
     </div>
     <?php if (can('payroll.compensation.manage')): ?>

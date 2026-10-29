@@ -139,7 +139,7 @@ final class InvoiceController extends CrmController {
     $doc = $this->doc('invoices', $id);
     if ($doc['status'] === 'cancelled') { $this->flash('Cancelled invoices cannot be e-mailed.', 'error'); return $this->redirect('/invoices/'.$id); }
     $d = $this->validate(['to' => 'required|email|max:190', 'message' => 'nullable|max:2000'], ['to' => 'Recipient']);
-    $app = (string) setting('branding.app_name', 'Niyanta');
+    $app = company_name();
     $link = absolute_url('/shared/invoice/'.$id.'/'.Finance::shareToken($doc));
     $bal = max(0, (float) $doc['total'] - (float) $doc['amount_paid']);
     $body = '<p>Hello '.e($doc['client_company'] ?: $doc['client_name']).',</p>'.($d['message'] ? '<p>'.nl2br(e($d['message'])).'</p>' : '<p>Please find your invoice <b>'.e($doc['number']).'</b> below.</p>')

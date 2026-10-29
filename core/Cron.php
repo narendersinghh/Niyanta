@@ -31,6 +31,7 @@ final class Cron {
       DB::insert('cron_logs', ['job' => $name, 'status' => $status, 'output' => mb_substr($out, 0, 2000), 'duration_ms' => $ms, 'ran_at' => date('Y-m-d H:i:s')]);
       $results[$name] = $status; }
     Settings::set('cron.last_heartbeat', date('Y-m-d H:i:s'));
+    @touch(NY_ROOT.'/storage/cache/cron.tick');
     flock($lock, LOCK_UN);
     fclose($lock);
     return $results; }

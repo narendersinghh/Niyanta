@@ -7,7 +7,7 @@ use Core\{Audit, DB, Features, Pdf, Settings, Storage};
  * Every row with an id is recorded in demo_records(table_name, record_id); link rows without a single id
  * (project members, client managers/tags, task dependencies, leave balances, acknowledgements) are removed by
  * the ON DELETE CASCADE of their recorded parents. Delete removes exactly the recorded rows (children first)
- * inside one transaction, plus generated files on disk — real data is never touched.
+ * inside one transaction, plus generated files on disk, real data is never touched.
  */
 final class DemoData {
   public const DOMAIN = 'demo.niyanta.test';
@@ -188,7 +188,7 @@ final class DemoData {
     foreach ($req as [$u, $type, $from, $to, $half, $days, $reason, $status, $rev]) {
       if ($to < $from) { $to = $from; }
       $this->add('leave_requests', ['user_id' => $U[$u], 'leave_type_id' => $type, 'start_date' => $from, 'end_date' => $to, 'half_day' => $half, 'days' => $days, 'reason' => $reason, 'status' => $status, 'reviewed_by' => $rev ? $U[$rev] : null,
-        'reviewed_at' => $rev ? $this->now : null, 'review_note' => $status === 'rejected' ? 'Overlaps payroll close — please pick another day.' : null, 'created_at' => date('Y-m-d H:i:s', strtotime($from.' -6 days'))]);
+        'reviewed_at' => $rev ? $this->now : null, 'review_note' => $status === 'rejected' ? 'Overlaps payroll close, please pick another day.' : null, 'created_at' => date('Y-m-d H:i:s', strtotime($from.' -6 days'))]);
       if ($status === 'approved') { $used[$U[$u]][$type] = ($used[$U[$u]][$type] ?? 0) + $days; } }
     if (self::has('leave_balances')) {
       $rows = [];
@@ -266,7 +266,7 @@ final class DemoData {
       ['kaveri', 'note', 'Internal: reconnect in January', 'Good fit for catalogue + B2B portal.', -35, null, 'rohan'],
       ['bluepeak', 'meeting', 'Brand refresh presentation', 'Client approved logo direction B and colour palette.', -95, null, 'aarav'],
       ['bluepeak', 'email', 'Final invoice sent', 'Brand guidelines and collateral delivered.', -32, null, 'rohan'],
-      ['bluepeak', 'follow_up', 'Payment reminder for final invoice', 'Invoice is overdue — call Neha.', -5, -1, 'rohan']];
+      ['bluepeak', 'follow_up', 'Payment reminder for final invoice', 'Invoice is overdue, call Neha.', -5, -1, 'rohan']];
     $rows = [];
     foreach ($j as [$c, $type, $title, $body, $at, $fu, $u]) {
       $occ = date('Y-m-d H:i:s', strtotime("$at days 11:30"));
@@ -284,8 +284,8 @@ final class DemoData {
       'ssd' => ['Saffron Spice D2C Store', 'DEMO-SSD', 'saffron', 'active', 'urgent', -60, 20, 600000, 'fixed', null, 400, 'peach', 'aarav', 62, ['vikram' => 'Tech lead', 'sneha' => 'Frontend', 'ananya' => 'UX', 'rohan' => 'Account'],
         [['UX & catalogue', 'completed', -35], ['Storefront build', 'in_progress', 6], ['Payments & go-live', 'pending', 20]]],
       'gls' => ['GreenLeaf SEO Retainer', 'DEMO-GLS', 'greenleaf', 'active', 'medium', -120, 65, 360000, 'retainer', 1200, 240, 'mint', 'rohan', 40, ['karan' => 'SEO lead', 'meera' => 'Writer'],
-        [['Technical audit', 'completed', -90], ['Content sprint — October', 'in_progress', 2]]],
-      'nla' => ['Nimbus Learning App — Discovery', 'DEMO-NLA', 'nimbus', 'planning', 'medium', 7, 40, null, 'hourly', 2000, 120, 'sky', 'aarav', 0, ['ananya' => 'UX research', 'vikram' => 'Architecture'],
+        [['Technical audit', 'completed', -90], ['Content sprint, October', 'in_progress', 2]]],
+      'nla' => ['Nimbus Learning App, Discovery', 'DEMO-NLA', 'nimbus', 'planning', 'medium', 7, 40, null, 'hourly', 2000, 120, 'sky', 'aarav', 0, ['ananya' => 'UX research', 'vikram' => 'Architecture'],
         [['Discovery workshop', 'pending', 14]]],
       'bpb' => ['BluePeak Brand Refresh', 'DEMO-BPB', 'bluepeak', 'completed', 'high', -140, -35, 250000, 'fixed', null, 180, 'pink', 'aarav', 100, ['ananya' => 'Brand designer', 'meera' => 'Copy', 'karan' => 'Launch content'],
         [['Brand guidelines', 'completed', -70], ['Collateral & launch kit', 'completed', -38]]]];
@@ -298,15 +298,15 @@ final class DemoData {
       foreach ($ms as $pos => [$t, $st, $due]) { $M[$k][] = $this->add('milestones', ['project_id' => $id, 'title' => $t, 'description' => null, 'due_date' => self::d($due), 'amount' => $budget ? round($budget / count($ms), 2) : null, 'status' => $st, 'completed_at' => $st === 'completed' ? date('Y-m-d H:i:s', strtotime(($due - 1).' days 17:00')) : null, 'position' => $pos]); } }
     DB::insertMany('project_members', array_values($members));
     $T = [
-      'zrw' => [['Finalise sitemap & IA', 'done', 'high', 'ananya', 0, -40, 8], ['Wireframes — home, listing, detail', 'done', 'high', 'ananya', 1, -30, 16], ['Homepage visual design', 'done', 'high', 'ananya', 1, -18, 14, [1]], ['Listing & filter UI design', 'done', 'medium', 'ananya', 1, -15, 12, [1]],
+      'zrw' => [['Finalise sitemap & IA', 'done', 'high', 'ananya', 0, -40, 8], ['Wireframes, home, listing, detail', 'done', 'high', 'ananya', 1, -30, 16], ['Homepage visual design', 'done', 'high', 'ananya', 1, -18, 14, [1]], ['Listing & filter UI design', 'done', 'medium', 'ananya', 1, -15, 12, [1]],
         ['Set up Laravel project & CI', 'done', 'medium', 'vikram', 2, -12, 6], ['Property listing API with filters', 'in_progress', 'high', 'vikram', 2, 4, 24, [4]], ['Build homepage (responsive)', 'in_progress', 'high', 'sneha', 2, 3, 18, [2]], ['Listing page with BHK/budget filters', 'todo', 'high', 'sneha', 2, 10, 20, [3, 5]],
         ['Enquiry form → CRM webhook', 'todo', 'medium', 'vikram', 2, 14, 10, [5]], ['Content upload & SEO meta', 'todo', 'low', 'karan', 3, 24, 8], ['UAT with client', 'todo', 'high', 'rohan', 3, 27, 6, [6, 7]], ['Go-live & DNS cut-over', 'todo', 'urgent', 'vikram', 3, 30, 4, [10]]],
       'ssd' => [['Catalogue structure & variants', 'done', 'high', 'ananya', 0, -40, 10], ['Checkout UX flows', 'done', 'high', 'ananya', 0, -36, 12], ['Theme setup & design tokens', 'done', 'medium', 'sneha', 1, -20, 10], ['Product listing & quick view', 'review', 'high', 'sneha', 1, -2, 16, [2]],
         ['Subscription box logic', 'in_progress', 'urgent', 'vikram', 1, 1, 22], ['Cart & coupon engine', 'in_progress', 'high', 'vikram', 1, 5, 18, [3]], ['Razorpay integration', 'todo', 'urgent', 'vikram', 2, 12, 12, [5]], ['Shiprocket shipping integration', 'todo', 'high', 'vikram', 2, 15, 10, [5]],
         ['Order emails & WhatsApp updates', 'todo', 'medium', 'sneha', 2, 16, 8], ['Performance & Lighthouse pass', 'todo', 'medium', 'sneha', 2, 18, 6], ['Launch checklist', 'todo', 'high', 'aarav', 2, 20, 4, [6, 7]]],
-      'gls' => [['Technical SEO audit', 'done', 'high', 'karan', 0, -95, 10], ['Fix crawl errors & sitemap', 'done', 'medium', 'karan', 0, -85, 6], ['Keyword research — winter range', 'done', 'medium', 'karan', 1, -20, 6], ['Blog: 10 winter vegetables to grow', 'review', 'medium', 'meera', 1, -1, 4, [2]],
-        ['Blog: Organic farming myths', 'in_progress', 'low', 'meera', 1, 3, 4, [2]], ['Backlink outreach — 20 sites', 'in_progress', 'medium', 'karan', 1, 6, 8], ['October performance report', 'todo', 'medium', 'karan', 1, 2, 3]],
-      'nla' => [['Prepare discovery workshop deck', 'todo', 'medium', 'ananya', 0, 10, 8], ['Competitor teardown — 5 apps', 'todo', 'low', 'ananya', 0, 12, 6], ['Draft technical architecture', 'todo', 'medium', 'vikram', 0, 14, 8, [0]]],
+      'gls' => [['Technical SEO audit', 'done', 'high', 'karan', 0, -95, 10], ['Fix crawl errors & sitemap', 'done', 'medium', 'karan', 0, -85, 6], ['Keyword research, winter range', 'done', 'medium', 'karan', 1, -20, 6], ['Blog: 10 winter vegetables to grow', 'review', 'medium', 'meera', 1, -1, 4, [2]],
+        ['Blog: Organic farming myths', 'in_progress', 'low', 'meera', 1, 3, 4, [2]], ['Backlink outreach, 20 sites', 'in_progress', 'medium', 'karan', 1, 6, 8], ['October performance report', 'todo', 'medium', 'karan', 1, 2, 3]],
+      'nla' => [['Prepare discovery workshop deck', 'todo', 'medium', 'ananya', 0, 10, 8], ['Competitor teardown, 5 apps', 'todo', 'low', 'ananya', 0, 12, 6], ['Draft technical architecture', 'todo', 'medium', 'vikram', 0, 14, 8, [0]]],
       'bpb' => [['Logo concepts (3 routes)', 'done', 'high', 'ananya', 0, -110, 20], ['Brand guidelines PDF', 'done', 'high', 'ananya', 0, -72, 16, [0]], ['Website copy refresh', 'done', 'medium', 'meera', 1, -55, 10], ['Social launch kit', 'done', 'medium', 'karan', 1, -40, 8, [1]], ['Stationery & pitch deck', 'done', 'low', 'ananya', 1, -38, 10, [1]]]];
     $tasks = []; $deps = []; $taskIds = [];
     foreach ($T as $k => $list) {
@@ -319,7 +319,7 @@ final class DemoData {
         foreach ($t[7] ?? [] as $dep) { if (isset($ids[$dep])) { $deps[] = ['task_id' => $ids[$pos], 'depends_on_id' => $ids[$dep]]; } } }
       $taskIds[$k] = $ids; }
     DB::insertMany('task_dependencies', $deps);
-    $lines = ['Uploaded the first draft — feedback welcome.', 'Client asked for a darker hero image.', 'Blocked until API credentials arrive.', 'Looks good, moving to review.', 'Can we split this into two smaller tasks?', 'Pushed to staging: please check on mobile.', 'Fixed the spacing issues from review.', 'Discussed with Rohan, priority confirmed for this week.'];
+    $lines = ['Uploaded the first draft, feedback welcome.', 'Client asked for a darker hero image.', 'Blocked until API credentials arrive.', 'Looks good, moving to review.', 'Can we split this into two smaller tasks?', 'Pushed to staging: please check on mobile.', 'Fixed the spacing issues from review.', 'Discussed with Rohan, priority confirmed for this week.'];
     $comments = [];
     foreach ($tasks as $i => $t) {
       if ($t['status'] === 'todo' && $i % 3) { continue; }
@@ -341,7 +341,7 @@ final class DemoData {
     $Q = [];
     if (Features::enabled('quotations') && self::has('quotations')) {
       $qs = [
-        ['zenith', 'zrw', 'Website revamp — design & development', -52, 'accepted', [['UX research & sitemap', 1, 60000], ['UI design (12 templates)', 1, 140000], ['Development & CMS', 1, 220000], ['QA & launch support', 1, 30000]]],
+        ['zenith', 'zrw', 'Website revamp, design & development', -52, 'accepted', [['UX research & sitemap', 1, 60000], ['UI design (12 templates)', 1, 140000], ['Development & CMS', 1, 220000], ['QA & launch support', 1, 30000]]],
         ['saffron', 'ssd', 'D2C store with subscriptions', -66, 'accepted', [['Storefront design', 1, 150000], ['Store development', 1, 330000], ['Payment & shipping integrations', 1, 120000]]],
         ['nimbus', 'nla', 'Learning app discovery workshop', -2, 'sent', [['Discovery workshop (2 days)', 16, 2000], ['Research & architecture report', 40, 2000]]],
         ['kaveri', null, 'Catalogue website & B2B enquiry portal', -40, 'draft', [['Catalogue website', 1, 180000], ['B2B enquiry portal', 1, 120000]]],
@@ -353,14 +353,14 @@ final class DemoData {
       $this->collect('quotation_items', 'quotation_id', array_values($Q)); }
     if (!Features::enabled('invoices') || !self::has('invoices')) { return; }
     $inv = [
-      ['zenith', 'zrw', 0, 'Website revamp — 40% advance', -50, 15, [['Advance: website revamp (40%)', 1, 180000]], [[1.0, -44, 'bank_transfer']]],
-      ['zenith', 'zrw', null, 'Website revamp — design milestone', -12, 15, [['UI design milestone (30%)', 1, 135000]], [[0.5, -4, 'upi']]],
-      ['saffron', 'ssd', 1, 'D2C store — 40% advance', -60, 10, [['Advance: D2C store (40%)', 1, 240000]], [[1.0, -55, 'bank_transfer']]],
-      ['saffron', 'ssd', null, 'D2C store — UX & catalogue milestone', -8, 15, [['UX & catalogue milestone (20%)', 1, 120000]], []],
-      ['greenleaf', 'gls', null, 'SEO retainer — August', -88, 15, [['Monthly SEO retainer', 1, 60000]], [[1.0, -75, 'upi']]],
-      ['greenleaf', 'gls', null, 'SEO retainer — September', -58, 15, [['Monthly SEO retainer', 1, 60000]], [[0.4, -30, 'upi']]],
-      ['greenleaf', 'gls', null, 'SEO retainer — October', -3, 15, [['Monthly SEO retainer', 1, 60000], ['Additional blog posts', 4, 3500]], []],
-      ['bluepeak', 'bpb', null, 'Brand refresh — final invoice', -50, 15, [['Brand guidelines & collateral (final 50%)', 1, 125000]], []]];
+      ['zenith', 'zrw', 0, 'Website revamp, 40% advance', -50, 15, [['Advance: website revamp (40%)', 1, 180000]], [[1.0, -44, 'bank_transfer']]],
+      ['zenith', 'zrw', null, 'Website revamp, design milestone', -12, 15, [['UI design milestone (30%)', 1, 135000]], [[0.5, -4, 'upi']]],
+      ['saffron', 'ssd', 1, 'D2C store, 40% advance', -60, 10, [['Advance: D2C store (40%)', 1, 240000]], [[1.0, -55, 'bank_transfer']]],
+      ['saffron', 'ssd', null, 'D2C store, UX & catalogue milestone', -8, 15, [['UX & catalogue milestone (20%)', 1, 120000]], []],
+      ['greenleaf', 'gls', null, 'SEO retainer, August', -88, 15, [['Monthly SEO retainer', 1, 60000]], [[1.0, -75, 'upi']]],
+      ['greenleaf', 'gls', null, 'SEO retainer, September', -58, 15, [['Monthly SEO retainer', 1, 60000]], [[0.4, -30, 'upi']]],
+      ['greenleaf', 'gls', null, 'SEO retainer, October', -3, 15, [['Monthly SEO retainer', 1, 60000], ['Additional blog posts', 4, 3500]], []],
+      ['bluepeak', 'bpb', null, 'Brand refresh, final invoice', -50, 15, [['Brand guidelines & collateral (final 50%)', 1, 125000]], []]];
     $I = []; $pays = [];
     foreach ($inv as $n => [$c, $p, $qi, $title, $at, $dueIn, $items, $pp]) {
       [$rows, $tot] = $mk('invoice_items', $items);
@@ -469,7 +469,7 @@ final class DemoData {
     $svc = 'Modules\\Payroll\\Services\\PayrollService';
     $to = date('Y-m-t', strtotime($period));
     $wd = class_exists($svc) && method_exists($svc, 'workingDays') ? (float) $svc::workingDays($period, $to) : 22.0;
-    $run = $this->add('payroll_runs', ['period_month' => $period, 'status' => 'draft', 'working_days' => $wd, 'total_net' => 0, 'notes' => 'Demo payroll run — regenerate after real compensation is added.', 'created_by' => $U['priya'], 'created_at' => $this->now]);
+    $run = $this->add('payroll_runs', ['period_month' => $period, 'status' => 'draft', 'working_days' => $wd, 'total_net' => 0, 'notes' => 'Demo payroll run, regenerate after real compensation is added.', 'created_by' => $U['priya'], 'created_at' => $this->now]);
     if (!class_exists($svc) || !method_exists($svc, 'compute') || !self::has('payslips')) { return; }
     $total = 0.0;
     foreach ($comps as $k => $c) {
@@ -480,7 +480,7 @@ final class DemoData {
     DB::update('payroll_runs', ['total_net' => round($total, 2)], 'id=?', [$run]); }
 
   private function reimbursements(array $U): void {
-    $rows = [['vikram', 'Cab to Saffron Spice office', 840, -6, 'pending', null], ['rohan', 'Client lunch — Zenith Realty', 3250, -18, 'approved', 'priya'], ['ananya', 'Figma professional (annual)', 12000, -40, 'paid', 'priya'],
+    $rows = [['vikram', 'Cab to Saffron Spice office', 840, -6, 'pending', null], ['rohan', 'Client lunch, Zenith Realty', 3250, -18, 'approved', 'priya'], ['ananya', 'Figma professional (annual)', 12000, -40, 'paid', 'priya'],
       ['karan', 'SEO tool subscription (Ahrefs Lite)', 8300, -10, 'pending', null], ['sneha', 'Mobile testing devices rental', 4500, -25, 'rejected', 'priya'], ['meera', 'Co-working day pass', 600, -3, 'pending', null]];
     foreach ($rows as [$u, $t, $amt, $at, $st, $rev]) {
       $this->add('reimbursements', ['user_id' => $U[$u], 'title' => $t, 'amount' => $amt, 'expense_date' => self::d($at), 'description' => 'Demo claim.', 'status' => $st, 'payslip_id' => null, 'reviewed_by' => $rev ? $U[$rev] : null, 'reviewed_at' => $rev ? date('Y-m-d H:i:s', strtotime(($at + 2).' days')) : null,
@@ -488,9 +488,9 @@ final class DemoData {
 
   private function notifications(array $U): void {
     $n = [['aarav', 'Timesheets waiting for approval', '5 timesheets from last week need your review.', '/timesheets/approvals', 'timer', null], ['aarav', 'Leave request from Vikram Singh', 'Optional holiday on Guru Nanak Jayanti.', '/hr/leave/approvals', 'umbrella', null],
-      ['rohan', '1 overdue invoice needs attention', 'BluePeak Fintech — Brand refresh final invoice.', '/invoices?status=overdue', 'receipt', null], ['ananya', 'New comment on "Homepage visual design"', 'Aarav: Looks good, moving to review.', '/tasks', 'message', -1],
+      ['rohan', '1 overdue invoice needs attention', 'BluePeak Fintech, Brand refresh final invoice.', '/invoices?status=overdue', 'receipt', null], ['ananya', 'New comment on "Homepage visual design"', 'Aarav: Looks good, moving to review.', '/tasks', 'message', -1],
       ['vikram', 'Task due tomorrow: Subscription box logic', 'Saffron Spice D2C Store', '/tasks', 'clock', null], ['priya', 'Reimbursement claims pending', '3 claims are waiting for review.', '/reimbursements', 'wallet', null],
-      ['karan', 'Your leave was approved', 'Personal work — approved by Rohan Kapoor.', '/hr/leave', 'check', -30], ['sneha', 'Please acknowledge: Leave & Holiday Policy', 'A company document needs your acknowledgement.', '/hr/me', 'book', null]];
+      ['karan', 'Your leave was approved', 'Personal work, approved by Rohan Kapoor.', '/hr/leave', 'check', -30], ['sneha', 'Please acknowledge: Leave & Holiday Policy', 'A company document needs your acknowledgement.', '/hr/me', 'book', null]];
     foreach ($n as $i => [$u, $title, $body, $url, $icon, $read]) {
       $this->add('notifications', ['user_id' => $U[$u], 'title' => $title, 'body' => $body, 'url' => $url, 'icon' => $icon, 'read_at' => $read === null ? null : date('Y-m-d H:i:s', strtotime("$read days")), 'created_at' => date('Y-m-d H:i:s', strtotime('-'.($i * 3 + 1).' hours'))]); }
     $this->add('notifications', ['user_id' => $this->by, 'title' => 'Demo data is ready', 'body' => 'Sign in as any demo user with the shared password, or explore as yourself. Remove it from Settings › Demo data.', 'url' => '/admin/settings/demo', 'icon' => 'sparkles', 'read_at' => null, 'created_at' => $this->now]); } }

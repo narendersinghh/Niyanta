@@ -11,7 +11,7 @@ $err = errors();
   <div class="hr-eff">
     <div><span class="xs">Hours per day</span><b><?= e(LS::num($schedule['hours_per_day'])) ?> h</b><span class="hr-src"><?= $schedule['custom_hours'] ? 'Personal · company default '.e(LS::num($companyHours)).' h' : 'Company default' ?></span></div>
     <div><span class="xs">Working days · <?= e(date('F')) ?></span><b><?= e(LS::num($monthDays)) ?> days</b><span class="hr-src"><?= $monthDays != $companyMonthDays ? 'Company calendar: '.e(LS::num($companyMonthDays)).' days' : 'Same as company calendar' ?> · excl. fixed holidays</span></div>
-    <div><span class="xs">Pay rate</span><?php if ($pay): ?><b><?= e(money($pay['amount'])) ?><small class="muted"> /<?= $pay['pay_type'] === 'hourly' ? 'hour' : 'month' ?></small></b><span class="hr-src"><?= $pay['pay_type'] === 'hourly' ? 'Hourly · paid on approved hours' : 'Monthly · prorated on working days' ?> · since <?= e(fdate($pay['effective_from'])) ?></span><?php else: ?><b class="muted">—</b><span class="hr-src">No compensation set up yet</span><?php endif ?>
+    <div><span class="xs">Pay rate</span><?php if ($pay): ?><b><?= e(money($pay['amount'])) ?><small class="muted"> /<?= $pay['pay_type'] === 'hourly' ? 'hour' : 'month' ?></small></b><span class="hr-src"><?= $pay['pay_type'] === 'hourly' ? 'Hourly · paid on approved hours' : 'Monthly · prorated on working days' ?> · since <?= e(fdate($pay['effective_from'])) ?></span><?php else: ?><b class="muted">-</b><span class="hr-src">No compensation set up yet</span><?php endif ?>
       <?php if (can('payroll.compensation.manage')): ?><a class="small b" href="<?= e(url('/payroll/employees/'.$emp['id'])) ?>">Manage in payroll <?= icon('arrow-right', 'sm') ?></a><?php elseif ($pay): ?><span class="hr-src"><?= icon('lock', 'sm') ?> Read-only · managed by payroll</span><?php endif ?></div>
   </div>
   <div class="mt"><span class="xs muted b">WEEKLY OFF</span><div class="hr-days ro mt"><?php foreach (LS::DAY_NAMES as $n => $dn): $off = in_array($n, $schedule['off_days'], true); ?><span class="<?= $off ? 'on' : 'wk' ?>" title="<?= $off ? 'Weekly off' : 'Working day' ?>"><?= e($dn) ?></span><?php endforeach ?></div></div>
@@ -58,7 +58,7 @@ $err = errors();
     <tbody><?php foreach ($quotas as $q): $b = $bal[(int) $q['id']] ?? null; ?><tr>
       <td><span class="pill pill-<?= e($q['color']) ?>"><?= e($q['name']) ?></span><?= $q['override'] !== null ? ' <span class="pill pill-lav">Personal</span>' : '' ?></td>
       <td class="num b"><?= e(LS::num($q['effective'])) ?></td>
-      <td class="num"><?php if ($b && $b['allocated_row'] && (int) $q['paid']): ?><?= e(LS::num(max(0, (float) $b['available']))) ?> <span class="muted small">/ <?= e(LS::num($b['allocated'])) ?></span><?php else: ?><span class="muted">—</span><?php endif ?></td>
+      <td class="num"><?php if ($b && $b['allocated_row'] && (int) $q['paid']): ?><?= e(LS::num(max(0, (float) $b['available']))) ?> <span class="muted small">/ <?= e(LS::num($b['allocated'])) ?></span><?php else: ?><span class="muted">-</span><?php endif ?></td>
     </tr><?php endforeach ?></tbody>
   </table></div>
 </div>

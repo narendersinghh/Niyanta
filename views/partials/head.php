@@ -1,5 +1,5 @@
 <?php
-$appName = (string) setting('branding.app_name', 'Niyanta');
+$appName = app_name();
 $font = (string) setting('appearance.font_family', 'Plus Jakarta Sans');
 $theme = (user()['theme'] ?? 'system') === 'system' ? (string) setting('appearance.default_theme', 'system') : user()['theme'];
 $vars = array_filter(['--primary' => setting('appearance.primary_color'), '--sidebar' => setting('appearance.sidebar_color'), '--lav' => setting('appearance.accent_1'), '--mint' => setting('appearance.accent_2'), '--lemon' => setting('appearance.accent_3'), '--peach' => setting('appearance.accent_4'), '--fs' => ($fs = (int) setting('appearance.font_size', 0)) ? $fs.'px' : null, '--r' => ($rad = setting('appearance.radius')) !== null ? (int) $rad.'px' : null], static fn ($v) => $v !== null && $v !== '' && preg_match('/^(#[0-9a-f]{3,8}|\d+px)$/i', (string) $v));
@@ -7,7 +7,7 @@ $fav = setting('branding.favicon');
 ?><!doctype html>
 <html lang="en" data-theme="<?= $theme === 'dark' ? 'dark' : 'light' ?>" data-pref="<?= e($theme) ?>" data-guest="<?= user() ? 0 : 1 ?>">
 <head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="csrf-token" content="<?= e(csrf_token()) ?>"><meta name="base-url" content="<?= e(url('')) ?>"><meta name="robots" content="noindex,nofollow"><meta name="icons" content="<?= e(asset('img/icons.svg')) ?>">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="csrf-token" content="<?= e(csrf_token()) ?>"><meta name="base-url" content="<?= e(url('')) ?>"><meta name="robots" content="noindex,nofollow"><?php if (\Core\AutoCron::due() && !\Core\AutoCron::canFinishRequest()): ?><meta name="cron-due" content="1"><?php endif ?><meta name="icons" content="<?= e(asset('img/icons.svg')) ?>">
 <title><?= e(isset($title) ? $title.' · '.$appName : $appName) ?></title>
 <?php if ($fav): ?><link rel="icon" href="<?= e(url('assets/uploads/branding/'.basename((string) $fav))) ?>"><?php else: ?><link rel="icon" href="<?= e(asset('img/favicon.svg')) ?>" type="image/svg+xml"><?php endif ?>
 <?php if ($font && !in_array($font, ['system-ui', 'System'], true)): ?><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=<?= e(str_replace(' ', '+', $font)) ?>:wght@400;500;600;700;800&display=swap"><?php endif ?>

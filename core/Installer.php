@@ -92,7 +92,7 @@ final class Installer {
     Modules::load();
     foreach (Modules::discover() as $k => $m) { DB::query('INSERT IGNORE INTO modules (`key`, enabled, updated_at) VALUES (?,?,?)', [$k, empty($m['labs']) ? 1 : 0, $now]); }
     Modules::syncPermissions();
-    Settings::setMany(['branding.app_name' => $d['app_name'], 'branding.tagline' => 'Run your agency with ease', 'general.timezone' => $d['timezone'], 'general.currency_symbol' => $d['currency_symbol'], 'general.currency_code' => 'INR', 'general.date_format' => 'd M Y', 'general.time_format' => 'h:i A', 'general.week_start' => '1', 'general.weekend_days' => '6,7',
+    Settings::setMany(['company.name' => $d['app_name'], 'general.timezone' => $d['timezone'], 'general.currency_symbol' => $d['currency_symbol'], 'general.currency_code' => 'INR', 'general.date_format' => 'd M Y', 'general.time_format' => 'h:i A', 'general.week_start' => '1', 'general.weekend_days' => '6,7',
       'appearance.default_theme' => 'system', 'appearance.font_family' => 'Plus Jakarta Sans', 'security.session_idle_minutes' => '120', 'security.password_min_length' => '10', 'security.login_max_attempts' => '5', 'security.audit_retention_days' => '365',
       'cron.web_token' => Crypto::token(24), 'cron.web_enabled' => '1', 'email.driver' => 'mail', 'email.from_name' => $d['app_name'], 'storage.max_upload_mb' => '10',
       'crm.invoice_prefix' => 'INV-', 'crm.quotation_prefix' => 'QT-', 'crm.default_tax_rate' => '18', 'hr.work_hours_per_day' => '8', 'attendance.idle_minutes' => '5', 'attendance.screenshots_enabled' => '0', 'attendance.screenshot_interval' => '3', 'attendance.screenshot_retention_days' => '30',

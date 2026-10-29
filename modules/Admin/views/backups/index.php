@@ -18,13 +18,13 @@ $db = (array) \Core\App::config('db', []);
   <?php if (!$zip): ?><div class="alert warn"><?= icon('alert', 'sm') ?> The PHP zip extension is missing, so only database backups are available.</div><?php endif ?>
   <div class="card">
     <div class="card-head"><h3>Backup history</h3><span class="xs muted">Files are verified with SHA-256 before restore</span></div>
-    <?php if (!$rows): ?><?= empty_state('No backups yet', 'Create your first backup now — it takes a few seconds.', 'backup-database', '<button class="btn primary" data-modal="new-backup">'.icon('plus', 'sm').' Create backup</button>') ?><?php else: ?>
+    <?php if (!$rows): ?><?= empty_state('No backups yet', 'Create your first backup now, it takes a few seconds.', 'backup-database', '<button class="btn primary" data-modal="new-backup">'.icon('plus', 'sm').' Create backup</button>') ?><?php else: ?>
     <div class="table-wrap"><table class="table">
       <thead><tr><th>Backup</th><th>Type</th><th>Size</th><th>Created</th><th>Status</th><th></th></tr></thead>
       <tbody><?php foreach ($rows as $b): ?><tr>
         <td><div class="b mono small"><?= e($b['filename']) ?></div><div class="xs muted"><?= e($b['note'] ?? '') ?><?= $b['sha256'] ? ' · sha256 '.e(substr($b['sha256'], 0, 12)).'…' : '' ?></div></td>
         <td><?= $b['type'] === 'full' ? '<span class="pill pill-lav">Full</span>' : '<span class="pill pill-sky">Database</span>' ?></td>
-        <td class="nowrap"><?= $b['status'] === 'success' ? e(BackupService::size((int) $b['size'])) : '—' ?></td>
+        <td class="nowrap"><?= $b['status'] === 'success' ? e(BackupService::size((int) $b['size'])) : '-' ?></td>
         <td class="nowrap small"><?= e(fdatetime($b['created_at'])) ?><div class="xs muted"><?= e($b['by_name'] ?? 'Scheduler') ?></div></td>
         <td><?= $b['status'] === 'success' && !$b['exists'] ? badge('failed', 'File missing') : badge($b['status']) ?></td>
         <td class="actions"><?php if ($b['exists']): ?><a class="btn icon sm ghost" href="<?= e(url('/admin/backups/'.$b['id'].'/download')) ?>" title="Download"><?= icon('download', 'sm') ?></a>
@@ -37,10 +37,10 @@ $db = (array) \Core\App::config('db', []);
     <?= partial('admin::settings/_form', ['tab' => 'backups', 'fields' => $fields, 'title' => 'Schedule & retention', 'bar' => false]) ?>
     <div class="card"><div class="card-head"><h3><?= icon('info') ?> How to restore manually</h3></div>
       <ol class="steps-list prose">
-        <li>Download the backup. For a <b>full</b> backup, unzip it — the dump is <code>database.sql.gz</code>.</li>
+        <li>Download the backup. For a <b>full</b> backup, unzip it, the dump is <code>database.sql.gz</code>.</li>
         <li><b>phpMyAdmin:</b> select the database <code><?= e($db['name'] ?? 'your_db') ?></code> → <b>Import</b> → choose the <code>.sql.gz</code> file → Go. (Split very large files or use the CLI.)</li>
         <li><b>Command line:</b> <code>gunzip &lt; backup.sql.gz | mysql -u <?= e($db['user'] ?? 'user') ?> -p <?= e($db['name'] ?? 'your_db') ?></code></li>
-        <li>Full backups also contain <code>storage/uploads/</code>, <code>assets/uploads/</code> and <code>config/config.php</code> — copy them back to the same paths.</li>
+        <li>Full backups also contain <code>storage/uploads/</code>, <code>assets/uploads/</code> and <code>config/config.php</code>, copy them back to the same paths.</li>
         <li>Keep the original <code>config/config.php</code> (its app key decrypts stored secrets).</li>
       </ol>
       <div class="alert info mt mb0"><?= icon('shield', 'sm') ?> In-app restore takes a fresh safety backup first and enables maintenance mode while it runs.</div></div>
@@ -50,7 +50,7 @@ $db = (array) \Core\App::config('db', []);
 <dialog class="modal" id="new-backup"><div class="modal-head"><h3>Create backup</h3><button class="btn icon sm ghost" data-close><?= icon('x', 'sm') ?></button></div>
 <form class="modal-body form" method="post" action="<?= e(url('/admin/backups')) ?>"><?= csrf_field() ?>
   <?= illus('backup-database', 'modal-illus') ?>
-  <div class="field"><label>Type</label><select name="type"><option value="database">Database only (.sql.gz)</option><?php if ($zip): ?><option value="full">Full — database, uploads & config (.zip)</option><?php endif ?></select></div>
+  <div class="field"><label>Type</label><select name="type"><option value="database">Database only (.sql.gz)</option><?php if ($zip): ?><option value="full">Full, database, uploads & config (.zip)</option><?php endif ?></select></div>
   <div class="field"><label>Note (optional)</label><input type="text" name="note" maxlength="150" placeholder="e.g. Before importing clients"></div>
   <div class="form-actions"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary"><?= icon('cloud', 'sm') ?> Start backup</button></div>
 </form></dialog>

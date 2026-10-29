@@ -39,7 +39,7 @@ $more = Ui::more([can('crm.finance.view') ? Ui::link('/invoices', 'receipt', 'In
   <div class="card">
     <div class="card-head"><div><h3>Invoiced vs collected</h3><p class="xs muted mb0">By issue month vs payment month</p></div><div class="crm-legend"><span><i style="background:var(--lav)"></i>Invoiced</span><span><i style="background:var(--mint)"></i>Collected</span></div></div>
     <?php if (!$tot['invoiced'] && !$tot['collected']): ?><?= empty_state('Nothing invoiced yet', 'Sent invoices in this period will appear here.', 'invoice-paper') ?><?php else: ?>
-    <div class="crm-pairs"><?php foreach ($months as $mo): ?><div class="crm-pair" title="<?= e($mo['label'].' — invoiced '.money($mo['invoiced']).', collected '.money($mo['collected'])) ?>"><div class="crm-pair-bars"><i class="pi" style="height:<?= round($mo['invoiced'] / $maxPair * 100, 1) ?>%"></i><i class="pc" style="height:<?= round($mo['collected'] / $maxPair * 100, 1) ?>%"></i></div><small><?= e($mo['label']) ?></small></div><?php endforeach ?></div>
+    <div class="crm-pairs"><?php foreach ($months as $mo): ?><div class="crm-pair" title="<?= e($mo['label'].', invoiced '.money($mo['invoiced']).', collected '.money($mo['collected'])) ?>"><div class="crm-pair-bars"><i class="pi" style="height:<?= round($mo['invoiced'] / $maxPair * 100, 1) ?>%"></i><i class="pc" style="height:<?= round($mo['collected'] / $maxPair * 100, 1) ?>%"></i></div><small><?= e($mo['label']) ?></small></div><?php endforeach ?></div>
     <?php endif ?>
   </div>
 </div>
@@ -75,7 +75,7 @@ $more = Ui::more([can('crm.finance.view') ? Ui::link('/invoices', 'receipt', 'In
       <tr>
         <td class="rt-main"><?= can('projects.view') ? '<a class="b" href="'.e(url('/projects/'.$pr['id'])).'">'.e($pr['name']).'</a>' : '<b>'.e($pr['name']).'</b>' ?> <?= badge($pr['status']) ?></td>
         <td class="small" data-l="Client"><?= e($pr['client_company'] ?: $pr['client_name']) ?></td>
-        <td class="amt" data-l="Budget"><?= $b > 0 ? e(money($b)) : '<span class="muted">—</span>' ?></td>
+        <td class="amt" data-l="Budget"><?= $b > 0 ? e(money($b)) : '<span class="muted">-</span>' ?></td>
         <td class="amt" data-l="Invoiced"><?= e(money($pr['invoiced'])) ?></td>
         <td class="amt crm-pos b" data-l="Collected"><?= e(money($pr['collected'])) ?></td>
         <td data-l="Billed"><?php if ($pct !== null): ?><div class="flex"><div class="progress grow"><span class="<?= $pct > 100 ? 'crm-bar-late' : '' ?>" style="width:<?= min(100, $pct) ?>%"></span></div><span class="xs b"><?= $pct ?>%</span></div><?php else: ?><span class="xs muted">No budget</span><?php endif ?></td>

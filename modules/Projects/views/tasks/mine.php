@@ -27,7 +27,7 @@ $wp = $doneWeek + $dueWeek ? (int) round($doneWeek / ($doneWeek + $dueWeek) * 10
       <span class="xs muted ml-a"><?= (int) $total ?> open</span>
     </form>
     <?php if (!$total): ?>
-      <div class="card"><?= empty_state($filtered ? 'Nothing open here' : 'All caught up!', $filtered ? 'No open tasks match this filter.' : ($team ? 'No open tasks in the projects you manage.' : 'You have no open tasks. Enjoy the calm — or pick something up from a project board.'), 'celebrate', '<a class="btn primary mt" href="'.e(url('/projects')).'">'.icon('folder', 'sm').' Browse projects</a>') ?></div>
+      <div class="card"><?= empty_state($filtered ? 'Nothing open here' : 'All caught up!', $filtered ? 'No open tasks match this filter.' : ($team ? 'No open tasks in the projects you manage.' : 'You have no open tasks. Enjoy the calm, or pick something up from a project board.'), 'celebrate', '<a class="btn primary mt" href="'.e(url('/projects')).'">'.icon('folder', 'sm').' Browse projects</a>') ?></div>
     <?php else: ?>
     <div class="tgroups">
       <?php foreach ($labels as $g => [$label, $color, $ic]): if (!$groups[$g]) { continue; } ?>
@@ -51,7 +51,7 @@ $wp = $doneWeek + $dueWeek ? (int) round($doneWeek / ($doneWeek + $dueWeek) * 10
       </details>
       <?php endforeach ?>
     </div>
-    <?php if ($total >= 400): ?><p class="xs muted mt">Showing the first 400 open tasks — narrow down by project.</p><?php endif ?>
+    <?php if ($total >= 400): ?><p class="xs muted mt">Showing the first 400 open tasks, narrow down by project.</p><?php endif ?>
     <?php endif ?>
   </div>
   <aside class="stack">
@@ -69,7 +69,7 @@ $wp = $doneWeek + $dueWeek ? (int) round($doneWeek / ($doneWeek + $dueWeek) * 10
     <?php endif ?>
     <section class="card">
       <h4>Tips</h4>
-      <ul class="checklist small"><li><?= icon('check', 'sm') ?> Tick the circle to mark a task done — you can undo it right away.</li><li><?= icon('check', 'sm') ?> Click a group header to collapse it; the page remembers your choice.</li><li><?= icon('check', 'sm') ?> Tasks blocked by unfinished dependencies cannot be completed yet.</li></ul>
+      <ul class="checklist small"><li><?= icon('check', 'sm') ?> Tick the circle to mark a task done, you can undo it right away.</li><li><?= icon('check', 'sm') ?> Click a group header to collapse it; the page remembers your choice.</li><li><?= icon('check', 'sm') ?> Tasks blocked by unfinished dependencies cannot be completed yet.</li></ul>
     </section>
   </aside>
 </div>

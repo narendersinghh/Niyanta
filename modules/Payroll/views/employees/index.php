@@ -20,10 +20,10 @@
       <tr>
         <td><div class="pay-who"><?= avatar($u['name'], $u['avatar'], 'sm') ?><div><a class="row-link small" href="<?= e(url('/payroll/employees/'.$u['id'])) ?>"><b><?= e($u['name']) ?></b></a><div class="xs muted"><?= e(implode(' · ', array_filter([$u['employee_code'] ?: $u['email'], $u['department']]))) ?></div></div></div></td>
         <td><?= $u['pay_type'] ? '<span class="pill pill-'.($u['pay_type'] === 'hourly' ? 'sky' : 'lav').'">'.e(ucfirst($u['pay_type'])).'</span>' : '<span class="pill pill-peach">Not set up</span>' ?></td>
-        <td class="num"><?php if ($u['pay_type']): ?><b><?= e(money($u['amount'])) ?></b><span class="xs muted"><?= $u['pay_type'] === 'hourly' ? ' /h' : ' /mo' ?></span><?php else: ?><span class="muted">—</span><?php endif ?></td>
-        <td class="small nowrap"><?php if ($sc): ?><?= e($n($sc['hours_per_day'])) ?> h/day<div class="xs muted">Off <?= e($sc['off_days'] ? implode(', ', array_map(static fn ($d) => $dn[$d], $sc['off_days'])) : 'none') ?></div><?php else: ?><span class="muted">—</span><?php endif ?></td>
+        <td class="num"><?php if ($u['pay_type']): ?><b><?= e(money($u['amount'])) ?></b><span class="xs muted"><?= $u['pay_type'] === 'hourly' ? ' /h' : ' /mo' ?></span><?php else: ?><span class="muted">-</span><?php endif ?></td>
+        <td class="small nowrap"><?php if ($sc): ?><?= e($n($sc['hours_per_day'])) ?> h/day<div class="xs muted">Off <?= e($sc['off_days'] ? implode(', ', array_map(static fn ($d) => $dn[$d], $sc['off_days'])) : 'none') ?></div><?php else: ?><span class="muted">-</span><?php endif ?></td>
         <td class="small nowrap"><?= e(fdate($u['effective_from'])) ?><?php if ($u['upcoming']): ?><div class="xs"><span class="pill pill-lemon">Revision <?= e(fdate($u['upcoming'])) ?></span></div><?php endif ?></td>
-        <td class="num small"><?= (int) $u['comps'] ? (int) $u['comps'] : '<span class="muted">—</span>' ?></td>
+        <td class="num small"><?= (int) $u['comps'] ? (int) $u['comps'] : '<span class="muted">-</span>' ?></td>
         <td class="actions"><a class="btn sm <?= $u['pay_type'] ? 'ghost' : 'primary' ?>" href="<?= e(url('/payroll/employees/'.$u['id'])) ?>"><?= $u['pay_type'] ? 'Manage' : icon('plus', 'sm').' Set up' ?></a></td>
       </tr>
     <?php endforeach ?></tbody>

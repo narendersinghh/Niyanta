@@ -1,5 +1,5 @@
 <?php use Modules\Hr\Services\LeaveService as LS;
-$kv = static fn (?string $v): string => $v !== null && $v !== '' ? e($v) : '<span class="muted">—</span>';
+$kv = static fn (?string $v): string => $v !== null && $v !== '' ? e($v) : '<span class="muted">-</span>';
 $paidLeft = array_sum(array_map(static fn ($b) => (int) $b['paid'] && $b['allocated_row'] ? max(0, (float) $b['available']) : 0, $balances));
 $oh = current(array_filter($balances, static fn ($b) => $b['code'] === LS::OPTIONAL_CODE)) ?: null; ?>
 <div class="grid g-main hr-top">
@@ -12,7 +12,7 @@ $oh = current(array_filter($balances, static fn ($b) => $b['code'] === LS::OPTIO
         <dt>Role</dt><dd><?= e($emp['role_name']) ?></dd>
         <dt>Department</dt><dd><?= $kv($emp['department']) ?></dd>
         <dt>Designation</dt><dd><?= $kv($emp['designation']) ?></dd>
-        <dt>Employment type</dt><dd><?= e($types[$prof['employment_type'] ?? 'full_time'] ?? '—') ?></dd>
+        <dt>Employment type</dt><dd><?= e($types[$prof['employment_type'] ?? 'full_time'] ?? '-') ?></dd>
         <dt>Probation ends</dt><dd><?= fdate($prof['probation_end'] ?? null) ?></dd>
       </dl>
     </div>
@@ -30,9 +30,9 @@ $oh = current(array_filter($balances, static fn ($b) => $b['code'] === LS::OPTIO
       <div class="card-head"><h3><?= icon('lock') ?> Bank & tax</h3><?php if (can('hr.employees.manage') && ($masked['bank'] || $masked['tax'])): ?><button type="button" class="btn sm soft" data-reveal="hr/employees/<?= (int) $emp['id'] ?>/reveal" data-confirm="Reveal the full numbers? This is recorded in the audit log."><?= icon('eye', 'sm') ?> Reveal</button><?php endif ?></div>
       <dl class="kv">
         <dt>Bank</dt><dd><?= $kv($prof['bank_name'] ?? null) ?></dd>
-        <dt>Account no.</dt><dd class="mono" data-secret="bank"><?= $masked['bank'] !== '' ? e($masked['bank']) : '<span class="muted">—</span>' ?></dd>
+        <dt>Account no.</dt><dd class="mono" data-secret="bank"><?= $masked['bank'] !== '' ? e($masked['bank']) : '<span class="muted">-</span>' ?></dd>
         <dt>IFSC / routing</dt><dd class="mono"><?= $kv($prof['bank_ifsc'] ?? null) ?></dd>
-        <dt>Tax ID</dt><dd class="mono" data-secret="tax"><?= $masked['tax'] !== '' ? e($masked['tax']) : '<span class="muted">—</span>' ?></dd>
+        <dt>Tax ID</dt><dd class="mono" data-secret="tax"><?= $masked['tax'] !== '' ? e($masked['tax']) : '<span class="muted">-</span>' ?></dd>
       </dl>
       <p class="xs muted mb0 mt"><?= icon('shield', 'sm') ?> Stored encrypted. <?= can('hr.employees.manage') ? 'Revealing full numbers is recorded in the audit log.' : 'Contact HR to update these details.' ?></p>
     </div>
@@ -60,7 +60,7 @@ $oh = current(array_filter($balances, static fn ($b) => $b['code'] === LS::OPTIO
     </div>
     <?php endif ?>
     <?php if (!empty($prof['exit_date'])): ?>
-    <div class="card hr-danger-zone"><div class="hr-side-head"><span class="hr-ic peach"><?= icon('log-out') ?></span><h4 class="mb0">Exit recorded</h4></div><dl class="kv"><dt>Last day</dt><dd><?= fdate($prof['exit_date']) ?></dd><dt>Reason</dt><dd><?= e($prof['exit_reason'] ?? '—') ?></dd></dl></div>
+    <div class="card hr-danger-zone"><div class="hr-side-head"><span class="hr-ic peach"><?= icon('log-out') ?></span><h4 class="mb0">Exit recorded</h4></div><dl class="kv"><dt>Last day</dt><dd><?= fdate($prof['exit_date']) ?></dd><dt>Reason</dt><dd><?= e($prof['exit_reason'] ?? '-') ?></dd></dl></div>
     <?php endif ?>
   </div>
 </div>

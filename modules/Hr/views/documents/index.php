@@ -12,11 +12,11 @@ $docForm = static function (?array $d) use ($cats, $maxMb): string { ob_start();
     <div class="field"><label for="<?= $fid ?>-f"><?= $d ? 'Replace file' : 'File *' ?></label><input id="<?= $fid ?>-f" class="hr-file" type="file" name="file"<?= $d ? '' : ' required' ?>><div class="hint">PDF, Word, Excel, PowerPoint, images or ZIP up to <?= $maxMb ?> MB.<?= $d ? ' Leave empty to keep the current file.' : '' ?></div></div>
   </div>
   <div class="field"><label for="<?= $fid ?>-d">Short description</label><textarea id="<?= $fid ?>-d" name="description" rows="3" maxlength="2000" placeholder="What is it and who should read it?"><?= e($d['description'] ?? old('description')) ?></textarea></div>
-  <label class="check"><input type="checkbox" name="requires_ack" value="1"<?= checked($d['requires_ack'] ?? old('requires_ack')) ?>> Requires acknowledgement — everyone confirms “I have read this”</label>
+  <label class="check"><input type="checkbox" name="requires_ack" value="1"<?= checked($d['requires_ack'] ?? old('requires_ack')) ?>> Requires acknowledgement, everyone confirms “I have read this”</label>
   <?php if ($d): ?><label class="check small"><input type="checkbox" name="reset_acks" value="1"> When replacing the file, ask everyone to acknowledge again</label><?php else: ?><label class="check small"><input type="checkbox" name="notify" value="1" checked> Notify everyone when acknowledgement is required</label><?php endif ?>
 <?php return (string) ob_get_clean(); };
 ?>
-<?= partial('partials/page_head', ['title' => 'Company documents', 'subtitle' => 'Policies, the handbook, forms and benefits — always the latest version.', 'crumbs' => [['My HR'], ['Company documents']], 'actions' => $manage ? '<button type="button" class="btn primary" data-modal="doc-new">'.icon('upload', 'sm').' Upload document</button>' : '']) ?>
+<?= partial('partials/page_head', ['title' => 'Company documents', 'subtitle' => 'Policies, the handbook, forms and benefits, always the latest version.', 'crumbs' => [['My HR'], ['Company documents']], 'actions' => $manage ? '<button type="button" class="btn primary" data-modal="doc-new">'.icon('upload', 'sm').' Upload document</button>' : '']) ?>
 <?php if ($pending && !$showPending): ?><div class="alert warn"><?= icon('alert', 'sm') ?><div class="grow"><b><?= (int) $pending ?> document<?= $pending === 1 ? '' : 's' ?> need<?= $pending === 1 ? 's' : '' ?> your acknowledgement.</b> Please read and confirm.</div><a class="btn sm ghost" href="<?= e(url('/hr/documents?show=pending')) ?>">Show</a></div><?php endif ?>
 <div class="grid g4 mb">
   <div class="tile bg-lav"><span class="tile-ic"><?= icon('book') ?></span><div><div class="num"><?= (int) $total ?></div><div class="lbl">Documents published</div></div></div>
