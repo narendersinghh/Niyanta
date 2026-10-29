@@ -22,13 +22,13 @@ final class Widgets {
     return self::$counts = array_map('intval', $r); }
 
   private static function tile(string $color, string $icon, int $num, string $label, string $url, string $sub = ''): string {
-    return '<a class="tile bg-'.$color.'" href="'.e(url($url)).'"><span class="tile-ic">'.icon($icon).'</span><div><div class="num">'.$num.'</div><div class="lbl">'.e($label).($sub ? ' <span class="tile-sub">'.e($sub).'</span>' : '').'</div></div></a>'; }
+    return '<a class="tile bg-'.$color.'" href="'.e(url($url)).'"><span class="tile-ic">'.icon($icon).'</span><div><div class="num">'.$num.'</div><div class="lbl">'.e($label).($sub ? ' · <span class="tile-sub">'.e($sub).'</span>' : '').'</div></div></a>'; }
 
   public static function openTasks(array $u): string { return self::tile('lav', 'check-square', self::counts($u)['open'], 'Open tasks', '/tasks'); }
 
   public static function dueThisWeek(array $u): string {
     $c = self::counts($u);
-    return self::tile('lemon', 'calendar', $c['week'], 'Due this week', '/tasks', $c['late'] ? '· '.$c['late'].' overdue' : ''); }
+    return self::tile('lemon', 'calendar', $c['week'], 'Due this week', '/tasks', $c['late'] ? $c['late'].' overdue' : ''); }
 
   public static function activeProjects(array $u): string {
     [$w, $p] = ProjectAccess::scope($u, 'p.id');

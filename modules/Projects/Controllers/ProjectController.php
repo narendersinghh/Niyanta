@@ -21,7 +21,7 @@ final class ProjectController extends Controller {
     [$w, $wp] = PA::scope($u, 'p.id');
     $status = $this->request->str('status'); $client = $this->request->int('client'); $q = $this->request->str('q');
     $view = $this->request->str('view') === 'table' ? 'table' : 'cards';
-    $sql = "SELECT p.id, p.name, p.code, p.status, p.priority, p.deadline, p.start_date, p.color, p.progress, p.budget, p.billing_type, c.name AS client_name, m.name AS manager_name, m.avatar AS manager_avatar FROM projects p LEFT JOIN clients c ON c.id=p.client_id LEFT JOIN users m ON m.id=p.manager_id WHERE $w";
+    $sql = "SELECT p.id, p.name, p.code, p.status, p.priority, p.deadline, p.start_date, p.color, p.progress, p.budget, p.billing_type, p.hourly_rate, p.estimated_hours, p.client_id, c.name AS client_name, m.name AS manager_name, m.avatar AS manager_avatar FROM projects p LEFT JOIN clients c ON c.id=p.client_id LEFT JOIN users m ON m.id=p.manager_id WHERE $w";
     $p = $wp;
     if (isset(PS::STATUSES[$status])) { $sql .= ' AND p.status=?'; $p[] = $status; }
     elseif ($status === 'open') { $sql .= " AND p.status IN ('planning','active','on_hold')"; }
@@ -29,7 +29,7 @@ final class ProjectController extends Controller {
     if ($q !== '') { $sql .= ' AND (p.name LIKE ? OR p.code LIKE ? OR c.name LIKE ?)'; array_push($p, DB::like($q), DB::like($q), DB::like($q)); }
     $page = DB::paginate($sql." ORDER BY FIELD(p.status,'active','planning','on_hold','completed','cancelled'), p.deadline IS NULL, p.deadline, p.id DESC", $p, $view === 'table' ? 20 : 12);
     $ids = array_column($page['items'], 'id');
-    $members = []; $counts = [];
+    $members = []; $counts = []; $sec = PS::projectsSeconds($ids);
     if ($ids) {
       foreach (DB::all('SELECT pm.project_id, u.name, u.avatar FROM project_members pm JOIN users u ON u.id=pm.user_id WHERE pm.project_id IN '.DB::in($ids).' ORDER BY u.name', $ids) as $m) { $members[$m['project_id']][] = $m; }
       $counts = DB::all("SELECT project_id, COUNT(*) AS total, SUM(status='done') AS done FROM tasks WHERE parent_id IS NULL AND project_id IN ".DB::in($ids).' GROUP BY project_id', $ids);
@@ -37,7 +37,7 @@ final class ProjectController extends Controller {
     $stats = DB::pairs("SELECT p.status, COUNT(*) FROM projects p WHERE $w GROUP BY p.status", $wp);
     $overdue = (int) DB::value("SELECT COUNT(*) FROM projects p WHERE $w AND p.deadline<? AND p.status NOT IN ('completed','cancelled')", [...$wp, date('Y-m-d')]);
     $clients = DB::pairs("SELECT DISTINCT c.id, c.name FROM clients c JOIN projects p ON p.client_id=c.id WHERE $w ORDER BY c.name", $wp);
-    return $this->view('projects::projects/index', ['title' => 'Projects', 'p' => $page, 'members' => $members, 'counts' => $counts, 'stats' => $stats, 'overdue' => $overdue, 'clients' => $clients, 'viewMode' => $view, 'styles' => ['css/projects.css']]); }
+    return $this->view('projects::projects/index', ['title' => 'Projects', 'p' => $page, 'members' => $members, 'counts' => $counts, 'stats' => $stats, 'overdue' => $overdue, 'clients' => $clients, 'sec' => $sec, 'viewMode' => $view, 'styles' => ['css/projects.css']]); }
 
   private function lookups(?int $id): array {
     return ['clients' => DB::pairs("SELECT id, CONCAT(name, IF(company IS NULL OR company='', '', CONCAT(' — ', company))) FROM clients WHERE status<>'inactive' ORDER BY name"),
@@ -124,7 +124,8 @@ final class ProjectController extends Controller {
     $tab = in_array($t = $this->request->str('tab', 'overview'), ['overview', 'board', 'list', 'milestones', 'changes', 'files'], true) ? $t : 'overview';
     $team = DB::all('SELECT u.id, u.name, u.avatar, u.designation, pm.role FROM project_members pm JOIN users u ON u.id=pm.user_id WHERE pm.project_id=? ORDER BY u.name', [$id]);
     $sc = DB::pairs('SELECT status, COUNT(*) FROM tasks WHERE project_id=? AND parent_id IS NULL GROUP BY status', [$id]);
-    $data = ['title' => $pr['name'], 'pr' => $pr, 'tab' => $tab, 'team' => $team, 'sc' => $sc, 'styles' => ['css/projects.css'], 'scripts' => ['js/projects.js'],
+    $nums = DB::first("SELECT (SELECT COUNT(*) FROM milestones WHERE project_id=?) AS ms, (SELECT COUNT(*) FROM milestones WHERE project_id=? AND status='completed') AS ms_done, (SELECT COUNT(*) FROM change_requests WHERE project_id=? AND status='pending') AS cr, (SELECT COUNT(*) FROM files WHERE module='projects' AND entity_type='project' AND entity_id=?) AS files", [$id, $id, $id, $id]);
+    $data = ['title' => $pr['name'], 'pr' => $pr, 'tab' => $tab, 'team' => $team, 'sc' => $sc, 'nums' => array_map('intval', $nums), 'styles' => ['css/projects.css'], 'scripts' => ['js/projects.js'],
       'canManage' => PA::canManageProject($u, $id), 'canTasks' => PA::canManageTasks($u, $id), 'canCr' => $this->can('projects.change_requests.manage'), 'canDelete' => $this->can('projects.delete')];
     if ($data['canTasks'] && in_array($tab, ['board', 'list', 'overview'], true)) { $data['assignees'] = PS::team($id); $data['milestoneOpts'] = DB::pairs('SELECT id, title FROM milestones WHERE project_id=? ORDER BY due_date IS NULL, due_date, position', [$id]); }
     $data += match ($tab) {
@@ -141,12 +142,11 @@ final class ProjectController extends Controller {
 
   private function overview(array $pr): array {
     $id = (int) $pr['id'];
-    $sec = PS::projectSeconds($id);
+    $sec = PS::on('time') ? PS::projectSeconds($id) : ['total' => 0, 'billable' => 0];
     $load = DB::pairs("SELECT assignee_id, COUNT(*) FROM tasks WHERE project_id=? AND status<>'done' AND assignee_id IS NOT NULL GROUP BY assignee_id", [$id]);
     $estTasks = (float) DB::value('SELECT IFNULL(SUM(estimated_hours),0) FROM tasks WHERE project_id=? AND parent_id IS NULL', [$id]);
     $upcoming = DB::all("SELECT t.id, t.title, t.due_date, t.status, t.priority, u.name AS assignee, u.avatar FROM tasks t LEFT JOIN users u ON u.id=t.assignee_id WHERE t.project_id=? AND t.status<>'done' AND t.due_date IS NOT NULL ORDER BY t.due_date LIMIT 6", [$id]);
-    $openCr = (int) DB::value("SELECT COUNT(*) FROM change_requests WHERE project_id=? AND status='pending'", [$id]);
-    return ['milestones' => $this->milestones($id), 'sec' => $sec, 'load' => $load, 'estTasks' => $estTasks, 'upcoming' => $upcoming, 'openCr' => $openCr]; }
+    return ['milestones' => $this->milestones($id), 'sec' => $sec, 'load' => $load, 'estTasks' => $estTasks, 'upcoming' => $upcoming]; }
 
   private function board(int $id): array {
     $tasks = DB::all("SELECT t.id, t.title, t.status, t.priority, t.due_date, t.assignee_id, t.position, t.project_id, u.name AS assignee, u.avatar, IFNULL(s.total,0) AS sub_total, IFNULL(s.done,0) AS sub_done, IFNULL(c.n,0) AS comments, IFNULL(d.open_deps,0) AS open_deps

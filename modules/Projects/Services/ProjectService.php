@@ -1,6 +1,6 @@
 <?php
 namespace Modules\Projects\Services;
-use Core\{DB, Notify, Settings};
+use Core\{DB, Features, Modules, Notify, Settings};
 
 /** Shared project/task logic: lookups, progress, actual hours, reminders and search. */
 final class ProjectService {
@@ -10,6 +10,44 @@ final class ProjectService {
   public const TASK_COLORS = ['todo' => 'gray', 'in_progress' => 'sky', 'review' => 'lav', 'done' => 'mint'];
   public const BILLING = ['fixed' => 'Fixed price', 'hourly' => 'Hourly', 'retainer' => 'Retainer', 'non_billable' => 'Non-billable'];
   public const COLORS = ['lav', 'mint', 'lemon', 'peach', 'sky', 'pink'];
+  public const PRIO_COLORS = ['low' => 'mint', 'medium' => 'lemon', 'high' => 'peach', 'urgent' => 'red'];
+  private static array $on = [];
+
+  /** Optional integrations: work reports feature, attendance (time entries) and CRM client pages. */
+  public static function on(string $what): bool {
+    return self::$on[$what] ??= match ($what) {
+      'reports' => Features::enabled('work_reports') && (can('projects.reports.submit') || can('projects.reports.approve')),
+      'report_submit' => Features::enabled('work_reports') && can('projects.reports.submit'),
+      'time' => Modules::enabled('attendance'),
+      'crm' => Modules::enabled('crm') && can('crm.clients.view'),
+      default => false }; }
+
+  /** Client name, linked to the client page only when Client Management is on and the user may open it. */
+  public static function client(?int $id, ?string $name, string $fallback = 'Internal project'): string {
+    if (!$id || !$name) { return '<span class="muted">'.e($fallback).'</span>'; }
+    return self::on('crm') ? '<a class="client-link" href="'.e(url('/clients/'.$id)).'">'.e($name).'</a>' : '<span>'.e($name).'</span>'; }
+
+  /** Deadline countdown: [label, tone] where tone is red / lemon / mint / gray. */
+  public static function countdown(?string $deadline, string $status = 'active'): array {
+    if ($status === 'completed') { return ['Completed', 'mint']; }
+    if ($status === 'cancelled') { return ['Cancelled', 'gray']; }
+    if (!$deadline) { return ['No deadline', 'gray']; }
+    $d = (int) round((strtotime($deadline) - strtotime(date('Y-m-d'))) / 86400);
+    return match (true) { $d < 0 => [abs($d).' day'.($d < -1 ? 's' : '').' overdue', 'red'], $d === 0 => ['Due today', 'lemon'], $d === 1 => ['Due tomorrow', 'lemon'], $d <= 7 => [$d.' days left', 'lemon'], default => [$d.' days left', 'gray'] }; }
+
+  /** Overlapping avatar stack with a "+n" bubble (people: rows with name, avatar). */
+  public static function stack(array $people, int $max = 4, string $none = ''): string {
+    if (!$people) { return $none !== '' ? '<span class="xs muted">'.e($none).'</span>' : ''; }
+    $h = '<span class="avatars" title="'.e(implode(', ', array_column($people, 'name'))).'">';
+    foreach (array_slice($people, 0, $max) as $m) { $h .= avatar($m['name'], $m['avatar'] ?? null, 'sm'); }
+    return $h.(count($people) > $max ? '<span class="avatar sm more">+'.(count($people) - $max).'</span>' : '').'</span>'; }
+
+  /** Logged seconds per project for many projects at once: [project_id => ['total','billable']]. */
+  public static function projectsSeconds(array $ids): array {
+    if (!$ids || !self::on('time')) { return []; }
+    $ids = array_values(array_map('intval', $ids)); $out = [];
+    foreach (DB::all("SELECT COALESCE(te.project_id, t.project_id) AS pid, SUM(te.duration_seconds) AS total, SUM(CASE WHEN te.billable=1 THEN te.duration_seconds ELSE 0 END) AS billable FROM time_entries te LEFT JOIN tasks t ON t.id=te.task_id WHERE te.status<>'rejected' AND (te.project_id IN ".DB::in($ids).' OR t.project_id IN '.DB::in($ids).') GROUP BY pid', [...$ids, ...$ids]) as $r) { $out[(int) $r['pid']] = ['total' => (int) $r['total'], 'billable' => (int) $r['billable']]; }
+    return $out; }
 
   /** Progress = done top-level tasks / all top-level tasks. */
   public static function recalcProgress(int $projectId): int {
@@ -85,17 +123,18 @@ final class ProjectService {
     $p = $r->str('return');
     return preg_match('#^/(?![/\\\\])[^\s]*$#', $p) && !str_contains($p, '://') ? $p : $fallback; }
 
-  /** Due-date bucket for grouping. */
+  /** Due-date bucket for grouping: overdue, today, week (rest of this week), later, none. */
   public static function bucket(?string $due, string $status = 'todo'): string {
-    if (!$due) { return 'later'; }
+    if (!$due) { return 'none'; }
     $today = date('Y-m-d');
-    if ($due < $today && $status !== 'done') { return 'overdue'; }
+    if ($due < $today) { return $status === 'done' ? 'today' : 'overdue'; }
     if ($due === $today) { return 'today'; }
-    return $due <= date('Y-m-d', strtotime('sunday this week')) && $due > $today ? 'week' : ($due < $today ? 'today' : 'later'); }
+    return $due <= date('Y-m-d', strtotime('sunday this week')) ? 'week' : 'later'; }
 
   /** Due date chip HTML (red when overdue). */
-  public static function dueChip(?string $due, string $status = 'todo'): string {
-    if (!$due) { return '<span class="xs muted">No due date</span>'; }
-    $late = $status !== 'done' && $due < date('Y-m-d');
-    $label = $due === date('Y-m-d') ? 'Today' : ($due === date('Y-m-d', strtotime('+1 day')) ? 'Tomorrow' : fdate($due, 'd M'));
-    return '<span class="due'.($late ? ' late' : '').'">'.icon('calendar', 'sm').' '.e($label).'</span>'; } }
+  public static function dueChip(?string $due, string $status = 'todo', bool $empty = true): string {
+    if (!$due) { return $empty ? '<span class="due none">'.icon('calendar', 'sm').' No date</span>' : ''; }
+    $today = date('Y-m-d');
+    $tone = $status === 'done' ? 'done' : ($due < $today ? 'late' : ($due === $today ? 'today' : ($due === date('Y-m-d', strtotime('+1 day')) ? 'soon' : '')));
+    $label = $due === $today ? 'Today' : ($due === date('Y-m-d', strtotime('+1 day')) ? 'Tomorrow' : ($due === date('Y-m-d', strtotime('-1 day')) ? 'Yesterday' : fdate($due, substr($due, 0, 4) === date('Y') ? 'd M' : 'd M Y')));
+    return '<span class="due '.$tone.'" title="Due '.e(fdate($due)).'">'.icon($tone === 'late' ? 'alert' : 'calendar', 'sm').' '.e($label).'</span>'; } }

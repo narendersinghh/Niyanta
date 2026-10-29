@@ -46,7 +46,7 @@ final class WorkReportController extends Controller {
     $mon = date('Y-m-d', strtotime('monday this week'));
     $stats = ['pending' => $canApprove ? (int) DB::value("SELECT COUNT(*) FROM work_reports w JOIN users a ON a.id=w.user_id WHERE $rw AND w.status='submitted'", $rp) : 0,
       'mine' => DB::pairs('SELECT status, COUNT(*) FROM work_reports WHERE user_id=? GROUP BY status', [$uid]),
-      'week' => PS::userSeconds($uid, $mon, date('Y-m-d')), 'submittedToday' => (bool) DB::value("SELECT 1 FROM work_reports WHERE user_id=? AND type='daily' AND period_start=?", [$uid, date('Y-m-d')])];
+      'week' => PS::on('time') ? PS::userSeconds($uid, $mon, date('Y-m-d')) : 0, 'submittedToday' => (bool) DB::value("SELECT 1 FROM work_reports WHERE user_id=? AND type='daily' AND period_start=?", [$uid, date('Y-m-d')])];
     $people = $tab === 'team' ? DB::pairs("SELECT DISTINCT a.id, a.name FROM work_reports w JOIN users a ON a.id=w.user_id WHERE $rw ORDER BY a.name", $rp) : [];
     return $this->view('projects::reports/index', ['title' => 'Work reports', 'p' => $page, 'tab' => $tab, 'canApprove' => $canApprove, 'canSubmit' => $canSubmit, 'stats' => $stats, 'people' => $people, 'styles' => ['css/projects.css']]); }
 
@@ -63,7 +63,8 @@ final class WorkReportController extends Controller {
   public function create(): Response {
     $type = $this->request->str('type') === 'weekly' ? 'weekly' : 'daily';
     [$s, $e] = $this->period($type, date('Y-m-d'));
-    $r = ['id' => null, 'type' => $type, 'period_start' => $s, 'period_end' => $e, 'project_id' => null, 'hours' => round(PS::userSeconds($this->uid(), $s, $e) / 3600, 2) ?: null];
+    $pid = $this->request->int('project');
+    $r = ['id' => null, 'type' => $type, 'period_start' => $s, 'period_end' => $e, 'project_id' => $pid && PA::canSee($this->user(), $pid) ? $pid : null, 'hours' => PS::on('time') ? (round(PS::userSeconds($this->uid(), $s, $e) / 3600, 2) ?: null) : null];
     return $this->view('projects::reports/form', ['title' => 'New work report', 'r' => $r, 'projects' => $this->projectOptions(), 'styles' => ['css/projects.css'], 'scripts' => ['js/projects.js']]); }
 
   public function edit(int $id): Response {
@@ -76,7 +77,7 @@ final class WorkReportController extends Controller {
     $start = $this->request->str('start');
     if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $start) || !strtotime($start)) { return $this->json(['error' => 'Invalid date'], 422); }
     [$s, $e] = $this->period($type, $start);
-    return $this->json(['start' => $s, 'end' => $e, 'label' => fdate($s).($s !== $e ? ' – '.fdate($e) : ''), 'hours' => round(PS::userSeconds($this->uid(), $s, $e) / 3600, 2)]); }
+    return $this->json(['start' => $s, 'end' => $e, 'label' => fdate($s).($s !== $e ? ' – '.fdate($e) : ''), 'hours' => PS::on('time') ? round(PS::userSeconds($this->uid(), $s, $e) / 3600, 2) : null]); }
 
   private function data(?int $id): array {
     $d = $this->validate(['type' => 'required|in:daily,weekly', 'period_start' => 'required|date', 'project_id' => 'nullable|integer', 'summary' => 'required|max:5000', 'accomplishments' => 'nullable|max:10000', 'blockers' => 'nullable|max:5000', 'next_steps' => 'nullable|max:5000', 'hours' => 'nullable|numeric|min:0|max:'.($this->request->str('type') === 'weekly' ? 168 : 24)], ['period_start' => 'Date', 'project_id' => 'Project']);
@@ -123,7 +124,7 @@ final class WorkReportController extends Controller {
     $tasks = DB::all("SELECT t.id, t.title, t.project_id, p.name AS project FROM tasks t JOIN projects p ON p.id=t.project_id WHERE t.assignee_id=? AND t.status='done' AND t.completed_at>=? AND t.completed_at<? ORDER BY t.completed_at LIMIT 30", [(int) $r['user_id'], $r['period_start'].' 00:00:00', date('Y-m-d', strtotime($r['period_end'].' +1 day')).' 00:00:00']);
     $vis = PA::visibleProjectIds($this->user());
     if ($vis !== null) { $tasks = array_values(array_filter($tasks, static fn ($t) => in_array((int) $t['project_id'], $vis, true))); }
-    return $this->view('projects::reports/show', ['title' => 'Work report', 'r' => $r, 'mine' => $mine, 'canReview' => !$mine && $r['status'] === 'submitted' && $this->can('projects.reports.approve') && $this->canReview($r), 'logged' => PS::userSeconds((int) $r['user_id'], $r['period_start'], $r['period_end']), 'tasks' => $tasks, 'styles' => ['css/projects.css']]); }
+    return $this->view('projects::reports/show', ['title' => 'Work report', 'r' => $r, 'mine' => $mine, 'canReview' => !$mine && $r['status'] === 'submitted' && $this->can('projects.reports.approve') && $this->canReview($r), 'logged' => PS::on('time') ? PS::userSeconds((int) $r['user_id'], $r['period_start'], $r['period_end']) : null, 'tasks' => $tasks, 'styles' => ['css/projects.css']]); }
 
   public function review(int $id): Response {
     $r = $this->report($id);

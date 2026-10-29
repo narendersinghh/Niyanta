@@ -54,6 +54,10 @@ final class TaskController extends Controller {
     DB::update('projects', ['updated_at' => $now], 'id=?', [$id]);
     PS::notifyAssignee($d + ['id' => $tid, 'project_id' => $id], $this->uid());
     Audit::log('projects.task.create', 'task', $tid, ['project_id' => $id, 'title' => $d['title']]);
+    if ($this->request->wantsJson()) {
+      $card = DB::first('SELECT t.id, t.title, t.status, t.priority, t.due_date, t.assignee_id, t.project_id, u.name AS assignee, u.avatar, 0 AS sub_total, 0 AS sub_done, 0 AS comments, 0 AS open_deps FROM tasks t LEFT JOIN users u ON u.id=t.assignee_id WHERE t.id=?', [$tid]);
+      $card['editable'] = PA::canEditTask($this->user(), $card);
+      return $this->json(['ok' => true, 'message' => 'Task added', 'html' => \Core\View::partial('projects::projects/kcard', ['t' => $card]), 'progress' => (int) DB::value('SELECT progress FROM projects WHERE id=?', [$id])]); }
     $this->flash('Task added.');
     return $this->redirect(PS::returnPath($this->request, '/projects/'.$id.'?tab=board')); }
 
@@ -196,7 +200,7 @@ final class TaskController extends Controller {
     $deps = DB::all('SELECT d.id, d.title, d.status, d.due_date FROM task_dependencies td JOIN tasks d ON d.id=td.depends_on_id WHERE td.task_id=? ORDER BY d.title', [$id]);
     $blocking = DB::all('SELECT d.id, d.title, d.status FROM task_dependencies td JOIN tasks d ON d.id=td.task_id WHERE td.depends_on_id=? ORDER BY d.title', [$id]);
     $comments = DB::all('SELECT c.*, u.name, u.avatar FROM task_comments c LEFT JOIN users u ON u.id=c.user_id WHERE c.task_id=? ORDER BY c.id', [$id]);
-    $sec = PS::taskSeconds([$id, ...array_map('intval', array_column($subs, 'id'))]);
+    $sec = PS::on('time') ? PS::taskSeconds([$id, ...array_map('intval', array_column($subs, 'id'))]) : [];
     $own = $sec[$id] ?? ['total' => 0, 'billable' => 0];
     $subSec = array_sum(array_map(static fn ($s) => $s['total'], array_diff_key($sec, [$id => 1])));
     $canEdit = PA::canEditTask($u, $t);
@@ -225,7 +229,7 @@ final class TaskController extends Controller {
       if ($assignee) { $sql .= ' AND t.assignee_id=?'; $p[] = $assignee; } }
     if ($project) { $sql .= ' AND t.project_id=?'; $p[] = $project; }
     $tasks = DB::all($sql." ORDER BY t.due_date IS NULL, t.due_date, FIELD(t.priority,'urgent','high','medium','low'), t.id LIMIT 400", $p);
-    $groups = ['overdue' => [], 'today' => [], 'week' => [], 'later' => []];
+    $groups = ['overdue' => [], 'today' => [], 'week' => [], 'later' => [], 'none' => []];
     foreach ($tasks as $t) { $t['editable'] = PA::canEditTask($u, $t) || ($t['parent_id'] && (int) $t['assignee_id'] === $uid); $groups[PS::bucket($t['due_date'], $t['status'])][] = $t; }
     $mon = date('Y-m-d', strtotime('monday this week'));
     $week = [];
@@ -234,4 +238,4 @@ final class TaskController extends Controller {
     $doneWeek = (int) DB::value('SELECT COUNT(*) FROM tasks t JOIN projects p ON p.id=t.project_id WHERE '.$w.' AND t.status=\'done\' AND t.completed_at>=?'.($mode === 'mine' ? ' AND t.assignee_id=?' : ''), [...$wp, $mon.' 00:00:00', ...($mode === 'mine' ? [$uid] : [])]);
     $projects = DB::pairs("SELECT p.id, p.name FROM projects p WHERE $w AND p.status NOT IN ('completed','cancelled')".($mode === 'team' && !PA::unrestricted($u) ? ' AND p.manager_id='.(int) $uid : '').' ORDER BY p.name', $wp);
     $people = $mode === 'team' ? DB::pairs('SELECT DISTINCT u.id, u.name FROM users u JOIN tasks t ON t.assignee_id=u.id JOIN projects p ON p.id=t.project_id WHERE '.$w.(PA::unrestricted($u) ? '' : ' AND p.manager_id='.(int) $uid)." AND t.status<>'done' ORDER BY u.name", $wp) : [];
-    return $this->view('projects::tasks/mine', ['title' => $mode === 'team' ? 'Team tasks' : 'My tasks', 'groups' => $groups, 'total' => count($tasks), 'week' => $week, 'doneWeek' => $doneWeek, 'mode' => $mode, 'teamAllowed' => $teamAllowed, 'projects' => $projects, 'people' => $people, 'styles' => ['css/projects.css'], 'scripts' => ['js/projects.js']]); } }
+    return $this->view('projects::tasks/mine', ['title' => $mode === 'team' ? 'Team tasks' : 'My tasks', 'groups' => $groups, 'total' => count($tasks), 'week' => $week, 'doneWeek' => $doneWeek, 'mode' => $mode, 'teamAllowed' => $teamAllowed, 'projects' => $projects, 'people' => $people, 'project' => $project, 'assignee' => $assignee, 'styles' => ['css/projects.css'], 'scripts' => ['js/projects.js']]); } }
