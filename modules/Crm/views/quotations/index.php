@@ -29,7 +29,7 @@ $more = Ui::more([can('crm.finance.view') ? Ui::link('/invoices', 'receipt', 'In
     <?php if ($filtered): ?><a class="crm-clear" href="<?= e(url('/quotations'.($status !== '' ? '?status='.rawurlencode($status) : ''))) ?>"><?= icon('x', 'sm') ?> Clear</a><?php endif ?>
   </form>
   <?php if (!$p['items']): ?>
-    <?= $filtered || $status !== '' ? empty_state('No quotations here', 'Nothing matches this view right now.', 'empty-box') : empty_state('No quotations yet', 'Send an itemised estimate, then convert it to an invoice once the client accepts.', 'money-wallet', $m ? '<a class="btn primary" href="'.e(url('/quotations/create')).'">'.icon('plus', 'sm').' Create your first quotation</a>' : '') ?>
+    <?= $filtered || $status !== '' ? empty_state('No quotations here', 'Nothing matches this view right now.', 'empty-box') : empty_state('No quotations yet', 'Send an itemised estimate'.(feature_on('invoices') ? ', then convert it to an invoice once the client accepts' : ' and track whether the client accepts').'.', 'money-wallet', $m ? '<a class="btn primary" href="'.e(url('/quotations/create')).'">'.icon('plus', 'sm').' Create your first quotation</a>' : '') ?>
   <?php else: ?>
   <div class="table-wrap"><table class="table crm-rt">
     <thead><tr><th>Quotation</th><th>Client</th><th>Issued</th><th>Valid until</th><th class="amt">Amount</th><th>Status</th><th><span class="sr">Actions</span></th></tr></thead>
@@ -40,7 +40,7 @@ $more = Ui::more([can('crm.finance.view') ? Ui::link('/invoices', 'receipt', 'In
         <td class="small" data-l="Issued"><?= e(fdate($q['issue_date'])) ?></td>
         <td class="small <?= $late ? 'crm-late' : '' ?>" data-l="Valid until"><?= e(fdate($q['valid_until'])) ?><?= $late ? ' · lapsed' : '' ?></td>
         <td class="amt" data-l="Amount"><b><?= e(money($q['total'])) ?></b></td>
-        <td class="rt-side"><?= badge($q['status']) ?><?= $q['invoice_id'] ? '<div class="crm-sub">'.icon('receipt', 'sm').' Invoiced</div>' : '' ?></td>
+        <td class="rt-side"><?= badge($q['status']) ?><?= $q['invoice_id'] ? '<div class="crm-sub">'.icon('receipt', 'sm').(feature_on('invoices') ? ' Invoiced' : ' Converted').'</div>' : '' ?></td>
         <td class="actions rt-hide"><span class="crm-row-actions"><a class="crm-go" href="<?= e(url('/quotations/'.$q['id'].'/pdf')) ?>" title="Download PDF" aria-label="Download PDF"><?= icon('download', 'sm') ?></a><a class="crm-go" href="<?= e(url('/quotations/'.$q['id'])) ?>" title="Open" aria-label="Open"><?= icon('chevron-right', 'sm') ?></a></span></td>
       </tr>
     <?php endforeach ?></tbody>

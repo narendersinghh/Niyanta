@@ -2,6 +2,8 @@
 use Modules\Admin\Services\BackupService;
 $labels = ['audit' => 'Audit log', 'notifications' => 'Notifications', 'mail_queue' => 'Emails', 'cron_logs' => 'Scheduler runs', 'ai_usage' => 'AI usage', 'sessions' => 'Sessions', 'rate_limits' => 'Rate-limit counters', 'password_resets' => 'Expired reset links'];
 $tables = ['audit_logs' => ['Audit log', 'history', 'lav'], 'notifications' => ['Notifications', 'bell', 'sky'], 'mail_queue' => ['Email queue', 'mail', 'peach'], 'cron_logs' => ['Scheduler runs', 'clock', 'lemon'], 'screenshots' => ['Screenshots', 'camera', 'pink'], 'ai_usage' => ['AI usage', 'sparkles', 'mint']];
+if (!feature_on('ai')) { unset($tables['ai_usage'], $labels['ai_usage']); }
+if (!feature_on('attendance')) { unset($tables['screenshots'], $labels['screenshots']); }
 $run = '<form method="post" action="'.e(url('/admin/settings/retention/run')).'" data-no-lock="1" data-busy="Cleaning up…" data-confirm="Delete everything older than the retention periods now? This cannot be undone.">'.csrf_field().'<button class="btn primary">'.icon('play', 'sm').' Run cleanup now</button></form>';
 ?>
 <?= partial('admin::settings/_head', ['tabs' => $tabs, 'tab' => 'retention', 'actions' => $run]) ?>
@@ -17,7 +19,7 @@ $run = '<form method="post" action="'.e(url('/admin/settings/retention/run')).'"
 <div class="card ret-summary">
   <div class="ret-last"><span class="ic-chip" style="--c:var(--<?= $last ? 'mint' : 'lemon' ?>)"><?= icon($last ? 'check-circle' : 'clock') ?></span>
     <div><div class="xs muted">Last cleanup</div><b><?= $last ? e(ago($last['at'])).', removed '.number_format((int) $last['total']) : 'Not run yet' ?></b><div class="xs muted"><?= $last ? e(fdatetime($last['at'])) : 'Runs nightly at 03:10 through the scheduler' ?></div></div></div>
-  <?php if ($last && array_filter($last['counts'] ?? [])): ?><div class="chips"><?php foreach (array_filter($last['counts']) as $k => $n): ?><span class="chip"><?= e($labels[$k] ?? $k) ?> <b><?= number_format((int) $n) ?></b></span><?php endforeach ?></div><?php endif ?>
+  <?php if ($last && array_filter($last['counts'] ?? [])): ?><div class="chips"><?php foreach (array_filter($last['counts']) as $k => $n): if (!isset($labels[$k]) && in_array($k, ['ai_usage', 'screenshots'], true)) { continue; } ?><span class="chip"><?= e($labels[$k] ?? $k) ?> <b><?= number_format((int) $n) ?></b></span><?php endforeach ?></div><?php endif ?>
 </div>
 <div class="ret-tables">
 <?php foreach ($tables as $t => [$label, $ic, $c]): if (!isset($sizes[$t])) { continue; } ?>

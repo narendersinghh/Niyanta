@@ -17,14 +17,14 @@ final class ProjectAccess {
 
   public static function unrestricted(array $user): bool {
     $user = self::norm($user);
-    return ($user['role_slug'] ?? '') === 'super_admin' || (Modules::enabled('projects') && Gate::allows('projects.view_all', $user)); }
+    return ($user['role_slug'] ?? '') === 'super_admin' || (feature_on('projects') && Gate::allows('projects.view_all', $user)); }
 
   /** Project ids the user may see; null means unrestricted (all projects). */
   public static function visibleProjectIds(array $user): ?array {
     $user = self::norm($user);
     if (empty($user['id'])) { return []; }
     if (self::unrestricted($user)) { return null; }
-    if (!Modules::enabled('projects') || !Gate::allows('projects.view', $user)) { return []; }
+    if (!feature_on('projects') || !Gate::allows('projects.view', $user)) { return []; }
     $uid = (int) $user['id'];
     return self::$ids[$uid] ??= array_map('intval', DB::column('SELECT project_id FROM project_members WHERE user_id=? UNION SELECT id FROM projects WHERE manager_id=?', [$uid, $uid])); }
 

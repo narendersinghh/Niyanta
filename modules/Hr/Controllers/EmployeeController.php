@@ -59,7 +59,8 @@ final class EmployeeController extends Controller {
     $prof = $this->profile($id);
     $self = $id === $this->uid();
     $hr = $this->can('hr.employees.view');
-    $tabs = ['overview' => 'Overview', 'schedule' => 'Work schedule & leave', 'leave' => 'Leave history'];
+    $leaveOn = feature_on('leave');
+    $tabs = ['overview' => 'Overview', 'schedule' => $leaveOn ? 'Work schedule & leave' : 'Work schedule'] + ($leaveOn ? ['leave' => 'Leave history'] : []);
     if (HrAccess::canViewDocuments($id)) { $tabs['documents'] = 'Documents'; }
     $tabs['checklists'] = 'Onboarding & exit';
     $tab = $this->request->str('tab', 'overview');
@@ -67,7 +68,7 @@ final class EmployeeController extends Controller {
     $year = (int) date('Y');
     $data = ['title' => $emp['name'], 'emp' => $emp, 'prof' => $prof, 'self' => $self, 'hr' => $hr, 'tab' => $tab, 'tabs' => $tabs, 'types' => self::TYPES, 'year' => $year, 'styles' => ['css/hr.css'], 'scripts' => ['js/hr.js'],
       'masked' => ['bank' => HrAccess::mask($prof['bank_account_enc'] ?? null), 'tax' => HrAccess::mask($prof['tax_id_enc'] ?? null)],
-      'onLeave' => LeaveService::onLeave($id, date('Y-m-d')), 'balances' => LeaveService::balances($id, $year)];
+      'onLeave' => $leaveOn && LeaveService::onLeave($id, date('Y-m-d')), 'balances' => $leaveOn ? LeaveService::balances($id, $year) : []];
     $cl = DB::all('SELECT c.*, d.name AS done_by_name FROM employee_checklists c LEFT JOIN users d ON d.id=c.done_by WHERE c.user_id=? ORDER BY c.type, c.position, c.id', [$id]);
     $data['checklists'] = ['onboarding' => [], 'offboarding' => []];
     foreach ($cl as $c) { $data['checklists'][$c['type']][] = $c; }
@@ -83,7 +84,7 @@ final class EmployeeController extends Controller {
   private function scheduleData(int $id, int $year): array {
     $bal = array_column(LeaveService::balances($id, $year), null, 'id');
     $pay = null;
-    if (Modules::enabled('payroll')) {
+    if (feature_on('payroll')) {
       try { $pay = DB::first('SELECT pay_type, amount, effective_from FROM compensations WHERE user_id=? AND effective_from<=CURDATE() ORDER BY effective_from DESC, id DESC LIMIT 1', [$id]); }
       catch (\Throwable $e) { error_log('HR schedule tab: compensation lookup failed: '.$e->getMessage()); } }
     return ['quotas' => LeaveService::quotasFor($id), 'bal' => $bal, 'pay' => $pay, 'companyDays' => LeaveService::weekendDays(), 'companyHours' => LeaveService::companyHours(),

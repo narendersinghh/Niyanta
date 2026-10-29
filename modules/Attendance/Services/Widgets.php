@@ -12,9 +12,7 @@ final class Widgets {
     self::$assets = true;
     return '<link rel="stylesheet" href="'.e(asset('css/attendance.css')).'"><script src="'.e(asset('js/attendance.js')).'" defer></script>'; }
   public static function side(array $u): string {
-    $uid = (int) $u['id'];
-    $att = AttendanceService::today($uid);
-    return self::assets().View::partial('attendance::widgets/side', ['running' => TimeService::running($uid), 'att' => $att, 'state' => AttendanceService::state($att), 'live' => AttendanceService::live($att)]); }
+    return self::assets().View::partial('attendance::widgets/side', ['st' => Tracker::state((int) $u['id'])]); }
 
   public static function kpi(array $u): string {
     $ws = TimeService::weekStart();

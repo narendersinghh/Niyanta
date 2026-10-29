@@ -10,7 +10,7 @@
 <div class="hr-people">
   <?php foreach ($p['items'] as $u): $own = (int) $u['id'] === $me; ?>
   <div class="card hr-person">
-    <?php if (isset($out[(int) $u['id']])): ?><span class="pill pill-peach hr-out"><?= icon('plane', 'sm') ?> On leave</span><?php endif ?>
+    <?php if (isset($out[(int) $u['id']]) && feature_on('leave')): ?><span class="pill pill-peach hr-out"><?= icon('plane', 'sm') ?> On leave</span><?php endif ?>
     <?= avatar($u['name'], $u['avatar'], 'lg') ?>
     <h4><?php if ($own): ?><a href="<?= e(url('/hr/employees/'.$u['id'])) ?>"><?= e($u['name']) ?></a> <span class="pill pill-lav">You</span><?php else: ?><?= e($u['name']) ?><?php endif ?></h4>
     <div class="small muted"><?= e($u['designation'] ?: 'Team member') ?><?= $u['department'] ? ' · '.e($u['department']) : '' ?></div>

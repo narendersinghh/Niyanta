@@ -35,10 +35,10 @@ final class ReportController extends CrmController {
     $tot['collected'] = array_sum($collected);
     $tot['outstanding'] = array_sum($aging);
     $projects = [];
-    if (Modules::enabled('projects')) {
+    if (feature_on('projects')) {
       [$wr, $pr] = $this->scope('pr.client_id');
       $projects = DB::all("SELECT pr.id, pr.name, pr.status, pr.budget, c.name AS client_name, c.company AS client_company, COALESCE(SUM(i.total),0) AS invoiced, COALESCE(SUM(i.amount_paid),0) AS collected FROM projects pr JOIN clients c ON c.id=pr.client_id LEFT JOIN invoices i ON i.project_id=pr.id AND i.status NOT IN ('draft','cancelled') WHERE $wr GROUP BY pr.id, pr.name, pr.status, pr.budget, c.name, c.company HAVING invoiced>0 OR pr.budget>0 ORDER BY invoiced DESC, pr.budget DESC LIMIT 25", $pr); }
-    return $this->view('crm::reports/index', ['title' => 'Financial reports', 'from' => $from, 'to' => $to, 'months' => $months, 'aging' => $aging, 'top' => $top, 'tot' => $tot, 'projects' => $projects, 'projOn' => Modules::enabled('projects'), 'styles' => ['css/crm.css'], 'scripts' => ['js/crm.js']]); }
+    return $this->view('crm::reports/index', ['title' => 'Financial reports', 'from' => $from, 'to' => $to, 'months' => $months, 'aging' => $aging, 'top' => $top, 'tot' => $tot, 'projects' => $projects, 'projOn' => feature_on('projects'), 'styles' => ['css/crm.css'], 'scripts' => ['js/crm.js']]); }
 
   public function outstandingCsv(): Response {
     [$wi, $pi] = $this->scope('i.client_id');

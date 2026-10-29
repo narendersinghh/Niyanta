@@ -63,9 +63,9 @@ $range = fdate($ws, 'd M').' - '.fdate($we, 'd M Y');
 
 <div class="card mb">
   <div class="card-head"><h3>Week grid</h3><div class="legend"><span><i class="lg-bill"></i>Billable</span><span><i class="lg-non"></i>Non-billable</span></div></div>
-  <?php if (!$s['rows']): ?><?= empty_state('Nothing tracked this week', $own ? 'Time you log appears here grouped by project and task.' : 'No time entries in this week.', 'calendar-person') ?><?php else: ?>
+  <?php if (!$s['rows']): ?><?= empty_state('Nothing tracked this week', $own ? 'Time you log appears here'.(feature_on('projects') ? ' grouped by project and task' : ' day by day').'.' : 'No time entries in this week.', 'calendar-person') ?><?php else: ?>
   <div class="ts-scroll"><table class="ts-grid">
-    <thead><tr><th class="rh"><span class="xs muted">Project / task</span></th>
+    <thead><tr><th class="rh"><span class="xs muted"><?= feature_on('projects') ? 'Project / task' : 'Work' ?></span></th>
       <?php foreach ($s['days'] as $d => $_): ?><th class="<?= $s['off'][$d] ? 'off' : '' ?><?= $d === date('Y-m-d') ? ' today' : '' ?>"<?= $s['off'][$d] && $s['off'][$d] !== 'Off' ? ' title="'.e($s['off'][$d]).'"' : '' ?>><span class="dw"><?= e(date('D', strtotime($d))) ?></span><span class="dn"><?= e(date('j', strtotime($d))) ?></span></th><?php endforeach ?>
       <th class="tot"><span class="xs muted">Total</span></th></tr></thead>
     <tbody><?php foreach ($s['rows'] as $r): ?><tr class="<?= $r['billable'] ? 'bill' : 'non' ?>">

@@ -48,9 +48,12 @@ final class TimeService {
     if (($user['role_slug'] ?? '') === 'super_admin' || Gate::allows('projects.view_all', $user)) { return self::$vis[$uid] = null; }
     return self::$vis[$uid] = array_map('intval', DB::column('SELECT project_id FROM project_members WHERE user_id=? UNION SELECT id FROM projects WHERE manager_id=?', [$uid, $uid])); }
 
+  /** Title of a time entry: its project (while projects are on), else a neutral label. */
+  public static function label(array $e): string { return feature_on('projects') ? (string) ($e['project_name'] ?? 'No project') : 'Tracked time'; }
+
   /** id => name of open projects for pickers. */
   public static function projects(array $user): array {
-    if (!Modules::enabled('projects')) { return []; }
+    if (!feature_on('projects')) { return []; }
     $ids = self::visibleProjectIds($user);
     if ($ids === []) { return []; }
     $sql = "SELECT id, name FROM projects WHERE status IN ('planning','active','on_hold')";
@@ -59,7 +62,7 @@ final class TimeService {
     return DB::pairs($sql.' ORDER BY name LIMIT 500', $p); }
 
   public static function projectVisible(array $user, int $pid): bool {
-    if (!Modules::enabled('projects')) { return false; }
+    if (!feature_on('projects')) { return false; }
     $ids = self::visibleProjectIds($user);
     return ($ids === null || in_array($pid, $ids, true)) && (bool) DB::value('SELECT 1 FROM projects WHERE id=? LIMIT 1', [$pid]); }
 
@@ -71,22 +74,38 @@ final class TimeService {
   /** Validate project/task ids against visibility. Returns [project_id|null, task_id|null]. */
   public static function checkTarget(array $user, ?int $pid, ?int $tid): array {
     $pid = $pid ?: null; $tid = $tid ?: null;
+    if (!feature_on('projects')) { return [null, null]; }
     if ($pid && !self::projectVisible($user, $pid)) { throw new \DomainException('You cannot log time on that project.'); }
     if ($tid) {
       if (!$pid) { throw new \DomainException('Choose the project of the task.'); }
       if (!DB::value('SELECT 1 FROM tasks WHERE id=? AND project_id=? LIMIT 1', [$tid, $pid])) { throw new \DomainException('That task does not belong to the selected project.'); } }
     return [$pid, $tid]; }
 
-  public static function start(array $user, array $d, string $source = 'timer'): int {
+  /** Start an entry (one running entry per user). $at pins the start second (project switch: same second the previous entry ended). */
+  public static function start(array $user, array $d, string $source = 'timer', ?int $tokenId = null, ?string $at = null): int {
     [$pid, $tid] = self::checkTarget($user, isset($d['project_id']) ? (int) $d['project_id'] : null, isset($d['task_id']) ? (int) $d['task_id'] : null);
     $uid = (int) $user['id'];
-    return DB::transaction(static function () use ($uid, $pid, $tid, $d, $source): int {
+    return DB::transaction(static function () use ($uid, $pid, $tid, $d, $source, $tokenId, $at): int {
       AttendanceService::lock($uid);
       if (DB::value('SELECT id FROM time_entries WHERE user_id=? AND is_running=1 LIMIT 1', [$uid])) { throw new \DomainException('A timer is already running. Stop it first.'); }
-      $now = date('Y-m-d H:i:s');
+      $now = $at ?? date('Y-m-d H:i:s');
       $id = DB::insert('time_entries', ['user_id' => $uid, 'project_id' => $pid, 'task_id' => $tid, 'description' => mb_substr(trim((string) ($d['description'] ?? '')), 0, 500) ?: null, 'started_at' => $now, 'last_heartbeat_at' => $now,
-        'source' => $source, 'billable' => empty($d['billable']) ? 0 : 1, 'is_running' => 1, 'status' => 'draft', 'created_at' => $now]);
+        'source' => $source, 'agent_token_id' => $tokenId, 'billable' => array_key_exists('billable', $d) && empty($d['billable']) ? 0 : 1, 'is_running' => 1, 'status' => 'draft', 'created_at' => date('Y-m-d H:i:s')]);
       Audit::log('time.start', 'time_entry', $id, ['source' => $source, 'project_id' => $pid], $uid);
+      return $id; }); }
+
+  /** Change project/task without pausing: the running entry ends and the new one starts at the same second (no gap). Returns the new entry id. */
+  public static function switchTo(array $user, array $d, string $source = 'desktop', ?int $tokenId = null, ?string $at = null): int {
+    self::checkTarget($user, isset($d['project_id']) ? (int) $d['project_id'] : null, isset($d['task_id']) ? (int) $d['task_id'] : null);
+    $uid = (int) $user['id'];
+    return DB::transaction(static function () use ($user, $uid, $d, $source, $tokenId, $at): int {
+      AttendanceService::lock($uid);
+      $cur = DB::first('SELECT id, project_id, task_id, billable, started_at FROM time_entries WHERE user_id=? AND is_running=1 LIMIT 1', [$uid]);
+      if (!$cur) { throw new \DomainException('Start tracking before switching project.'); }
+      $now = max($at ?? date('Y-m-d H:i:s'), $cur['started_at']);
+      self::stop($uid, $now, 'switch');
+      $id = self::start($user, $d + ['billable' => (int) $cur['billable']], $source, $tokenId, $now);
+      Audit::log('time.switch', 'time_entry', $id, ['from' => (int) $cur['id'], 'project_id' => $d['project_id'] ?? null], $uid);
       return $id; }); }
 
   /** Stop the user's running entry at $at (default now). The entry is approved automatically unless its week is rejected. Returns the stopped entry or null. */

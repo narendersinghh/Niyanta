@@ -41,7 +41,7 @@ $oh = current(array_filter($balances, static fn ($b) => $b['code'] === LS::OPTIO
     <?php endif ?>
   </div>
   <div class="stack">
-    <a class="tile bg-sky" href="<?= e(url('/hr/employees/'.$emp['id'].'?tab=schedule')) ?>"><span class="tile-ic"><?= icon('gift') ?></span><div><div class="num"><?= e(LS::num($paidLeft)) ?></div><div class="lbl">Paid days left in <?= (int) $year ?></div><div class="hr-tsub"><?= $oh && $oh['allocated_row'] ? e(LS::num(max(0, (float) $oh['available']))).' of '.e(LS::num($oh['allocated'])).' optional days' : 'See work schedule & leave' ?></div></div></a>
+    <?php if (feature_on('leave')): ?><a class="tile bg-sky" href="<?= e(url('/hr/employees/'.$emp['id'].'?tab=schedule')) ?>"><span class="tile-ic"><?= icon('gift') ?></span><div><div class="num"><?= e(LS::num($paidLeft)) ?></div><div class="lbl">Paid days left in <?= (int) $year ?></div><div class="hr-tsub"><?= $oh && $oh['allocated_row'] ? e(LS::num(max(0, (float) $oh['available']))).' of '.e(LS::num($oh['allocated'])).' optional days' : 'See work schedule & leave' ?></div></div></a><?php endif ?>
     <?php if ($self): ?>
     <form class="card form" method="post" action="<?= e(url('/hr/employees/'.$emp['id'].'/self')) ?>"><?= csrf_field() ?>
       <div class="hr-side-head"><span class="hr-ic mint"><?= icon('phone') ?></span><div><h4 class="mb0">Keep in touch</h4><div class="xs muted">You can update these yourself</div></div></div>

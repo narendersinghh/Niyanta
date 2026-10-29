@@ -3,7 +3,7 @@ use Core\Modules;
 use Modules\Projects\Services\ProjectService as PS;
 $id = $pr['id']; $v = static fn (string $k, $d = '') => old($k, $pr[$k] ?? $d);
 $sel = array_map('intval', (array) old('members', $memberIds));
-$crm = Modules::enabled('crm');
+$crm = feature_on('clients');
 $cur = e(currency_symbol());
 $sec = static fn (string $ic, string $color, string $title, string $help) => '<div class="fsec-head ac-'.$color.'"><span class="sec-ic">'.icon($ic).'</span><div><h3>'.e($title).'</h3><p>'.e($help).'</p></div></div>';
 ?>

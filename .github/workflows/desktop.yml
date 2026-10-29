@@ -1,0 +1,97 @@
+# Builds Niyanta Tracker (desktop/) for Windows, macOS and Linux and attaches the installers to the GitHub Release of the tag.
+# Release: git tag tracker-v1.2.0 && git push origin tracker-v1.2.0   (version in desktop/package.json should match)
+# Unsigned by default. Optional signing secrets: WIN_CSC_LINK, WIN_CSC_KEY_PASSWORD, MAC_CSC_LINK, MAC_CSC_KEY_PASSWORD,
+# APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID (see desktop/README.md).
+name: Desktop tracker
+
+on:
+  push:
+    tags: ['tracker-v*']
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Attach to this existing tag (tracker-vX.Y.Z); leave empty to only upload workflow artifacts'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, name: Windows, script: 'dist:win' }
+          - { os: macos-latest, name: macOS, script: 'dist:mac' }
+          - { os: ubuntu-latest, name: Linux, script: 'dist:linux' }
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - name: Check version matches the tag
+        if: startsWith(github.ref, 'refs/tags/tracker-v')
+        shell: bash
+        run: |
+          want="${GITHUB_REF_NAME#tracker-v}"; have="$(node -p "require('./package.json').version")"
+          if [ "$want" != "$have" ]; then echo "::warning::Tag $GITHUB_REF_NAME but package.json version is $have; building as $want"; npm version "$want" --no-git-tag-version --allow-same-version; fi
+      - run: npm ci
+      - run: npm run check
+      - name: Build installers
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ -z "$CSC_LINK" ] && [ -z "$WIN_CSC_LINK" ]; then export CSC_IDENTITY_AUTO_DISCOVERY=false; unset CSC_LINK CSC_KEY_PASSWORD WIN_CSC_LINK WIN_CSC_KEY_PASSWORD; fi
+          npm run ${{ matrix.script }}
+      - name: List installers
+        shell: bash
+        run: ls -la dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: niyanta-tracker-${{ matrix.name }}
+          if-no-files-found: error
+          path: |
+            desktop/dist/*.exe
+            desktop/dist/*.dmg
+            desktop/dist/*.zip
+            desktop/dist/*.AppImage
+            desktop/dist/*.deb
+      - name: Attach to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/tracker-v') || inputs.release_tag != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.release_tag || github.ref_name }}
+          name: Niyanta Tracker ${{ inputs.release_tag || github.ref_name }}
+          draft: false
+          prerelease: false
+          fail_on_unmatched_files: false
+          body: |
+            Niyanta Tracker desktop app. Download the installer for your system, or get it from your workspace: Time Tracking › Get the desktop app.
+            Unsigned builds: on Windows choose "More info › Run anyway"; on macOS right-click the app and choose Open the first time.
+          files: |
+            desktop/dist/*.exe
+            desktop/dist/*.dmg
+            desktop/dist/*.zip
+            desktop/dist/*.AppImage
+            desktop/dist/*.deb

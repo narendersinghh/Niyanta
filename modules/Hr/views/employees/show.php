@@ -6,7 +6,7 @@ $actions = (can('admin.users.manage') && ($emp['role_slug'] !== 'super_admin' ||
 $crumbs = can('hr.employees.view') ? [['HR Admin'], ['Employees', '/hr/employees'], [$emp['name']]] : [['My HR'], ['My profile']];
 $icons = ['overview' => 'user', 'schedule' => 'clock', 'leave' => 'umbrella', 'documents' => 'shield', 'checklists' => 'clipboard'];
 ?>
-<?= partial('partials/page_head', ['title' => $self ? 'My profile' : $emp['name'], 'subtitle' => $self ? 'Your HR record, work schedule and leave in one place.' : trim(($emp['designation'] ?: 'Team member').($emp['department'] ? ' · '.$emp['department'] : '')), 'crumbs' => $crumbs, 'actions' => $actions]) ?>
+<?= partial('partials/page_head', ['title' => $self ? 'My profile' : $emp['name'], 'subtitle' => $self ? 'Your HR record, work schedule'.(feature_on('leave') ? ' and leave' : '').' in one place.' : trim(($emp['designation'] ?: 'Team member').($emp['department'] ? ' · '.$emp['department'] : '')), 'crumbs' => $crumbs, 'actions' => $actions]) ?>
 <div class="card hr-banner mb">
   <div class="hr-banner-bg"></div>
   <div class="hr-banner-body">

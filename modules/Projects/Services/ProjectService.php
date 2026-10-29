@@ -18,8 +18,8 @@ final class ProjectService {
     return self::$on[$what] ??= match ($what) {
       'reports' => Features::enabled('work_reports') && (can('projects.reports.submit') || can('projects.reports.approve')),
       'report_submit' => Features::enabled('work_reports') && can('projects.reports.submit'),
-      'time' => Modules::enabled('attendance'),
-      'crm' => Modules::enabled('crm') && can('crm.clients.view'),
+      'time' => feature_on('attendance'),
+      'crm' => feature_on('clients') && can('crm.clients.view'),
       default => false }; }
 
   /** Client name, linked to the client page only when Client Management is on and the user may open it. */
@@ -105,12 +105,13 @@ final class ProjectService {
 
   /** Global search: projects by name/code and tasks by title, limited to visible projects. */
   public static function search(string $q, array $user): array {
+    if (!feature_on('projects')) { return []; }
     [$w, $p] = ProjectAccess::scope($user, 'p.id');
     $like = DB::like($q);
     $projects = DB::all("SELECT p.id, p.name, p.code, p.status, c.name AS client FROM projects p LEFT JOIN clients c ON c.id=p.client_id WHERE $w AND (p.name LIKE ? OR p.code LIKE ?) ORDER BY p.updated_at DESC LIMIT 8", [...$p, $like, $like]);
     $tasks = DB::all("SELECT t.id, t.title, t.status, t.due_date, p.name AS project FROM tasks t JOIN projects p ON p.id=t.project_id WHERE $w AND t.title LIKE ? ORDER BY t.status='done', t.due_date IS NULL, t.due_date LIMIT 8", [...$p, $like]);
     return [
-      'Projects' => array_map(static fn ($r) => ['title' => $r['name'], 'meta' => trim(($r['code'] ? $r['code'].' · ' : '').(self::STATUSES[$r['status']] ?? '').($r['client'] ? ' · '.$r['client'] : '')), 'url' => '/projects/'.$r['id'], 'icon' => 'folder'], $projects),
+      'Projects' => array_map(static fn ($r) => ['title' => $r['name'], 'meta' => trim(($r['code'] ? $r['code'].' · ' : '').(self::STATUSES[$r['status']] ?? '').($r['client'] && feature_on('clients') ? ' · '.$r['client'] : '')), 'url' => '/projects/'.$r['id'], 'icon' => 'folder'], $projects),
       'Tasks' => array_map(static fn ($r) => ['title' => $r['title'], 'meta' => $r['project'].' · '.self::TASK_STATUSES[$r['status']].($r['due_date'] ? ' · due '.fdate($r['due_date']) : ''), 'url' => '/tasks/'.$r['id'], 'icon' => 'check-square'], $tasks)]; }
 
   /** Hidden "return" field holding the current local path + query (used instead of the Referer header). */

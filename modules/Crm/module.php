@@ -21,7 +21,7 @@ return [
     ['label' => 'Clients', 'icon' => 'briefcase', 'color' => '#FF6F59', 'url' => '/clients', 'perm' => 'crm.clients.view', 'section' => 'clients', 'order' => 1],
     ['label' => 'Quotations', 'icon' => 'file-text', 'color' => '#F5A524', 'url' => '/quotations', 'perm' => 'crm.quotations.view', 'section' => 'clients', 'order' => 2],
     ['label' => 'Invoices', 'icon' => 'receipt', 'color' => '#12B5A0', 'url' => '/invoices', 'perm' => 'crm.finance.view', 'section' => 'clients', 'order' => 3],
-    ['label' => 'Financial Reports', 'icon' => 'chart', 'color' => '#2E9BF6', 'url' => '/crm/reports', 'perm' => 'crm.reports.view', 'section' => 'clients', 'order' => 4],
+    ['label' => 'Financial Reports', 'icon' => 'chart', 'color' => '#2E9BF6', 'url' => '/crm/reports', 'perm' => 'crm.reports.view', 'feature' => 'invoices', 'section' => 'clients', 'order' => 4],
   ],
   'routes' => function (Core\Router $r): void {
     $v = 'crm.clients.view'; $m = 'crm.clients.manage'; $fv = 'crm.finance.view'; $fm = 'crm.finance.manage';
@@ -65,20 +65,21 @@ return [
     $r->post('/invoices/{id}/payments/{payment_id}/delete', [InvoiceController::class, 'deletePayment'], $fm);
     // Signed, read-only PDF link e-mailed to the client (no login); the HMAC token is the authorisation.
     $r->get('/shared/invoice/{id}/{token}', [InvoiceController::class, 'sharedPdf'], ['auth' => false, 'throttle' => [30, 300]]);
-    $r->get('/crm/reports', [ReportController::class, 'index'], 'crm.reports.view');
-    $r->get('/crm/reports/outstanding.csv', [ReportController::class, 'outstandingCsv'], 'crm.reports.view');
+    /* Financial reports are built from invoices and payments: they need the invoices feature too. */
+    $r->get('/crm/reports', [ReportController::class, 'index'], ['perm' => 'crm.reports.view', 'feature' => 'invoices']);
+    $r->get('/crm/reports/outstanding.csv', [ReportController::class, 'outstandingCsv'], ['perm' => 'crm.reports.view', 'feature' => 'invoices']);
   },
   'widgets' => [
-    ['zone' => 'kpis', 'order' => 10, 'perm' => 'crm.clients.view', 'render' => fn (array $u): string => Hooks::activeClientsTile($u)],
-    ['zone' => 'kpis', 'order' => 11, 'perm' => 'crm.finance.view', 'render' => fn (array $u): string => Hooks::outstandingTile($u)],
-    ['zone' => 'main', 'order' => 20, 'perm' => 'crm.clients.view', 'render' => fn (array $u): string => Hooks::followUpsWidget($u)],
-    ['zone' => 'side', 'order' => 20, 'perm' => 'crm.finance.view', 'render' => fn (array $u): string => Hooks::overdueWidget($u)],
-    ['zone' => 'side', 'order' => 21, 'perm' => 'crm.quotations.view', 'render' => fn (array $u): string => Hooks::quotationsWidget($u)],
+    ['zone' => 'kpis', 'order' => 10, 'perm' => 'crm.clients.view', 'feature' => 'clients', 'render' => fn (array $u): string => Hooks::activeClientsTile($u)],
+    ['zone' => 'kpis', 'order' => 11, 'perm' => 'crm.finance.view', 'feature' => 'invoices', 'render' => fn (array $u): string => Hooks::outstandingTile($u)],
+    ['zone' => 'main', 'order' => 20, 'perm' => 'crm.clients.view', 'feature' => 'clients', 'render' => fn (array $u): string => Hooks::followUpsWidget($u)],
+    ['zone' => 'side', 'order' => 20, 'perm' => 'crm.finance.view', 'feature' => 'invoices', 'render' => fn (array $u): string => Hooks::overdueWidget($u)],
+    ['zone' => 'side', 'order' => 21, 'perm' => 'crm.quotations.view', 'feature' => 'quotations', 'render' => fn (array $u): string => Hooks::quotationsWidget($u)],
   ],
   'search' => fn (string $q, array $u): array => Hooks::search($q, $u),
   'cron' => [
-    'mark_overdue' => ['daily' => '00:20', 'run' => fn (): string => Hooks::markOverdue()],
-    'payment_reminders' => ['daily' => '09:10', 'run' => fn (): string => Hooks::reminders()],
+    'mark_overdue' => ['feature' => 'invoices', 'daily' => '00:20', 'run' => fn (): string => Hooks::markOverdue()],
+    'payment_reminders' => ['feature' => ['invoices', 'clients'], 'daily' => '09:10', 'run' => fn (): string => Hooks::reminders()],
   ],
   'file_access' => [
     'client' => fn (array $u, int $id, array $file, string $mode = 'view'): bool => ClientAccess::canSee($u, $id) && Core\Gate::allows($mode === 'delete' ? 'crm.documents.manage' : 'crm.clients.view', $u),

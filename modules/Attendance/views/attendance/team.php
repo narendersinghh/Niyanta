@@ -1,5 +1,6 @@
 <?php
 $isToday = $date === date('Y-m-d');
+$leaveOn = feature_on('leave'); /* leave & holidays switched off: no leave/holiday labels, such days show as "Day off" */
 $notIn = max(0, (int) $stats['total'] - (int) $stats['working'] - (int) $stats['on_break'] - (int) $stats['done'] - $leaveCount);
 $actions = '<a class="btn ghost" href="'.e(url('/attendance')).'">'.icon('user', 'sm').' My attendance</a><button class="btn ghost" data-modal="export-dialog">'.icon('download', 'sm').' Export CSV</button>'.(can('attendance.manage') ? '<button class="btn primary" data-att-new data-modal="att-dialog">'.icon('plus', 'sm').' Add record</button>' : '');
 ?>
@@ -8,7 +9,8 @@ $actions = '<a class="btn ghost" href="'.e(url('/attendance')).'">'.icon('user',
   <div class="tile bg-mint"><span class="tile-ic"><?= icon('activity') ?></span><div><div class="num"><?= (int) $stats['working'] ?></div><div class="lbl"><?= $isToday ? 'Working now' : 'Open (not clocked out)' ?></div></div></div>
   <div class="tile bg-lemon"><span class="tile-ic"><?= icon('coffee') ?></span><div><div class="num"><?= (int) $stats['on_break'] ?></div><div class="lbl">On a break</div></div></div>
   <div class="tile bg-lav"><span class="tile-ic"><?= icon('log-out') ?></span><div><div class="num"><?= (int) $stats['done'] ?></div><div class="lbl">Clocked out</div></div></div>
-  <div class="tile bg-sky"><span class="tile-ic"><?= icon('plane') ?></span><div><div class="num"><?= (int) $leaveCount ?></div><div class="lbl">On leave · <?= $notIn ?> <?= $isToday ? 'not in yet' : 'no record' ?></div></div><?= illus('team', 'corner') ?></div>
+  <?php if ($leaveOn): ?><div class="tile bg-sky"><span class="tile-ic"><?= icon('plane') ?></span><div><div class="num"><?= (int) $leaveCount ?></div><div class="lbl">On leave · <?= $notIn ?> <?= $isToday ? 'not in yet' : 'no record' ?></div></div><?= illus('team', 'corner') ?></div>
+  <?php else: ?><div class="tile bg-sky"><span class="tile-ic"><?= icon('clock') ?></span><div><div class="num"><?= $notIn + (int) $leaveCount ?></div><div class="lbl"><?= $isToday ? 'Not in yet' : 'No record' ?></div></div><?= illus('team', 'corner') ?></div><?php endif ?>
 </div>
 <div class="card">
   <form class="filters" method="get">
@@ -16,18 +18,19 @@ $actions = '<a class="btn ghost" href="'.e(url('/attendance')).'">'.icon('user',
     <input type="search" name="q" value="<?= e($q) ?>" placeholder="Search people">
     <button class="btn ghost sm"><?= icon('filter', 'sm') ?> Filter</button>
     <?php if (!$isToday): ?><a class="btn sm soft" href="<?= e(url('/attendance/team')) ?>">Today</a><?php endif ?>
-    <?php if ($holiday): ?><span class="pill pill-peach"><?= icon('gift', 'sm') ?> <?= e($holiday) ?></span><?php elseif ($weekend): ?><span class="pill pill-gray">Weekend</span><?php endif ?>
+    <?php if ($holiday && $leaveOn): ?><span class="pill pill-peach"><?= icon('gift', 'sm') ?> <?= e($holiday) ?></span><?php elseif ($weekend): ?><span class="pill pill-gray">Weekend</span><?php endif ?>
   </form>
-  <?php if (!$p['items']): ?><?= empty_state('No team members found', 'People who report to you or work on your projects appear here.', 'team') ?><?php else: ?>
+  <?php if (!$p['items']): ?><?= empty_state('No team members found', 'People who report to you'.(feature_on('projects') ? ' or work on your projects' : '').' appear here.', 'team') ?><?php else: ?>
   <div class="table-wrap"><table class="table">
     <thead><tr><th>Person</th><th>Status</th><th>Clock in</th><th>Clock out</th><th>Breaks</th><th>Worked</th><th>Timer</th><th></th></tr></thead>
     <tbody><?php foreach ($p['items'] as $r):
       $lv = $pageLeave[(int) $r['id']][$date] ?? null;
       if ($r['clock_in'] && !$r['clock_out']) { [$st, $dot] = $r['break_start'] ? ['On break', 'dot-break pulse'] : ['Working', 'dot-in pulse']; }
       elseif ($r['clock_out']) { [$st, $dot] = ['Clocked out', 'dot-done']; }
+      elseif ($r['att_id'] && !$leaveOn && in_array($r['status'], ['leave', 'holiday'], true)) { [$st, $dot] = ['Day off', 'dot-out']; }
       elseif ($r['att_id']) { [$st, $dot] = [ucwords(str_replace('_', ' ', $r['status'])), $r['status'] === 'leave' ? 'dot-leave' : 'dot-absent']; }
-      elseif ($lv) { [$st, $dot] = [$lv === 0.5 ? 'Half-day leave' : 'On leave', 'dot-leave']; }
-      elseif ($holiday || $weekend) { [$st, $dot] = [$holiday ? 'Holiday' : 'Weekend', 'dot-out']; }
+      elseif ($lv && $leaveOn) { [$st, $dot] = [$lv === 0.5 ? 'Half-day leave' : 'On leave', 'dot-leave']; }
+      elseif ($lv || $holiday || $weekend) { [$st, $dot] = [$weekend && !$holiday && !$lv ? 'Weekend' : ($leaveOn ? 'Holiday' : 'Day off'), 'dot-out']; }
       else { [$st, $dot] = [$isToday ? 'Not in yet' : 'Absent', $isToday ? 'dot-out' : 'dot-absent']; }
       $worked = $r['clock_in'] && !$r['clock_out'] ? max(0, time() - strtotime($r['clock_in']) - (int) $r['break_seconds'] - ($r['break_start'] ? time() - strtotime($r['break_start']) : 0)) : (int) $r['worked_seconds'];
       [$tStart, $tProj] = $r['timer'] ? explode('|', $r['timer'], 2) : [null, null];
@@ -60,7 +63,7 @@ $actions = '<a class="btn ghost" href="'.e(url('/attendance')).'">'.icon('user',
     <div class="form-grid">
       <div class="field full"><label>Employee *</label><select name="user_id" required><option value="">Select…</option><?php foreach ($people as $id => $n): ?><option value="<?= (int) $id ?>"><?= e($n) ?></option><?php endforeach ?></select></div>
       <div class="field"><label>Date *</label><input type="date" name="work_date" value="<?= e($date) ?>" max="<?= e(date('Y-m-d')) ?>" required></div>
-      <div class="field"><label>Status *</label><select name="status"><?php foreach (['present' => 'Present', 'half_day' => 'Half day', 'absent' => 'Absent', 'leave' => 'Leave', 'holiday' => 'Holiday', 'weekend' => 'Weekend'] as $k => $l): ?><option value="<?= $k ?>"><?= $l ?></option><?php endforeach ?></select></div>
+      <div class="field"><label>Status *</label><select name="status"><?php foreach (['present' => 'Present', 'half_day' => 'Half day', 'absent' => 'Absent'] + ($leaveOn ? ['leave' => 'Leave', 'holiday' => 'Holiday'] : []) + ['weekend' => 'Weekend'] as $k => $l): ?><option value="<?= $k ?>"><?= $l ?></option><?php endforeach ?></select></div>
       <div class="field"><label>Clock in</label><input type="time" name="clock_in"></div>
       <div class="field"><label>Clock out</label><input type="time" name="clock_out"><div class="hint">Earlier than clock-in means the next day.</div></div>
       <div class="field"><label>Break minutes</label><input type="number" name="break_minutes" min="0" max="1440" value="0"></div>

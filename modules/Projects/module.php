@@ -64,15 +64,15 @@ return [
     $r->post('/work-reports/{id}/review', [WorkReportController::class, 'review'], 'projects.reports.approve');
   },
   'widgets' => [
-    ['zone' => 'kpis', 'order' => 20, 'perm' => ['projects.view', 'projects.view_all'], 'render' => [Widgets::class, 'openTasks']],
-    ['zone' => 'kpis', 'order' => 21, 'perm' => ['projects.view', 'projects.view_all'], 'render' => [Widgets::class, 'dueThisWeek']],
-    ['zone' => 'kpis', 'order' => 22, 'perm' => ['projects.view', 'projects.view_all'], 'render' => [Widgets::class, 'activeProjects']],
-    ['zone' => 'main', 'order' => 20, 'perm' => ['projects.view', 'projects.view_all'], 'render' => [Widgets::class, 'myTasks']],
-    ['zone' => 'side', 'order' => 20, 'perm' => ['projects.view', 'projects.view_all'], 'render' => [Widgets::class, 'projectProgress']],
+    ['zone' => 'kpis', 'order' => 20, 'perm' => ['projects.view', 'projects.view_all'], 'feature' => 'projects', 'render' => [Widgets::class, 'openTasks']],
+    ['zone' => 'kpis', 'order' => 21, 'perm' => ['projects.view', 'projects.view_all'], 'feature' => 'projects', 'render' => [Widgets::class, 'dueThisWeek']],
+    ['zone' => 'kpis', 'order' => 22, 'perm' => ['projects.view', 'projects.view_all'], 'feature' => 'projects', 'render' => [Widgets::class, 'activeProjects']],
+    ['zone' => 'main', 'order' => 20, 'perm' => ['projects.view', 'projects.view_all'], 'feature' => 'projects', 'render' => [Widgets::class, 'myTasks']],
+    ['zone' => 'side', 'order' => 20, 'perm' => ['projects.view', 'projects.view_all'], 'feature' => 'projects', 'render' => [Widgets::class, 'projectProgress']],
   ],
   'search' => [ProjectService::class, 'search'],
   'cron' => [
-    'deadline_reminders' => ['daily' => '09:00', 'run' => [ProjectService::class, 'deadlineReminders']],
+    'deadline_reminders' => ['feature' => 'projects', 'daily' => '09:00', 'run' => [ProjectService::class, 'deadlineReminders']],
   ],
   'file_access' => [
     'project' => static fn (array $user, int $id, array $file, string $mode = 'view'): bool => ProjectAccess::canSee($user, $id) && ($mode !== 'delete' || ProjectAccess::canManageProject($user, $id) || (int) $file['uploaded_by'] === (int) $user['id']),

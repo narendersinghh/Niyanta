@@ -15,7 +15,7 @@ final class Team {
     if (isset(self::$cache[$uid])) { return self::$cache[$uid]; }
     $sql = "SELECT id FROM users WHERE manager_id=? AND status='active'";
     $p = [$uid];
-    if (Modules::enabled('projects')) { $sql .= " UNION SELECT pm.user_id FROM project_members pm JOIN projects p ON p.id=pm.project_id JOIN users u ON u.id=pm.user_id AND u.status='active' WHERE p.manager_id=? AND p.status IN ('planning','active','on_hold')"; $p[] = $uid; }
+    if (feature_on('projects')) { $sql .= " UNION SELECT pm.user_id FROM project_members pm JOIN projects p ON p.id=pm.project_id JOIN users u ON u.id=pm.user_id AND u.status='active' WHERE p.manager_id=? AND p.status IN ('planning','active','on_hold')"; $p[] = $uid; }
     $ids = array_values(array_diff(array_unique(array_map('intval', DB::column($sql, $p))), [$uid]));
     return self::$cache[$uid] = $ids; }
 

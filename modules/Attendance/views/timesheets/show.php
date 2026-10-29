@@ -12,7 +12,7 @@
         <?php if ($ts && $ts['reviewed_at']): ?><dt><?= $ts['status'] === 'rejected' ? 'Rejected' : 'Approved' ?></dt><dd><?= e(fdatetime($ts['reviewed_at'])) ?> by <?= e($ts['reviewer'] ?? '-') ?></dd><?php endif ?>
         <?php if ($ts && $ts['review_note']): ?><dt>Note</dt><dd><?= e($ts['review_note']) ?></dd><?php endif ?>
       </dl>
-      <p class="small muted mb0 mt">Compare tracked time with attendance before rejecting. Approved entries feed payroll and client billing.</p>
+      <p class="small muted mb0 mt">Compare tracked time with attendance before rejecting. <?= ($feeds = \Modules\Admin\Services\SettingsSchema::join([feature_on('payroll') ? 'payroll' : null, feature_on('projects') && feature_on('invoices') ? 'client billing' : null])) ? 'Approved entries feed '.e($feeds).'.' : '' ?></p>
     </div>
   </div>
 </div>

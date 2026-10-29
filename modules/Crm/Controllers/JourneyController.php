@@ -32,7 +32,7 @@ final class JourneyController extends CrmController {
     $this->client($id);
     if ($activityId && !DB::value('SELECT 1 FROM client_activities WHERE id=? AND client_id=?', [$activityId, $id])) { $this->abort(404, 'Entry not found.'); }
     $d = $this->validate(['type' => 'required|in:'.implode(',', array_keys(self::TYPES)), 'title' => 'required|max:190', 'body' => 'nullable|max:5000', 'occurred_at' => 'required|datetime', 'follow_up_at' => 'nullable|datetime', 'is_internal' => 'boolean', 'project_id' => 'nullable|integer'], ['occurred_at' => 'Date & time', 'follow_up_at' => 'Follow-up date']);
-    if ($d['project_id'] && (!Modules::enabled('projects') || !DB::value('SELECT 1 FROM projects WHERE id=? AND client_id=?', [$d['project_id'], $id]))) { throw new ValidationException(['project_id' => 'Pick a project that belongs to this client.']); }
+    if ($d['project_id'] && (!feature_on('projects') || !DB::value('SELECT 1 FROM projects WHERE id=? AND client_id=?', [$d['project_id'], $id]))) { throw new ValidationException(['project_id' => 'Pick a project that belongs to this client.']); }
     if (!$d['project_id']) { $d['project_id'] = null; }
     if ($d['type'] === 'note') { $d['is_internal'] = 1; }
     if ($activityId) {

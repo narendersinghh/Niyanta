@@ -25,7 +25,7 @@ $more = Ui::more([can('crm.quotations.view') ? Ui::link('/quotations', 'file-tex
     <?php if ($filtered): ?><a class="crm-clear" href="<?= e(url('/invoices'.($status !== '' ? '?status='.rawurlencode($status) : ''))) ?>"><?= icon('x', 'sm') ?> Clear</a><?php endif ?>
   </form>
   <?php if (!$p['items']): ?>
-    <?= $filtered || $status !== '' ? empty_state('No invoices here', 'Nothing matches this view right now.', 'empty-box') : empty_state('No invoices yet', 'Create your first invoice, or convert an accepted quotation.', 'invoice-paper', $m ? '<a class="btn primary" href="'.e(url('/invoices/create')).'">'.icon('plus', 'sm').' Create your first invoice</a>' : '') ?>
+    <?= $filtered || $status !== '' ? empty_state('No invoices here', 'Nothing matches this view right now.', 'empty-box') : empty_state('No invoices yet', 'Create your first invoice'.(feature_on('quotations') ? ', or convert an accepted quotation' : '').'.', 'invoice-paper', $m ? '<a class="btn primary" href="'.e(url('/invoices/create')).'">'.icon('plus', 'sm').' Create your first invoice</a>' : '') ?>
   <?php else: ?>
   <div class="table-wrap"><table class="table crm-rt">
     <thead><tr><th>Invoice</th><th>Client</th><th>Issued</th><th>Due</th><th class="amt">Total</th><th class="amt">Balance</th><th>Status</th><th><span class="sr">Actions</span></th></tr></thead>

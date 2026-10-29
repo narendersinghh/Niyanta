@@ -6,6 +6,7 @@ use Modules\Ai\Services\Usage;
 /** AI usage & cost overview by month, user, feature, plus recent errors. */
 final class UsageController extends Controller {
   public function index(): Response {
+    if (!feature_on('ai')) { $this->flash('The AI assistant is switched off.', 'error'); return $this->redirect(\Core\Auth::isSuperAdmin() ? '/admin/settings/features' : '/'); }
     $m = $this->request->str('month');
     if (!preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $m)) { $m = date('Y-m'); }
     $from = $m.'-01 00:00:00';

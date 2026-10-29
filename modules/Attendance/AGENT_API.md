@@ -1,67 +1,109 @@
-# Niyanta Desktop Agent API
+# Niyanta Tracker API (desktop app)
 
-The desktop agent is an optional, separately installed and **separately authorised** program that tracks time and (with consent) full-desktop screenshots for one person. The agent itself is not part of Niyanta; this document is the contract an agent must implement.
+Niyanta Tracker (`desktop/` in this repository, Electron, Windows/macOS/Linux) is the only way to track time. The web app shows
+live status, entries, timesheets and screenshots read-only (manual corrections excepted). This is the contract the app uses.
+
+**One model:** attendance and time tracking are the same thing.
+
+| App action | Server effect |
+|---|---|
+| Start day | clock in (or resume an ended day; the gap counts as a pause) + start a time entry |
+| Pause | stop the running entry + start a break |
+| Resume | end the break + start a new entry on the last (or given) project/task |
+| Switch project | close the running entry and start the next one **at the same second** (no gap, no pause) |
+| End day | stop the entry + clock out |
+
+Only tracked time counts as worked time: when a day has entries, `attendance.worked_seconds` = the sum of its entries.
+Entries are approved automatically when they stop, unless a manager rejects the week (`Timesheets`).
 
 ## Authentication
 
-1. The person signs in to Niyanta, opens **Time Tracker → Desktop agent**, names the device and clicks **Create**.
-2. The token (`nyt_` + 48 hex characters) is shown **once**. Niyanta stores only its SHA-256 hash (`agent_tokens.token_hash`).
-3. The agent sends it on every request:
-   ```
-   Authorization: Bearer nyt_xxxxxxxx…
-   Accept: application/json
-   ```
-   If your host strips the `Authorization` header (some CGI/FastCGI setups), send `X-Agent-Token: nyt_…` instead.
-4. Tokens can be revoked at any time from the same card. A revoked token, a deactivated user, a user without `attendance.track`, or a disabled Attendance module all return an error. A person can have at most 5 active tokens.
+`POST /api/agent/login` with the person's Niyanta email and password returns a personal device token (`nyt_` + 48 hex).
+Niyanta stores only its SHA-256 hash (`agent_tokens`, `kind = desktop`). Send it on every request:
 
-Requests are rate limited per IP (600/min; screenshots 200/min) and screenshots additionally to one per 20 seconds per user. No session cookie or CSRF token is used.
+```
+Authorization: Bearer nyt_xxxxxxxx…        (or X-Agent-Token: nyt_… when the host strips Authorization)
+X-App-Version: 1.0.0
+Accept: application/json
+```
 
-## Responses
+Sign-in uses the same rate limits and lockout as the web sign-in (`Core\Auth::verify`: per email+IP, per IP, 10 failures lock the
+account for 30 minutes) and is audit-logged (`agent.login`). Signing in again with the same device name replaces the old token;
+at most 5 devices stay connected (the least recently used desktop token is revoked). People see and disconnect devices on
+**Time Tracking › Connected devices**. A revoked token, a deactivated user, a role without `attendance.track` or time tracking
+switched off answer `401`/`403`; the app then signs out.
 
-Every response is JSON. Success: `{"ok": true, …}`. Errors: `{"error": "message"}` with HTTP `401` (bad/revoked token), `403` (no permission or module disabled), `422` (rule violation, `ok: false`), `429` (rate limit).
+## Responses and errors
+
+JSON everywhere. Success: `{"ok": true, …}`. Errors: `{"ok": false, "error": "message", "code"?: "…"}` with `401`
+(signed out), `403` (no permission / feature off), `422` (rule violation), `429` (rate limit), `500` (server failure, recorded in
+**Audit log › Error logs** with source `desktop`, the app version and a `ref`). Rate limits per IP: 600/min (login 20 per 5 min,
+screenshots 240/min, error reports 60/min, version 30/min).
 
 ## Endpoints
 
-### `GET /api/agent/status`
-Returns the user, the running entry (or `null`), server time, settings and consent:
-```json
-{"ok":true,"user":{"id":21,"name":"Esha Patel"},
- "running":{"id":37,"started_at":"2026-10-29T09:00:00+05:30","elapsed":1840,"idle_seconds":120,"project":"Website Redesign","task":null,"description":"…","source":"agent"},
- "server_time":"2026-10-29T09:30:40+05:30",
- "settings":{"heartbeat_seconds":60,"idle_minutes":5,"screenshots_enabled":true,"screenshot_interval_minutes":3,"retention_days":30},
- "consent":{"policy_version":"2026-1","consented_at":"…"},
- "projects":[{"id":6,"name":"Website Redesign"}]}
-```
-`projects` lists only projects the person may log time on. Call this at start-up and every few minutes to pick up setting changes and consent revocation.
+| Method & path | Body | Returns |
+|---|---|---|
+| `POST /api/agent/login` | `email, password, device_name, os, app_version` | `token` + bootstrap payload |
+| `POST /api/agent/logout` | | revokes the token |
+| `GET /api/agent/bootstrap` | | `user, workspace, permissions, settings, consent, policy, projects[{id,name,tasks[]}], state` |
+| `GET /api/agent/state` | | `state, settings, consent` (cheap refresh) |
+| `GET /api/agent/tasks?project_id=` | | open tasks of a visible project |
+| `POST /api/agent/day/start` | `project_id?, task_id?, description?` | `state` |
+| `POST /api/agent/pause` | | `state` |
+| `POST /api/agent/resume` | `project_id?, task_id?, description?` | `state` |
+| `POST /api/agent/switch` | `project_id (null = no project), task_id?, description?` | `state` |
+| `POST /api/agent/day/end` | | `state` |
+| `POST /api/agent/heartbeat` | `active_seconds, idle_seconds` since the previous beat | `running, entry, state` |
+| `POST /api/agent/idle` | `action: keep|discard, seconds` | `discarded, state` |
+| `POST /api/agent/consent` | `agree: true, policy_version` | `consent` |
+| `POST /api/agent/screenshot` | multipart `screenshot`, `activity_pct`, `display`, `captured_at` | `id` |
+| `POST /api/agent/error` | `level, message, where, stack, file, line, os, arch, context{}` | token optional |
+| `GET /api/agent/version` | | `latest, current, update_available, released_at, download_page, files` |
+| `GET /api/agent/status` | | legacy alias of bootstrap |
 
-### `POST /api/agent/start`
-Form or JSON body: `project_id` (optional), `task_id` (optional, must belong to the project), `description` (optional, ≤500 chars), `billable` (default `true`). Fails with 422 if a timer is already running (from the browser or another agent); one running entry per user is enforced on the server. Entries created here have `source = agent`. When the timer stops the entry is approved automatically (status `approved`), unless the week was rejected by a manager (status `rejected` until the employee resubmits the week).
+Tracking actions accept an optional `at` (ISO 8601): the moment the person clicked, for actions the app queued while offline.
+The server uses it when it is not in the future, not before the person's last recorded event and at most 6 hours old.
+All tracking actions are idempotent and serialised per user: retrying `day/start`, `pause`, `resume` or `day/end` after a timeout
+never double-books. `projects` lists only projects the person may see (`ProjectAccess`); `project_id`/`task_id` are validated
+again on every call.
 
-### `POST /api/agent/stop`
-Stops the running entry (whatever its source) at server time. Returns `{"stopped":{"id":37,"duration":1840}}`.
+`state` object: `state` (`not_started | tracking | paused | stopped | ended`; `stopped` = day open but no running entry, e.g. after
+the server stopped a stale entry), `label`, `day{date, clock_in, clock_out, paused_since}`, `running{id, started_at, elapsed,
+project_id, project, task_id, task, description, device, …}` or `null`, `last{project_id, task_id, description}`,
+`totals{tracked, active, idle, paused, entries}` in seconds for today.
 
-### `POST /api/agent/heartbeat`
-Body: `active_seconds`, `idle_seconds`: activity measured **since the previous heartbeat** (send every 60 s). The server adds the idle part to the entry's `idle_seconds` (capped to the time since the last heartbeat plus the idle threshold, and to the elapsed time) and updates `last_heartbeat_at`. Returns `{"running": true|false, "entry": {…, "activity": 83}}`; when `running` is false the agent should stop tracking locally.
+`settings`: `heartbeat_seconds` (15 to 300, default 60), `idle_minutes`, `auto_pause_on_lock`, `screenshots_enabled`,
+`screenshot_interval_seconds` (10 to 3600, default 180), `screenshot_notify` (default on), `screenshot_notify_user_can_disable`,
+`retention_days`, `stale_minutes` (10), `projects_enabled`.
 
-**Stale timers:** if no heartbeat arrives for more than 10 minutes, the `stale_timers` cron job (every 5 minutes) stops the entry at its last heartbeat. A daily `auto_close` job at 23:55 also closes open attendance and stops running timers.
+## Activity, idle and stale entries
 
-### `POST /api/agent/screenshot`
-`multipart/form-data` with field `screenshot` (JPEG, PNG or WebP, ≤3 MB, ≤4096 px per side; recommended JPEG quality ~0.6, max width 1280 px) and optional `activity_pct` (0–100). Accepted only when **all** of these are true:
-- the administrator enabled monitoring (`attendance.screenshots_enabled = 1`);
-- the person has an active, unrevoked consent for the current policy version (`monitoring_consents`);
-- the person has a running time entry (the screenshot is linked to it).
+The app samples `powerMonitor.getSystemIdleTime()` every second: a second is *idle* when there was no mouse or keyboard input for
+at least `idle_minutes`, otherwise *active*. Every `heartbeat_seconds` it sends the counts since the previous beat. The server adds
+the idle part to the running entry (capped to the time since the last beat plus the idle threshold, and to the elapsed time).
+When the person returns from an idle stretch longer than the threshold, the app sends a heartbeat and asks "keep or discard";
+`discard` removes the idle seconds from the entry (`discarded_seconds`).
 
-Returns `{"id": 123}`. Take screenshots every `screenshot_interval_minutes` and only while the timer runs.
+If no heartbeat arrives for 10 minutes the `stale_timers` cron (every 5 min) stops the entry at its last heartbeat; the day stays
+open (`stopped`) and the app resumes with `resume` when it comes back. The daily `auto_close` job (23:55) stops running entries at
+their last heartbeat and closes open days at the end of their last entry. Heartbeat `running: false` tells the app to refresh `state`.
 
-## Consent rules (mandatory for agents)
+## Screenshots and consent (mandatory)
 
-- Before capturing, the person must accept the monitoring notice in Niyanta (Time Tracker → Screen monitoring). The agent must check `consent` in `/status` and never capture when it is `null`.
-- Consent can be revoked at any moment in the web app; uploads are then rejected immediately. Agents must stop capturing as soon as an upload returns 422 or `/status` shows no consent.
-- The agent must show a persistent, visible indicator (tray icon or similar) whenever it is capturing, and must offer a way to pause/stop.
-- When the policy version changes, previous consents no longer count and the person must accept again.
+Accepted only when monitoring is enabled (`attendance.screenshots_enabled`), the person has an active consent for the current
+policy version, and the capture moment falls inside one of their time entries (running, or stopped for captures queued while
+offline). The first time screenshots are enabled for a person, the app shows `policy` and records consent with
+`POST /api/agent/consent` before capturing. Consent can be revoked on the web at any moment; uploads then answer `422` and the
+app stops capturing. One upload per display per capture (`display` = 0-based index), JPEG quality ~0.6, max 1920 px wide,
+≤ 3 MB, ≤ 4096 px per side; at most one per display every `min(20, interval/2)` seconds. The app shows a tray indicator while
+tracking and, if enabled, a small notice for every capture. People always see their own screenshots (`/time/screenshots`);
+others need `attendance.screenshots.view` and team scope; every view of someone else's screenshots is audit-logged; images older
+than `attendance.screenshot_retention_days` are deleted nightly.
 
-## Visibility & retention
+## Errors and updates
 
-- People can always see their own screenshots (`/time/screenshots`).
-- Others need the `attendance.screenshots.view` permission **and** team scope: HR / Super Admin see everyone; managers see their direct reports and members of projects they manage. Images are served only through the authorised controller (`/time/screenshots/{id}/image`), never publicly; every view of someone else's screenshots is audit-logged.
-- Screenshots older than `attendance.screenshot_retention_days` (default 30) are deleted (files and rows) by the daily `screenshot_cleanup` cron job.
+The app reports uncaught exceptions, unhandled rejections, API calls that failed after retries and capture failures to
+`POST /api/agent/error` (source `desktop`, app version, OS). `GET /api/agent/version` compares `X-App-Version` with the latest
+installer (Super Admin uploads in **Settings › Attendance & time tracking › Desktop app installers**, or the newest GitHub release
+tagged `tracker-v*` of `tracker.github_repo` / `updates.repo`, cached 30 minutes) and links to the download page (`/time#desktop`).

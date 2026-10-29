@@ -87,7 +87,7 @@ final class ClientController extends CrmController {
     $c = $this->client($id);
     // Quotations and invoices are separate features: each part of the Finance tab follows its own permission.
     $fin = $this->can('crm.finance.view'); $qv = $this->can('crm.quotations.view');
-    $projOn = Modules::enabled('projects');
+    $projOn = feature_on('projects');
     $data = ['title' => $c['company'] ?: $c['name'], 'c' => $c, 'fin' => $fin, 'qv' => $qv, 'projOn' => $projOn, 'styles' => ['css/crm.css'], 'scripts' => ['js/crm.js']];
     $data['tags'] = DB::all('SELECT t.id, t.name, t.color FROM client_tags ct JOIN tags t ON t.id=ct.tag_id WHERE ct.client_id=? ORDER BY t.name', [$id]);
     $data['managers'] = DB::all('SELECT u.id, u.name, u.avatar, u.email, u.designation FROM client_managers cm JOIN users u ON u.id=cm.user_id WHERE cm.client_id=? ORDER BY u.name', [$id]);

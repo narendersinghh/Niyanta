@@ -11,7 +11,7 @@ $block = static function (string $title, string $ic, string $color, array $items
   return $h.'</ul></section>'; };
 ?>
 <div class="pj">
-<?= partial('partials/page_head', ['title' => ucfirst($r['type']).' report', 'subtitle' => $period.($r['project_name'] ? ' · '.$r['project_name'] : ''), 'crumbs' => [['Work'], ['Work reports', '/work-reports'.($mine ? '' : '?tab=team')], [$period]], 'actions' => $actions]) ?>
+<?= partial('partials/page_head', ['title' => ucfirst($r['type']).' report', 'subtitle' => $period.($r['project_name'] && feature_on('projects') ? ' · '.$r['project_name'] : ''), 'crumbs' => [['Work'], ['Work reports', '/work-reports'.($mine ? '' : '?tab=team')], [$period]], 'actions' => $actions]) ?>
 <div class="grid g-side">
   <div class="stack">
     <section class="card">
@@ -44,7 +44,7 @@ $block = static function (string $title, string $ic, string $color, array $items
       <div class="kv-list">
         <div class="kv-row"><span><?= icon('clipboard', 'sm') ?> Type</span><span><?= e(ucfirst($r['type'])) ?></span></div>
         <div class="kv-row"><span><?= icon('calendar', 'sm') ?> Period</span><span><?= e($period) ?></span></div>
-        <div class="kv-row"><span><?= icon('folder', 'sm') ?> Project</span><span><?= e($r['project_name'] ?? 'General') ?></span></div>
+        <?php if (feature_on('projects')): ?><div class="kv-row"><span><?= icon('folder', 'sm') ?> Project</span><span><?= e($r['project_name'] ?? 'General') ?></span></div><?php endif ?>
         <div class="kv-row"><span><?= icon('clock', 'sm') ?> Hours reported</span><b><?= $r['hours'] !== null ? e((float) $r['hours']).'h' : '-' ?></b></div>
         <?php if ($logged !== null): ?><div class="kv-row"><span><?= icon('timer', 'sm') ?> Time entries</span><b><?= e(hours($logged)) ?></b></div><?php endif ?>
         <?php if ($r['reviewer']): ?><div class="kv-row"><span><?= icon('user', 'sm') ?> Reviewed by</span><span><?= e($r['reviewer']) ?><span class="xs muted db"><?= e(fdatetime($r['reviewed_at'])) ?></span></span></div><?php endif ?>

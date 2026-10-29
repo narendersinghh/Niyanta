@@ -7,7 +7,7 @@
 <?php endforeach ?>
 </div>
 <form method="post" action="<?= e(url('/admin/roles/permissions')) ?>" class="set-form" data-dirty-watch><?= csrf_field() ?>
-  <div class="card"><div class="card-head"><div><h3>Permission matrix</h3><p class="xs muted mb0">Tick what each role may do. Disabled features stay blocked regardless of these grants.</p></div></div>
+  <div class="card"><div class="card-head"><div><h3>Permission matrix</h3><p class="xs muted mb0">Tick what each role may do. Disabled features stay blocked regardless of these grants.<?= $kept ? ' Permissions of switched-off features are hidden and keep their current grants.' : '' ?></p></div></div>
   <div class="table-wrap"><table class="table perm-table">
     <thead><tr><th>Permission</th><?php foreach ($roles as $r): ?><th><?= e($r['name']) ?></th><?php endforeach ?></tr></thead>
     <tbody>
@@ -19,7 +19,8 @@
     <?php endforeach ?>
     </tbody>
   </table></div>
-  <?php foreach ($byModule as $mod => $perms): if (empty($modules[$mod]['labs']) || \Core\Modules::enabled($mod)) { continue; } foreach ($perms as $p): foreach ($roles as $r): if (isset($grants[$r['id']][$p['key']]) && $r['slug'] !== 'super_admin'): ?><input type="hidden" name="grants[<?= $r['id'] ?>][<?= e($p['key']) ?>]" value="1"><?php endif; endforeach; endforeach; endforeach ?></div>
+  <?php foreach ($byModule as $mod => $perms): if (empty($modules[$mod]['labs']) || \Core\Modules::enabled($mod)) { continue; } foreach ($perms as $p): foreach ($roles as $r): if (isset($grants[$r['id']][$p['key']]) && $r['slug'] !== 'super_admin'): ?><input type="hidden" name="grants[<?= $r['id'] ?>][<?= e($p['key']) ?>]" value="1"><?php endif; endforeach; endforeach; endforeach ?>
+  <?php foreach ($kept as $k): foreach ($roles as $r): if (isset($grants[$r['id']][$k]) && $r['slug'] !== 'super_admin'): ?><input type="hidden" name="grants[<?= $r['id'] ?>][<?= e($k) ?>]" value="1"><?php endif; endforeach; endforeach ?></div>
   <div class="save-bar"><span class="sb-note"><span class="sb-dot"></span><span data-dirty-text>All changes saved</span></span><span class="xs muted sb-sub"><?= count($editable) ?> editable roles · users get new rights on their next request</span><button class="btn primary"><?= icon('check', 'sm') ?> Save permissions</button></div>
 </form>
 <dialog class="modal" id="new-role"><div class="modal-head"><h3>New role</h3><button class="btn icon sm ghost" data-close aria-label="Close"><?= icon('x', 'sm') ?></button></div>

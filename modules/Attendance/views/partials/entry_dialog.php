@@ -11,8 +11,8 @@
     <div class="form-grid">
       <div class="field"><label>Or duration</label><input type="text" name="duration" placeholder="1:30 or 1.5" maxlength="10"><div class="hint">Used when no end time is given.</div></div>
       <input type="hidden" name="billable" value="1">
-      <div class="field"><label>Project</label><select name="project_id" data-project-select data-task-target="entry-task"><option value="">No project</option><?php foreach ($projects as $id => $n): ?><option value="<?= (int) $id ?>"><?= e($n) ?></option><?php endforeach ?></select></div>
-      <div class="field"><label>Task</label><select name="task_id" id="entry-task" disabled><option value="">Select a project first</option></select></div>
+      <?php if (feature_on('projects')): ?><div class="field"><label>Project</label><select name="project_id" data-project-select data-task-target="entry-task"><option value="">No project</option><?php foreach ($projects as $id => $n): ?><option value="<?= (int) $id ?>"><?= e($n) ?></option><?php endforeach ?></select></div>
+      <div class="field"><label>Task</label><select name="task_id" id="entry-task" disabled><option value="">Select a project first</option></select></div><?php endif ?>
       <div class="field full"><label>Description</label><input type="text" name="description" maxlength="500" placeholder="What did you work on?"></div>
     </div>
     <div class="form-actions"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary"><?= icon('check', 'sm') ?> Save entry</button></div>

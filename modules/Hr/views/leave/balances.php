@@ -1,4 +1,4 @@
-<?php use Modules\Hr\Services\LeaveService as LS; $cover = $stats['active'] ? (int) round($stats['users'] / $stats['active'] * 100) : 0; ?>
+<?php use Modules\Hr\Services\LeaveService as LS; $prof = feature_on('employees'); $cover = $stats['active'] ? (int) round($stats['users'] / $stats['active'] * 100) : 0; ?>
 <?= partial('partials/page_head', ['title' => 'Leave balances', 'subtitle' => 'Yearly allocations from leave type quotas (or personal overrides), with manual adjustments.', 'crumbs' => [['HR Admin'], ['Leave', '/hr/leave'], ['Balances']],
   'actions' => '<button type="button" class="btn ghost" data-modal="adjust">'.icon('sliders', 'sm').' Adjust balance</button><form method="post" action="'.e(url('/hr/leave/balances/allocate')).'" data-confirm="Allocate '.(int) $year.' balances to every active employee who does not have them yet? Personal quota overrides are respected.">'.csrf_field().'<input type="hidden" name="year" value="'.(int) $year.'"><button class="btn primary">'.icon('refresh', 'sm').' Allocate '.(int) $year.'</button></form>']) ?>
 <?= partial('hr::leave/_tabs', ['tab' => $tab, 'pendingCount' => $pendingCount]) ?>
@@ -19,7 +19,7 @@
   <div class="table-wrap"><table class="table">
     <thead><tr><th>Employee</th><?php foreach ($types as $t): ?><th class="c"><span class="pill pill-<?= e($t['color']) ?>"><?= e($t['code']) ?></span><div class="xs muted hr-th-sub"><?= (int) $t['paid'] ? 'left / allocated' : 'used' ?></div></th><?php endforeach ?></tr></thead>
     <tbody><?php foreach ($p['items'] as $u): ?><tr>
-      <td><a class="hr-who" href="<?= e(url('/hr/employees/'.$u['id'].'?tab=schedule')) ?>"><?= avatar($u['name'], $u['avatar'], 'sm') ?><div><b class="small"><?= e($u['name']) ?></b><div class="xs muted"><?= e($u['department'] ?: ($u['employee_code'] ?: '')) ?></div></div></a></td>
+      <td><<?= $prof ? 'a' : 'span' ?> class="hr-who"<?= $prof ? ' href="'.e(url('/hr/employees/'.$u['id'].'?tab=schedule')).'"' : '' ?>><?= avatar($u['name'], $u['avatar'], 'sm') ?><div><b class="small"><?= e($u['name']) ?></b><div class="xs muted"><?= e($u['department'] ?: ($u['employee_code'] ?: '')) ?></div></div></<?= $prof ? 'a' : 'span' ?>></td>
       <?php foreach ($types as $t): $b = $map[$u['id']][$t['id']] ?? null; ?>
       <td class="c nowrap"><?php if (!$b): ?><span class="muted">-</span><?php elseif ((int) $t['paid']): $left = (float) $b['allocated'] - (float) $b['used']; ?><b class="<?= $left <= 0 ? 'hr-neg' : '' ?>"><?= e(LS::num($left)) ?></b><span class="muted small"> / <?= e(LS::num($b['allocated'])) ?></span><?php else: ?><b><?= e(LS::num($b['used'])) ?></b><?php endif ?></td>
       <?php endforeach ?>

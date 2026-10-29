@@ -21,14 +21,16 @@ $more = $m && !$locked ? Ui::more([Ui::link('/quotations/'.$id.'/edit', 'edit', 
 $bad = in_array($st, ['rejected', 'expired'], true);
 $order = ['draft' => 0, 'sent' => 1, 'accepted' => 2, 'rejected' => 2, 'expired' => 2];
 $cur = $order[$st] ?? 0;
-$steps = [['Draft', 'edit'], ['Sent', 'send'], $bad ? [ucfirst($st), $st === 'rejected' ? 'x' : 'clock'] : ['Accepted', 'check-circle'], ['Invoiced', 'receipt']];
+$steps = [['Draft', 'edit'], ['Sent', 'send'], $bad ? [ucfirst($st), $st === 'rejected' ? 'x' : 'clock'] : ['Accepted', 'check-circle']];
+if (feature_on('invoices') || $doc['invoice_id']) { $steps[] = [feature_on('invoices') ? 'Invoiced' : 'Converted', 'receipt']; }
 if ($locked) { $cur = 3; }
 ?>
 <div class="crm">
 <?= partial('partials/page_head', ['title' => 'Quotation '.$doc['number'], 'subtitle' => $client_label.($doc['title'] ? ' · '.$doc['title'] : ''), 'crumbs' => [['Quotations', '/quotations'], [$doc['number']]], 'actions' => $pdf.$more.$primary]) ?>
-<?php if ($inv): ?><div class="alert ok"><?= icon('check-circle') ?><div>Converted to invoice <?= can('crm.finance.view') ? '<a class="b" href="'.e(url('/invoices/'.$inv['id'])).'">'.e($inv['number']).'</a>' : '<b>'.e($inv['number']).'</b>' ?> (<?= e(ucfirst($inv['status'])) ?>). This quotation is now locked.</div></div>
+<?php if ($inv && !feature_on('invoices')): ?><div class="alert ok"><?= icon('check-circle') ?><div>This quotation was converted and is now locked.</div></div>
+<?php elseif ($inv): ?><div class="alert ok"><?= icon('check-circle') ?><div>Converted to invoice <?= can('crm.finance.view') ? '<a class="b" href="'.e(url('/invoices/'.$inv['id'])).'">'.e($inv['number']).'</a>' : '<b>'.e($inv['number']).'</b>' ?> (<?= e(ucfirst($inv['status'])) ?>). This quotation is now locked.</div></div>
 <?php elseif ($expired): ?><div class="alert warn"><?= icon('clock') ?><div>This quotation passed its validity date (<?= e(fdate($doc['valid_until'])) ?>). Mark it expired or edit it to extend the date.</div></div>
-<?php elseif ($st === 'accepted' && $m && !$canConvert): ?><div class="alert info"><?= icon('info') ?><div>Accepted. Invoicing is not available to you<?= \Core\Features::enabled('invoices') ? '' : ' (the invoices feature is switched off)' ?>, so it cannot be converted here.</div></div><?php endif ?>
+<?php elseif ($st === 'accepted' && $m && !$canConvert && feature_on('invoices')): ?><div class="alert info"><?= icon('info') ?><div>Accepted. Invoicing is not available to you, so it cannot be converted here.</div></div><?php endif ?>
 <div class="grid g-side">
   <div><?= partial('crm::partials/doc_paper', ['kind' => 'quotation', 'doc' => $doc, 'items' => $items, 'client' => $client]) ?></div>
   <div class="stack">

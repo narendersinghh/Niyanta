@@ -80,7 +80,7 @@ final class Finance {
 
   /** Projects of the given clients, keyed by id (empty when the Projects module is off). */
   public static function projects(?array $clientIds = null): array {
-    if (!\Core\Modules::enabled('projects') || $clientIds === []) { return []; }
+    if (!feature_on('projects') || $clientIds === []) { return []; }
     $sql = 'SELECT id, client_id, name, code FROM projects WHERE client_id IS NOT NULL';
     $p = [];
     if ($clientIds !== null) { $sql .= ' AND client_id IN '.DB::in($clientIds); $p = $clientIds; }

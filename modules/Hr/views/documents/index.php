@@ -6,7 +6,7 @@ $q = $_GET['q'] ?? ''; $showPending = ($_GET['show'] ?? '') === 'pending';
 $aud = count($audience);
 $maxMb = (int) setting('storage.max_upload_mb', 10);
 $docForm = static function (?array $d) use ($cats, $maxMb): string { ob_start(); $fid = 'd'.($d['id'] ?? 'new'); ?>
-  <div class="field"><label for="<?= $fid ?>-t">Title *</label><input id="<?= $fid ?>-t" type="text" name="title" maxlength="190" value="<?= e($d['title'] ?? old('title')) ?>" placeholder="e.g. Leave & holiday policy 2026" required></div>
+  <div class="field"><label for="<?= $fid ?>-t">Title *</label><input id="<?= $fid ?>-t" type="text" name="title" maxlength="190" value="<?= e($d['title'] ?? old('title')) ?>" placeholder="<?= feature_on('leave') ? 'e.g. Leave & holiday policy 2026' : 'e.g. Employee handbook 2026' ?>" required></div>
   <div class="form-grid">
     <div class="field"><label for="<?= $fid ?>-c">Category *</label><select id="<?= $fid ?>-c" name="category" required><?php foreach ($cats as $k => [$l]): ?><option value="<?= e($k) ?>"<?= selected($k, $d['category'] ?? old('category', 'policy')) ?>><?= e($l) ?></option><?php endforeach ?></select></div>
     <div class="field"><label for="<?= $fid ?>-f"><?= $d ? 'Replace file' : 'File *' ?></label><input id="<?= $fid ?>-f" class="hr-file" type="file" name="file"<?= $d ? '' : ' required' ?>><div class="hint">PDF, Word, Excel, PowerPoint, images or ZIP up to <?= $maxMb ?> MB.<?= $d ? ' Leave empty to keep the current file.' : '' ?></div></div>
@@ -37,7 +37,7 @@ $docForm = static function (?array $d) use ($cats, $maxMb): string { ob_start();
 <?php if (!$docs): ?>
   <div class="card"><?= $q !== '' || isset($cats[$cat]) || $showPending
     ? empty_state($showPending ? 'You are all caught up' : 'No documents match', $showPending ? 'Every document that needs your acknowledgement has been confirmed.' : 'Try another search or category.', $showPending ? 'celebrate' : 'empty-box', '<a class="btn ghost" href="'.e(url('/hr/documents')).'">Show all documents</a>')
-    : empty_state('No company documents yet', $manage ? 'Upload your leave policy, employee handbook or reimbursement form so everyone finds the latest version here.' : 'HR has not published any documents yet.', 'company-docs', $manage ? '<button type="button" class="btn primary" data-modal="doc-new">'.icon('upload', 'sm').' Upload first document</button>' : '') ?></div>
+    : empty_state('No company documents yet', $manage ? 'Upload your '.\Modules\Admin\Services\SettingsSchema::join([feature_on('leave') ? 'leave policy' : null, 'employee handbook', feature_on('reimbursements') ? 'reimbursement form' : null]).' so everyone finds the latest version here.' : 'HR has not published any documents yet.', 'company-docs', $manage ? '<button type="button" class="btn primary" data-modal="doc-new">'.icon('upload', 'sm').' Upload first document</button>' : '') ?></div>
 <?php else: ?>
 <div class="hr-docs">
   <?php foreach ($docs as $d): $id = (int) $d['id']; [$ftLabel, $ftCls] = $ext($d['original_name']); [$catLabel, $catIc, $catCol] = $cats[$d['category']] ?? $cats['other']; $need = (int) $d['requires_ack'] && !$d['my_ack'];

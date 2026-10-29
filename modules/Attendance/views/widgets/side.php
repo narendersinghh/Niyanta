@@ -1,20 +1,15 @@
 <?php
+/* Dashboard: read-only tracker status ($st = Tracker::state). Tracking is controlled in the desktop app. */
 $hms = static fn (int $s): string => sprintf('%02d:%02d:%02d', intdiv($s, 3600), intdiv($s % 3600, 60), $s % 60);
-$el = $running ? \Modules\Attendance\Services\TimeService::elapsed($running) : 0;
+$run = $st['running']; $tot = (int) $st['totals']['tracked'];
+$dot = ['tracking' => 'dot-in pulse', 'paused' => 'dot-break', 'stopped' => 'dot-break', 'ended' => 'dot-done', 'not_started' => 'dot-out'][$st['state']];
 ?>
-<div class="tt-card side-timer<?= $running ? ' running' : '' ?>">
-  <div class="tt-top"><?php if ($running): ?><span class="tt-chip live"><span class="dotc dot-in pulse"></span>Tracking</span><?php else: ?><span class="tt-chip"><span class="dotc dot-out"></span>Timer off</span><?php endif ?><a class="xs" href="<?= e(url('/time')) ?>">Open tracker →</a></div>
+<div class="tt-card side-timer live-card<?= $run ? ' running' : '' ?>" data-live-status data-state="<?= e($st['state']) ?>">
+  <div class="tt-top"><span class="tt-chip<?= $run ? ' live' : '' ?>" data-ls-chip><span class="dotc <?= e($dot) ?>"></span><span data-ls-label><?= e($st['label']) ?></span></span><a class="xs" href="<?= e(url('/time')) ?>">Time Tracking →</a></div>
   <div class="tt-main">
-    <div class="grow"><div class="tt-digits" data-tick data-base="<?= $el ?>"<?= $running ? '' : ' data-paused' ?>><?= e($hms($el)) ?></div>
-      <div class="tt-sub truncate"><?= $running ? '<b>'.e($running['project_name'] ?? 'No project').'</b>'.($running['task_title'] ? ' · '.e(str_limit($running['task_title'], 30)) : '') : 'Ready when you are' ?></div></div>
-    <?php if ($running): ?><form method="post" action="<?= e(url('/time/stop')) ?>"><?= csrf_field() ?><input type="hidden" name="back" value="dashboard"><button class="tt-btn stop sm" aria-label="Stop timer" title="Stop timer"><?= icon('stop') ?></button></form>
-    <?php else: ?><a class="tt-btn go sm" href="<?= e(url('/time')) ?>" aria-label="Start a timer" title="Start a timer"><?= icon('play') ?></a><?php endif ?>
+    <div class="grow"><div class="tt-digits" data-tick data-ls-total data-base="<?= $tot ?>"<?= $run ? '' : ' data-paused' ?>><?= e($hms($tot)) ?></div>
+      <div class="tt-sub truncate" data-ls-line><?= $run ? ($run['device'] ? 'On <b>'.e($run['device']).'</b> · ' : '').'<b>'.e(feature_on('projects') ? ($run['project'] ?? 'No project') : 'Tracked time').'</b>' : e(['paused' => 'Paused in the desktop app', 'stopped' => 'Day open, not tracking', 'ended' => 'Day ended', 'not_started' => 'Start your day in Niyanta Tracker'][$st['state']]) ?></div></div>
   </div>
-  <div class="side-att">
-    <div class="small"><?php if ($state === 'out'): ?><span class="muted">Not clocked in today</span><?php else: ?><span class="muted"><?= $state === 'break' ? 'On a break' : ($state === 'done' ? 'Clocked out' : 'Clocked in') ?> · <?= e(ftime($att['clock_in'])) ?></span><br><b><?= e(hours($live['worked'])) ?></b> <span class="muted">worked</span><?php endif ?></div>
-    <?php if ($state === 'out'): ?><form method="post" action="<?= e(url('/attendance/clock-in')) ?>"><?= csrf_field() ?><button class="btn sm mint"><?= icon('log-in', 'sm') ?> Clock in</button></form>
-    <?php elseif ($state === 'in'): ?><form method="post" action="<?= e(url('/attendance/clock-out')) ?>" data-confirm="Clock out for today?"><?= csrf_field() ?><button class="btn sm ghost"><?= icon('log-out', 'sm') ?> Clock out</button></form>
-    <?php elseif ($state === 'break'): ?><form method="post" action="<?= e(url('/attendance/break/end')) ?>"><?= csrf_field() ?><button class="btn sm mint"><?= icon('play', 'sm') ?> End break</button></form>
-    <?php else: ?><span class="pill pill-mint">Day complete</span><?php endif ?>
-  </div>
+  <div class="side-att"><div class="small"><span class="muted">Tracked today</span><?php if ($st['day']['clock_in']): ?><br><span class="muted">Started <?= e(ftime($st['day']['clock_in'])) ?></span><?php endif ?></div>
+    <a class="btn sm ghost side-dl" href="<?= e(url('/time#desktop')) ?>"><?= icon('download', 'sm') ?> Desktop app</a></div>
 </div>

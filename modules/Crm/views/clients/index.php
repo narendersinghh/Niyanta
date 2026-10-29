@@ -33,7 +33,7 @@ $tel = static fn (string $p) => 'tel:'.preg_replace('/[^\d+]/', '', $p);
     <div class="tabs" role="group" aria-label="Layout"><a href="<?= e(query_merge(['view' => 'table', 'page' => null])) ?>" class="<?= $view === 'table' ? 'active' : '' ?>" title="Table view" aria-label="Table view"><?= icon('list', 'sm') ?></a><a href="<?= e(query_merge(['view' => 'cards', 'page' => null])) ?>" class="<?= $view === 'cards' ? 'active' : '' ?>" title="Card view" aria-label="Card view"><?= icon('grid', 'sm') ?></a></div>
   </form>
   <?php if (!$p['items']): ?>
-    <?= $filtered ? empty_state('No clients match', 'Try a different search term or clear the filters.', 'empty-box', '<a class="btn ghost" href="'.e(url('/clients?view='.$view)).'">'.icon('x', 'sm').' Clear filters</a>') : empty_state('No clients yet', 'Add your first client to start tracking conversations, documents and invoices.', 'clients-handshake', $manage ? '<a class="btn primary" href="'.e(url('/clients/create')).'">'.icon('plus', 'sm').' Add your first client</a>' : '') ?>
+    <?= $filtered ? empty_state('No clients match', 'Try a different search term or clear the filters.', 'empty-box', '<a class="btn ghost" href="'.e(url('/clients?view='.$view)).'">'.icon('x', 'sm').' Clear filters</a>') : empty_state('No clients yet', 'Add your first client to start tracking conversations, documents'.(feature_on('invoices') ? ' and invoices' : '').'.', 'clients-handshake', $manage ? '<a class="btn primary" href="'.e(url('/clients/create')).'">'.icon('plus', 'sm').' Add your first client</a>' : '') ?>
   <?php elseif ($view === 'cards'): ?>
   <div class="crm-cards">
     <?php foreach ($p['items'] as $c): $cid = (int) $c['id']; $wa = $c['whatsapp'] ?: $c['phone']; ?>

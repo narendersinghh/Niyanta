@@ -20,6 +20,7 @@ final class SettingsController extends Controller {
     if ($tab === 'home') { return $this->view('admin::settings/home', $this->base('home', 'Settings') + ['status' => $this->statuses()]); }
     if ($tab === 'storage') { return $this->redirect('/admin/settings/retention'); }
     $tabs = SettingsSchema::tabs();
+    if (!SettingsSchema::tabOn($tab)) { $this->flash('That part of the product is switched off. Turn it on under Features to change its settings.', 'error'); return $this->redirect('/admin/settings'); }
     if (!isset($tabs[$tab])) { $this->abort(404, 'Unknown settings section.'); }
     if (isset(self::PAGES[$tab])) { return $this->redirect(self::PAGES[$tab]); }
     $data = $this->base($tab, $tabs[$tab][0].' · Settings') + ['fields' => SettingsSchema::fields($tab), 'sections' => SettingsSchema::sections($tab)];
@@ -29,11 +30,18 @@ final class SettingsController extends Controller {
         'sessions' => (int) DB::value("SELECT COUNT(*) FROM users WHERE status='active' AND id<>?", [$this->uid()]), 'failed' => $this->auditCount('auth.failed'), 'denied' => $this->auditCount('access.denied')],
       'features' => ['bundles' => Features::bundles(), 'raw' => DB::pairs("SELECT `key`, enabled FROM modules WHERE `key` LIKE 'feature:%'")],
       'email' => ['presets' => MailPresets::all()],
-      'retention' => ['last' => Settings::json('retention.last_cleanup'), 'sizes' => $this->tableSizes(['audit_logs', 'notifications', 'mail_queue', 'cron_logs', 'ai_usage', 'screenshots']), 'usage' => SystemHealth::usage(), 'health' => SystemHealth::snapshot()],
+      'retention' => ['last' => Settings::json('retention.last_cleanup'), 'sizes' => $this->tableSizes(array_merge(['audit_logs', 'notifications', 'mail_queue', 'cron_logs'], feature_on('ai') ? ['ai_usage'] : [], feature_on('attendance') ? ['screenshots'] : [])), 'usage' => self::usage(), 'health' => SystemHealth::snapshot()],
       'demo' => ['demo' => DemoData::counts(), 'demoMeta' => Settings::json('demo.imported'), 'password' => Session::getFlash('demo_password')],
+      'attendance' => class_exists(\Modules\Attendance\Services\DesktopApp::class) ? ['installers' => \Modules\Attendance\Services\DesktopApp::uploads(), 'app' => \Modules\Attendance\Services\DesktopApp::latest()] : [],
       'leave' => ['ohQuota' => $this->has('leave_types') ? DB::value("SELECT annual_quota FROM leave_types WHERE code='OH'") : null, 'holidays' => $this->has('holidays') ? DB::pairs('SELECT optional, COUNT(*) FROM holidays WHERE YEAR(holiday_date)=? GROUP BY optional', [(int) date('Y')]) : []],
       default => [] };
     return $this->view('admin::settings/index', $data); }
+
+  /** Disk usage rows; with attendance switched off the screenshot folder is listed only while it still holds files. */
+  private static function usage(): array {
+    $u = SystemHealth::usage();
+    if (isset($u['Screenshots']) && !feature_on('attendance')) { $row = $u['Screenshots']; unset($u['Screenshots']); if ($row[1] > 0) { $u['Archived activity files'] = $row; } }
+    return $u; }
 
   private function has(string $table): bool { return (bool) DB::value('SELECT 1 FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name=?', [$table]); }
   private function auditCount(string $action): int { return (int) DB::value('SELECT COUNT(*) FROM audit_logs WHERE action=? AND created_at > ?', [$action, date('Y-m-d H:i:s', strtotime('-7 days'))]); }
@@ -54,7 +62,7 @@ final class SettingsController extends Controller {
     $demo = array_sum(DemoData::counts());
     $clean = Settings::json('retention.last_cleanup');
     $tz = (string) Settings::get('general.timezone', date_default_timezone_get());
-    return [
+    return array_intersect_key([
       'general' => [$tz.' · '.Settings::get('general.currency_code', 'INR'), 'info'],
       'appearance' => [SettingsSchema::customTheme() ? 'Custom colours' : 'Default theme', 'info'],
       'email' => [($prov['name'] ?? 'Not set').($smtpOk ? '' : ' · incomplete'), $smtpOk ? 'ok' : 'warn'],
@@ -63,16 +71,16 @@ final class SettingsController extends Controller {
       'ai' => self::aiStatus(),
       'employees' => [rtrim(rtrim((string) Settings::get('hr.work_hours_per_day', '8'), '0'), '.').' h/day · '.count(array_filter(explode(',', (string) Settings::get('general.weekend_days', '6,7')))).' weekly offs', 'info'],
       'leave' => [(int) Settings::get('hr.optional_holidays_default', 15).' optional holidays', 'info'],
-      'attendance' => [Settings::bool('attendance.screenshots_enabled') ? 'Screenshots on' : 'Screenshots off', 'info'],
-      'payroll' => [Settings::get('payroll.payslip_footer') ? 'Payslip note set' : 'Default payslips', 'info'],
-      'projects' => ['Reminders daily 09:00', 'info'],
-      'invoicing' => [Settings::get('crm.invoice_prefix', 'INV-').'00001 · '.Settings::get('crm.default_tax_rate', '18').'% tax', 'info'],
+      'attendance' => [(Settings::bool('attendance.screenshots_enabled') ? 'Screenshots every '.\Modules\Attendance\Services\Monitoring::intervalSeconds().' s' : 'Screenshots off').' · desktop app', 'info'],
+      'payroll' => feature_on('payroll') ? [Settings::get('payroll.payslip_footer') ? 'Payslip note set' : 'Default payslips', 'info'] : ['Claims & approvals', 'info'],
+      'projects' => [feature_on('projects') ? 'Reminders daily 09:00' : 'Reviewed by managers', 'info'],
+      'invoicing' => [(feature_on('invoices') ? Settings::get('crm.invoice_prefix', 'INV-') : Settings::get('crm.quotation_prefix', 'QT-')).'00001 · '.Settings::get('crm.default_tax_rate', '18').'% tax', 'info'],
       'overview' => [['healthy' => 'Scheduler healthy', 'stale' => 'Scheduler stale', 'never' => 'Scheduler never ran'][$h['state']], $h['state'] === 'healthy' ? 'ok' : 'warn'],
       'retention' => [$clean ? 'Last cleanup '.ago($clean['at']) : 'No cleanup yet', $clean ? 'ok' : 'info'],
       'demo' => [$demo ? number_format($demo).' demo records' : 'Not imported', $demo ? 'warn' : 'info'],
       'backups' => [$last ? 'Last '.ago($last['created_at']) : 'No backups yet', $last && strtotime($last['created_at']) > time() - 172800 ? 'ok' : 'warn'],
       'cron' => [$h['heartbeat'] ? 'Heartbeat '.ago($h['heartbeat']) : 'Never ran', $h['state'] === 'healthy' ? 'ok' : 'warn'],
-      'updates' => ['v'.NY_VERSION, 'info']]; }
+      'updates' => ['v'.NY_VERSION, 'info']], SettingsSchema::tabs()); }
 
   private static function aiStatus(): array {
     if (!class_exists(\Modules\Ai\Services\Assistant::class) || !Modules::enabled('ai')) { return ['Not installed', 'off']; }
@@ -81,7 +89,7 @@ final class SettingsController extends Controller {
 
   public function save(string $tab): Response {
     $fields = SettingsSchema::fields($tab);
-    if (!$fields) { $this->abort(404, 'Unknown settings section.'); }
+    if (!$fields || !SettingsSchema::tabOn($tab)) { $this->abort(404, 'Unknown settings section.'); }
     $input = $this->request->arr('s');
     $return = self::PAGES[$tab] ?? '/admin/settings/'.$tab;
     try {

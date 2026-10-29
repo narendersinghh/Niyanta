@@ -17,26 +17,26 @@ final class Scope {
   public static function clientIds(array $u): ?array {
     if (!self::can('crm.clients.view', $u)) { return []; }
     return self::$memo['c'.$u['id']] ??= (function () use ($u) {
-      if (Modules::enabled('crm') && class_exists('Modules\\Crm\\Services\\ClientAccess')) { $r = \Modules\Crm\Services\ClientAccess::visibleClientIds($u); return $r === null ? null : array_map('intval', $r); }
+      if (feature_on('clients') && class_exists('Modules\\Crm\\Services\\ClientAccess')) { $r = \Modules\Crm\Services\ClientAccess::visibleClientIds($u); return $r === null ? null : array_map('intval', $r); }
       if (self::isSuper($u) || self::can('crm.clients.view_all', $u)) { return null; }
       return array_map('intval', DB::column('SELECT client_id FROM client_managers WHERE user_id=?', [$u['id']])); })(); }
 
   public static function canSeeClient(array $u, int $id): bool {
     if ($id <= 0 || !self::can('crm.clients.view', $u)) { return false; }
-    if (Modules::enabled('crm') && class_exists('Modules\\Crm\\Services\\ClientAccess')) { return \Modules\Crm\Services\ClientAccess::canSee($u, $id); }
+    if (feature_on('clients') && class_exists('Modules\\Crm\\Services\\ClientAccess')) { return \Modules\Crm\Services\ClientAccess::canSee($u, $id); }
     $ids = self::clientIds($u);
     return $ids === null ? (bool) DB::value('SELECT 1 FROM clients WHERE id=?', [$id]) : in_array($id, $ids, true); }
 
   public static function projectIds(array $u): ?array {
     if (!self::can('projects.view', $u)) { return []; }
     return self::$memo['p'.$u['id']] ??= (function () use ($u) {
-      if (Modules::enabled('projects') && class_exists('Modules\\Projects\\Services\\ProjectAccess')) { $r = \Modules\Projects\Services\ProjectAccess::visibleProjectIds($u); return $r === null ? null : array_map('intval', $r); }
+      if (feature_on('projects') && class_exists('Modules\\Projects\\Services\\ProjectAccess')) { $r = \Modules\Projects\Services\ProjectAccess::visibleProjectIds($u); return $r === null ? null : array_map('intval', $r); }
       if (self::isSuper($u) || self::can('projects.view_all', $u)) { return null; }
       return array_map('intval', DB::column('SELECT project_id FROM project_members WHERE user_id=? UNION SELECT id FROM projects WHERE manager_id=?', [$u['id'], $u['id']])); })(); }
 
   public static function canSeeProject(array $u, int $id): bool {
     if ($id <= 0 || !self::can('projects.view', $u)) { return false; }
-    if (Modules::enabled('projects') && class_exists('Modules\\Projects\\Services\\ProjectAccess')) { return \Modules\Projects\Services\ProjectAccess::canSee($u, $id); }
+    if (feature_on('projects') && class_exists('Modules\\Projects\\Services\\ProjectAccess')) { return \Modules\Projects\Services\ProjectAccess::canSee($u, $id); }
     $ids = self::projectIds($u);
     return $ids === null ? (bool) DB::value('SELECT 1 FROM projects WHERE id=?', [$id]) : in_array($id, $ids, true); }
 

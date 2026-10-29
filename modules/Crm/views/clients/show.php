@@ -121,7 +121,7 @@ $moreMenu = Ui::more([
   </div>
   <div class="stack">
     <?php if ($fin): $inv = (float) $sum['invoiced']; $pct = $inv > 0 ? min(100, (int) round((float) $sum['paid'] / $inv * 100)) : 0; ?>
-    <div class="card">
+    <div class="card spotlight">
       <div class="card-head"><h3>Financial summary</h3><?php if ($finManage): ?><a class="btn sm soft" href="<?= e(url('/invoices/create?client_id='.$cid)) ?>"><?= icon('plus', 'sm') ?> Invoice</a><?php endif ?></div>
       <div class="crm-fin-rows"><span>Invoiced</span><span><?= e(money($sum['invoiced'])) ?></span><span>Paid</span><span class="crm-pos"><?= e(money($sum['paid'])) ?></span><span>Outstanding</span><span class="<?= (float) $sum['outstanding'] > 0 ? 'crm-neg' : '' ?>"><?= e(money($sum['outstanding'])) ?></span></div>
       <div class="crm-meter" title="<?= $pct ?>% collected"><span style="width:<?= $pct ?>%"></span></div>
@@ -227,7 +227,7 @@ $moreMenu = Ui::more([
   <?php if ($fin): ?>
   <div class="card crm-list">
     <div class="crm-bar"><div class="grow"><h3 class="mb0">Invoices</h3><div class="crm-sub"><?= count($invoices) ?> most recent</div></div><?php if ($finManage): ?><a class="btn sm primary" href="<?= e(url('/invoices/create?client_id='.$cid)) ?>"><?= icon('plus', 'sm') ?> New invoice</a><?php endif ?></div>
-    <?php if (!$invoices): ?><?= empty_state('No invoices yet', 'Bill this client for work delivered, or convert an accepted quotation.', 'invoice-paper', $finManage ? '<a class="btn primary" href="'.e(url('/invoices/create?client_id='.$cid)).'">'.icon('plus', 'sm').' Create invoice</a>' : '') ?><?php else: ?>
+    <?php if (!$invoices): ?><?= empty_state('No invoices yet', 'Bill this client for work delivered'.(feature_on('quotations') ? ', or convert an accepted quotation' : '').'.', 'invoice-paper', $finManage ? '<a class="btn primary" href="'.e(url('/invoices/create?client_id='.$cid)).'">'.icon('plus', 'sm').' Create invoice</a>' : '') ?><?php else: ?>
     <div class="table-wrap"><table class="table crm-rt">
       <thead><tr><th>Invoice</th><th>Issued</th><th>Due</th><th class="amt">Total</th><th class="amt">Balance</th><th>Status</th></tr></thead>
       <tbody><?php foreach ($invoices as $i): $b = $i['status'] === 'cancelled' ? 0 : (float) $i['total'] - (float) $i['amount_paid']; ?><tr>

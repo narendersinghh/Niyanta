@@ -17,7 +17,8 @@ final class Ui {
     return '<details class="dd crm-more">'.$sum.'<div class="dd-menu">'.implode('', $items).'</div></details>'; }
 
   /** Menu entry: link. */
-  public static function link(string $href, string $icon, string $label, string $attrs = ''): string { return '<a href="'.e(url($href)).'"'.$attrs.'>'.icon($icon, 'sm').' '.e($label).'</a>'; }
+  /** Menu link; empty when the target page belongs to a switched-off feature. */
+  public static function link(string $href, string $icon, string $label, string $attrs = ''): string { return route_on($href) ? '<a href="'.e(url($href)).'"'.$attrs.'>'.icon($icon, 'sm').' '.e($label).'</a>' : ''; }
 
   /** Menu entry: POST form button (CSRF protected, optional confirm). */
   public static function post(string $action, string $icon, string $label, string $confirm = '', bool $danger = false, array $hidden = []): string {

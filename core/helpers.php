@@ -93,3 +93,9 @@ function company_name(): string {
 function company_logo_url(): ?string { $l = setting('branding.logo'); return $l ? url('assets/uploads/branding/'.basename((string) $l)) : null; }
 /** True when a product feature (core/features.php) is switched on. Use to hide cards, links and options of disabled features. */
 function feature_on(string $feature): bool { return Core\Features::enabled($feature); }
+/** False when the page at $path belongs to a switched-off module or feature (works in web, cron and tests). */
+function route_on(string $path): bool {
+  static $cli = null;
+  $r = Core\App::router();
+  if (!$r->hasRoutes()) { if (!$cli) { $cli = new Core\Router(); Core\Modules::registerRoutes($cli); } $r = $cli; }
+  return $r->reachable($path); }

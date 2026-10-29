@@ -1,5 +1,8 @@
-<?php $total = array_sum(array_column($groups, 'count')); $slug = static fn (string $s) => 'sg-'.preg_replace('/[^a-z0-9]+/', '-', strtolower($s)); ?>
-<?= partial('partials/page_head', ['title' => 'Search', 'subtitle' => mb_strlen($q) >= 2 ? $total.' result'.($total === 1 ? '' : 's').' for “'.$q.'”. Only records you are allowed to see are shown.' : 'Search across clients, projects, tasks, invoices, people and documents.']) ?>
+<?php $total = array_sum(array_column($groups, 'count')); $slug = static fn (string $s) => 'sg-'.preg_replace('/[^a-z0-9]+/', '-', strtolower($s));
+$J = [\Modules\Admin\Services\SettingsSchema::class, 'join'];
+$across = $J([feature_on('clients') ? 'clients' : null, feature_on('projects') ? 'projects, tasks' : null, feature_on('invoices') ? 'invoices' : null, feature_on('quotations') ? 'quotations' : null, feature_on('employees') ? 'people' : null, feature_on('payroll') ? 'payslips' : null]);
+$tryHint = $J(['a different keyword', feature_on('clients') ? 'a client name' : null, feature_on('projects') ? 'project code' : null, feature_on('invoices') ? 'invoice number' : null]); ?>
+<?= partial('partials/page_head', ['title' => 'Search', 'subtitle' => mb_strlen($q) >= 2 ? $total.' result'.($total === 1 ? '' : 's').' for “'.$q.'”. Only records you are allowed to see are shown.' : ($across ? 'Search across '.$across.'.' : 'Search the records you have access to.')]) ?>
 <form class="card search-page-bar mb" method="get" action="<?= e(url('/search')) ?>"><?= icon('search') ?><input type="search" name="q" value="<?= e($q) ?>" placeholder="Type at least 2 characters" autofocus class="grow" aria-label="Search"><button class="btn primary">Search</button></form>
 <?php if ($groups): ?>
   <nav class="chips mb search-cats" aria-label="Categories"><?php foreach ($groups as $g): ?><a class="chip" href="#<?= e($slug($g['label'])) ?>"><span class="sr-dot" style="background:var(--<?= e($g['color']) ?>)"></span><?= e($g['label']) ?> <b><?= (int) $g['count'] ?></b></a><?php endforeach ?></nav>
@@ -11,5 +14,5 @@
     </section>
   <?php endforeach ?>
   </div>
-<?php elseif (mb_strlen($q) >= 2): ?><div class="card"><?= empty_state('Nothing found', 'Try a different keyword, a client name, project code or invoice number.', 'empty-box') ?></div>
+<?php elseif (mb_strlen($q) >= 2): ?><div class="card"><?= empty_state('Nothing found', 'Try '.$tryHint.'.', 'empty-box') ?></div>
 <?php else: ?><div class="card"><?= empty_state('What are you looking for?', 'Tip: press / anywhere to jump to search. Results appear as you type.', 'empty-box') ?></div><?php endif ?>

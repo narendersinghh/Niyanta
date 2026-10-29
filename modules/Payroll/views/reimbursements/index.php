@@ -2,8 +2,9 @@
 $q = static fn (array $add) => e(url('/reimbursements').query_merge($add));
 $statuses = ['' => 'All', 'pending' => 'Pending', 'approved' => 'Approved', 'paid' => 'Paid', 'rejected' => 'Rejected'];
 $me = (int) user()['id']; $sa = user()['role_slug'] === 'super_admin';
+$payOn = feature_on('payroll'); /* without payroll, approved claims are settled by HR outside the app */
 ?>
-<?= partial('partials/page_head', ['title' => 'Reimbursements', 'subtitle' => $tab === 'queue' ? 'Review expense claims. Approved claims are paid with the next payroll run.' : 'Claim back business expenses. Approved claims are paid with your next payslip.', 'crumbs' => [[$tab === 'queue' ? 'HR Admin' : 'My HR'], ['Reimbursements']], 'actions' => $canReq ? '<button class="btn primary" type="button" data-modal="newClaim">'.icon('plus', 'sm').' New claim</button>' : '']) ?>
+<?= partial('partials/page_head', ['title' => 'Reimbursements', 'subtitle' => $tab === 'queue' ? 'Review expense claims. Approved claims are paid '.($payOn ? 'with the next payroll run.' : 'out by HR.') : 'Claim back business expenses. Approved claims are paid '.($payOn ? 'with your next payslip.' : 'out by HR.'), 'crumbs' => [[$tab === 'queue' ? 'HR Admin' : 'My HR'], ['Reimbursements']], 'actions' => $canReq ? '<button class="btn primary" type="button" data-modal="newClaim">'.icon('plus', 'sm').' New claim</button>' : '']) ?>
 <?php if ($canReq && $canApp): ?><nav class="tabs pay-tabs" aria-label="Reimbursement views"><a href="<?= e(url('/reimbursements?tab=mine')) ?>" class="<?= $tab === 'mine' ? 'active' : '' ?>"><?= icon('user', 'sm') ?> My claims</a><a href="<?= e(url('/reimbursements?tab=queue')) ?>" class="<?= $tab === 'queue' ? 'active' : '' ?>"><?= icon('check-square', 'sm') ?> Approvals<?= (int) $queue['n'] ? ' <span class="pill pill-peach">'.(int) $queue['n'].'</span>' : '' ?></a></nav><?php endif ?>
 <div class="grid g3 mb">
   <?php if ($tab === 'queue'): ?>
@@ -12,7 +13,7 @@ $me = (int) user()['id']; $sa = user()['role_slug'] === 'super_admin';
   <a class="tile bg-lav" href="<?= e(url(can('payroll.manage') ? '/payroll' : '/reimbursements?tab=queue&status=approved')) ?>"><span class="tile-ic"><?= icon('wallet') ?></span><div><div class="num pay-num"><?= e(money($mine['approved'])) ?></div><div class="lbl">My approved claims, to be paid</div></div></a>
   <?php else: ?>
   <div class="tile bg-lemon"><span class="tile-ic"><?= icon('clock') ?></span><div><div class="num pay-num"><?= e(money($mine['pending'])) ?></div><div class="lbl">Awaiting approval</div><div class="pay-sub"><?= (int) $mine['pending_n'] ?> claim<?= (int) $mine['pending_n'] === 1 ? '' : 's' ?></div></div></div>
-  <div class="tile bg-sky"><span class="tile-ic"><?= icon('check-circle') ?></span><div><div class="num pay-num"><?= e(money($mine['approved'])) ?></div><div class="lbl">Approved</div><div class="pay-sub">Paid with your next payslip</div></div></div>
+  <div class="tile bg-sky"><span class="tile-ic"><?= icon('check-circle') ?></span><div><div class="num pay-num"><?= e(money($mine['approved'])) ?></div><div class="lbl">Approved</div><div class="pay-sub"><?= $payOn ? 'Paid with your next payslip' : 'Paid out by HR' ?></div></div></div>
   <div class="tile bg-mint"><span class="tile-ic"><?= icon('wallet') ?></span><div><div class="num pay-num"><?= e(money($mine['paid'])) ?></div><div class="lbl">Reimbursed in <?= date('Y') ?></div></div></div>
   <?php endif ?>
 </div>
@@ -22,7 +23,7 @@ $me = (int) user()['id']; $sa = user()['role_slug'] === 'super_admin';
     <?php if ($tab === 'queue'): ?><input type="hidden" name="tab" value="queue"><input type="hidden" name="status" value="<?= e($status) ?>"><label class="pay-search pay-push"><span class="sr">Search</span><?= icon('search', 'sm') ?><input type="search" name="q" value="<?= e($_GET['q'] ?? '') ?>" placeholder="Search employee or title"></label><?php endif ?>
   </form>
   <?php if (!$p['items']): ?>
-    <?= $tab === 'queue' ? empty_state('Nothing to review', 'All claims have been processed. Nice work!', 'celebrate') : empty_state('No claims here', 'Spent money on work travel, software or client meetings? Submit a claim and get it back with your salary.', 'invoice-paper', $canReq ? '<button class="btn primary" type="button" data-modal="newClaim">'.icon('plus', 'sm').' New claim</button>' : '') ?>
+    <?= $tab === 'queue' ? empty_state('Nothing to review', 'All claims have been processed. Nice work!', 'celebrate') : empty_state('No claims here', 'Spent money on work travel, software or client meetings? Submit a claim and get it back'.($payOn ? ' with your salary.' : '.'), 'invoice-paper', $canReq ? '<button class="btn primary" type="button" data-modal="newClaim">'.icon('plus', 'sm').' New claim</button>' : '') ?>
   <?php else: ?>
   <div class="table-wrap"><table class="table">
     <thead><tr><?php if ($tab === 'queue'): ?><th>Employee</th><?php endif ?><th>Claim</th><th>Expense date</th><th class="num">Amount</th><th>Receipt</th><th>Status</th><th><span class="sr">Actions</span></th></tr></thead>
@@ -33,7 +34,7 @@ $me = (int) user()['id']; $sa = user()['role_slug'] === 'super_admin';
         <td class="small nowrap"><?= e(fdate($r['expense_date'])) ?></td>
         <td class="num"><b><?= e(money($r['amount'])) ?></b></td>
         <td class="small"><?php foreach ($files[(int) $r['id']] ?? [] as $f): ?><a class="chip" href="<?= e(url('/files/'.$f['id'].'/view')) ?>" target="_blank" rel="noopener"><?= icon('paperclip', 'sm') ?> <?= e(str_limit($f['original_name'], 18)) ?></a><?php endforeach ?><?= empty($files[(int) $r['id']]) ? '<span class="muted">-</span>' : '' ?></td>
-        <td><?= badge($r['status']) ?><?php if ($r['reviewer']): ?><div class="xs muted"><?= e($r['reviewer']) ?> · <?= e(fdate($r['reviewed_at'])) ?></div><?php endif ?><?php if ($r['review_note']): ?><div class="xs muted">“<?= e(str_limit($r['review_note'], 60)) ?>”</div><?php endif ?><?php if ($r['period_month']): ?><div class="xs muted">Payroll <?= e(date('M Y', strtotime($r['period_month']))) ?></div><?php endif ?></td>
+        <td><?= badge($r['status']) ?><?php if ($r['reviewer']): ?><div class="xs muted"><?= e($r['reviewer']) ?> · <?= e(fdate($r['reviewed_at'])) ?></div><?php endif ?><?php if ($r['review_note']): ?><div class="xs muted">“<?= e(str_limit($r['review_note'], 60)) ?>”</div><?php endif ?><?php if ($r['period_month'] && $payOn): ?><div class="xs muted">Payroll <?= e(date('M Y', strtotime($r['period_month']))) ?></div><?php endif ?></td>
         <td class="actions">
           <?php if ($tab === 'queue' && $r['status'] === 'pending' && (!$own || $sa)): ?><button class="btn sm primary" type="button" data-modal="rv-<?= (int) $r['id'] ?>"><?= icon('check', 'sm') ?> Review</button>
           <?php elseif ($tab === 'queue' && $r['status'] === 'pending'): ?><span class="xs muted">Your own claim</span>

@@ -35,7 +35,7 @@ $filters = ['type' => (string) ($_GET['type'] ?? ''), 'status' => (string) ($_GE
     <a class="ritem" href="<?= e(url('/work-reports/'.$r['id'])) ?>">
       <span class="r-date ac-<?= $r['type'] === 'weekly' ? 'lav' : 'sky' ?>"><b><?= e(date('d', strtotime($r['period_start']))) ?></b><span><?= e(date('M', strtotime($r['period_start']))) ?></span></span>
       <div class="grow">
-        <div class="r-top"><?php if ($tab === 'team'): ?><span class="who"><?= avatar($r['author'], $r['avatar'], 'sm') ?> <?= e($r['author']) ?></span><?php endif ?><span class="pill pill-<?= $r['type'] === 'weekly' ? 'lav' : 'sky' ?>"><?= e(ucfirst($r['type'])) ?></span><span><?= e(fdate($r['period_start'])) ?><?= $r['period_end'] !== $r['period_start'] ? ' – '.e(fdate($r['period_end'])) : '' ?></span><?php if ($r['project']): ?><span>· <?= e($r['project']) ?></span><?php endif ?></div>
+        <div class="r-top"><?php if ($tab === 'team'): ?><span class="who"><?= avatar($r['author'], $r['avatar'], 'sm') ?> <?= e($r['author']) ?></span><?php endif ?><span class="pill pill-<?= $r['type'] === 'weekly' ? 'lav' : 'sky' ?>"><?= e(ucfirst($r['type'])) ?></span><span><?= e(fdate($r['period_start'])) ?><?= $r['period_end'] !== $r['period_start'] ? ' – '.e(fdate($r['period_end'])) : '' ?></span><?php if ($r['project'] && feature_on('projects')): ?><span>· <?= e($r['project']) ?></span><?php endif ?></div>
         <p class="r-sum"><?= e(str_limit($r['summary'], 220)) ?></p>
         <?php if ($r['status'] === 'rejected' && $r['review_note']): ?><p class="xs late-text mb0 mt-s"><?= icon('alert', 'sm') ?> <?= e(str_limit($r['review_note'], 120)) ?></p><?php endif ?>
       </div>

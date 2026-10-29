@@ -9,7 +9,7 @@ return [
     'ai.usage.view' => ['label' => 'View AI usage & costs', 'roles' => []],
   ],
   'nav' => [
-    ['label' => 'AI Usage', 'icon' => 'cpu', 'color' => '#F0508A', 'url' => '/ai/usage', 'perm' => 'ai.usage.view', 'section' => 'system', 'order' => 6],
+    ['label' => 'AI Usage', 'icon' => 'cpu', 'color' => '#F0508A', 'url' => '/ai/usage', 'perm' => 'ai.usage.view', 'feature' => 'ai', 'section' => 'system', 'order' => 6],
   ],
   'routes' => function (Core\Router $r): void {
     $sa = ['perm' => '__super_admin'];
@@ -28,8 +28,8 @@ return [
     $r->post('/ai/models/{id}/delete', [SettingsController::class, 'destroy'], $sa);
     $r->post('/ai/models/{id}/test', [SettingsController::class, 'test'], $sa + ['throttle' => [10, 60]]);
   },
-  'global_scripts' => ['js/ai.js' => 'ai.use'],
-  'global_styles' => ['css/ai.css' => 'ai.use'],
+  'global_scripts' => ['js/ai.js' => ['perm' => 'ai.use', 'feature' => 'ai']],
+  'global_styles' => ['css/ai.css' => ['perm' => 'ai.use', 'feature' => 'ai']],
   'topbar' => static fn (array $user): string => Modules\Ai\Services\Usage::enabled() && Core\Gate::allows('ai.use', $user) ? Core\View::partial('ai::topbar', ['u' => $user]) : '',
   'body_end' => static fn (array $user): string => Modules\Ai\Services\Usage::enabled() && Core\Gate::allows('ai.use', $user) ? Core\View::partial('ai::drawer', ['u' => $user]) : '',
 ];

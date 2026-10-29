@@ -29,7 +29,7 @@ final class Tools {
       'timesheet' => ['Weekly timesheet: hours per project and task, per day, and review status.', ['person' => $person, 'week' => ['type' => 'string', 'description' => 'Any date inside the week (YYYY-MM-DD) or this_week / last_week. Default this week.']], [], $att],
       'leave_balance' => ['Leave balances per leave type (allocated, used, pending, available), including optional holidays (OH).', ['person' => $person, 'year' => ['type' => 'integer']], [], $leave],
       'leave_requests' => ['Leave requests of a person (dates, days, type, status).', ['person' => $person, 'status' => ['type' => 'string', 'enum' => ['pending', 'approved', 'rejected', 'cancelled', 'all']], 'year' => ['type' => 'integer']], [], $leave],
-      'holidays' => ['Company holiday calendar for a year: fixed holidays and optional festival days.', ['year' => ['type' => 'integer']], [], static fn (array $u) => $leave($u) || Scope::can('hr.directory.view', $u)],
+      'holidays' => ['Company holiday calendar for a year: fixed holidays and optional festival days.', ['year' => ['type' => 'integer']], [], static fn (array $u) => feature_on('leave') && ($leave($u) || Scope::can('hr.directory.view', $u))],
       'team_on_leave' => ['Who is on approved leave on a date (names only).', ['date' => ['type' => 'string', 'description' => 'YYYY-MM-DD, today or tomorrow. Default today.']], [], static fn (array $u) => Scope::can('hr.directory.view', $u) && \Core\Features::permEnabled('hr.leave.request')],
       'find_people' => ['Look up colleagues in the team directory (designation, department, manager, email).', ['query' => ['type' => 'string']], ['query'], static fn (array $u) => Scope::can('hr.directory.view', $u) || Scope::can('hr.employees.view', $u)],
       'projects_overview' => ['Projects the user can see with status, progress, deadline and task counts.', ['status' => ['type' => 'string', 'enum' => ['planning', 'active', 'on_hold', 'completed', 'cancelled', 'open', 'all'], 'description' => 'Default open (not completed or cancelled).']], [], static fn (array $u) => Scope::can('projects.view', $u)],
@@ -153,12 +153,12 @@ final class Tools {
       try { $groups = (array) $fn($q, $u); } catch (\Throwable $e) { error_log("AI search $mod: ".$e->getMessage()); continue; }
       foreach ($groups as $label => $rows) {
         if ($types && !array_filter($types, static fn ($t) => str_contains(strtolower((string) $label), rtrim($t, 's')))) { continue; }
-        foreach (array_slice((array) $rows, 0, 6) as $r) { $out[] = ['type' => (string) $label, 'title' => self::cut($r['title'] ?? '', 120), 'meta' => self::cut($r['meta'] ?? '', 140), 'url' => (string) ($r['url'] ?? '')]; } } }
+        foreach (array_slice(array_filter((array) $rows, static fn ($r) => route_on((string) ($r['url'] ?? '/'))), 0, 6) as $r) { $out[] = ['type' => (string) $label, 'title' => self::cut($r['title'] ?? '', 120), 'meta' => self::cut($r['meta'] ?? '', 140), 'url' => (string) ($r['url'] ?? '')]; } } }
     return ['query' => $q, 'count' => count($out), 'results' => array_slice($out, 0, 40)]; }
 
   private static function t_my_profile(array $u, array $a): array {
     $me = DB::first('SELECT u.name, u.email, u.designation, u.department, u.employee_code, u.joined_on, r.name AS role, m.name AS manager FROM users u JOIN roles r ON r.id=u.role_id LEFT JOIN users m ON m.id=u.manager_id WHERE u.id=?', [$u['id']]);
-    $out = ['profile' => $me + ['url' => '/hr/me']];
+    $out = ['profile' => $me + (route_on('/hr/me') ? ['url' => '/hr/me'] : [])];
     if (Scope::can('projects.view', $u)) { $out['open_tasks'] = (int) DB::value("SELECT COUNT(*) FROM tasks WHERE assignee_id=? AND status<>'done'", [$u['id']]); $out['overdue_tasks'] = (int) DB::value("SELECT COUNT(*) FROM tasks WHERE assignee_id=? AND status<>'done' AND due_date<?", [$u['id'], date('Y-m-d')]); }
     if (Scope::can('hr.leave.request', $u) && class_exists('Modules\\Hr\\Services\\LeaveService')) { $out['leave_available'] = array_map(static fn ($b) => ['type' => $b['name'], 'available' => (float) $b['available']], array_slice(\Modules\Hr\Services\LeaveService::balances((int) $u['id'], (int) date('Y')), 0, 6)); }
     if (Scope::can('attendance.track', $u)) { $a = DB::first('SELECT status, clock_in, clock_out FROM attendance WHERE user_id=? AND work_date=?', [$u['id'], date('Y-m-d')]); $out['today'] = $a ? ['status' => $a['status'], 'in' => $a['clock_in'] ? substr($a['clock_in'], 11, 5) : null, 'out' => $a['clock_out'] ? substr($a['clock_out'], 11, 5) : null] : 'not clocked in'; }
@@ -186,7 +186,7 @@ final class Tools {
     $pid = (int) $p['id'];
     [$from, $to] = self::period($a['from'] ?? null, $a['to'] ?? null, 'this_week', 62);
     $out = ['person' => self::personOut($p), 'from' => $from, 'to' => $to, 'today' => date('Y-m-d')]; $notes = [];
-    if (Scope::can('projects.view', $u) && Modules::enabled('projects')) {
+    if (Scope::can('projects.view', $u) && feature_on('projects')) {
       $pp = [$pid]; $w = self::taskScope($u, $pid, $pp);
       $base = 'SELECT t.id, t.title, t.status, t.priority, t.due_date, t.completed_at, pr.name AS project FROM tasks t JOIN projects pr ON pr.id=t.project_id WHERE t.assignee_id=?'.$w;
       $map = static fn ($t) => ['title' => self::cut($t['title'], 80), 'project' => $t['project'], 'status' => $t['status'], 'due' => $t['due_date'], 'url' => '/tasks/'.$t['id']];
@@ -195,7 +195,7 @@ final class Tools {
       $out['tasks_overdue'] = array_map($map, DB::all($base." AND t.status<>'done' AND t.due_date<? ORDER BY t.due_date LIMIT 10", [...$pp, date('Y-m-d')]));
       $out['open_tasks_total'] = (int) DB::value(str_replace('SELECT t.id, t.title, t.status, t.priority, t.due_date, t.completed_at, pr.name AS project', 'SELECT COUNT(*)', $base)." AND t.status<>'done'", $pp); }
     else { $notes[] = 'tasks: not available to you'; }
-    if (self::timeAccess($u, $pid) && Modules::enabled('attendance')) {
+    if (self::timeAccess($u, $pid) && feature_on('attendance')) {
       $rows = DB::all('SELECT COALESCE(pr.name, \'No project\') AS project, SUM(te.duration_seconds) AS secs, SUM(CASE WHEN te.billable=1 THEN te.duration_seconds ELSE 0 END) AS bill FROM time_entries te LEFT JOIN projects pr ON pr.id=te.project_id WHERE te.user_id=? AND te.started_at>=? AND te.started_at<? GROUP BY pr.name ORDER BY secs DESC LIMIT 12', [$pid, $from.' 00:00:00', date('Y-m-d', strtotime($to.' +1 day')).' 00:00:00']);
       $out['hours_by_project'] = array_map(static fn ($r) => ['project' => $r['project'], 'hours' => self::h($r['secs'])], $rows);
       $out['hours_total'] = self::h(array_sum(array_column($rows, 'secs')));
@@ -203,10 +203,10 @@ final class Tools {
       $att = DB::first("SELECT SUM(status='present') AS present, SUM(status='half_day') AS half, COALESCE(SUM(worked_seconds),0) AS worked FROM attendance WHERE user_id=? AND work_date BETWEEN ? AND ?", [$pid, $from, $to]);
       $out['attendance'] = ['days_present' => (int) $att['present'], 'half_days' => (int) $att['half'], 'hours_worked' => self::h($att['worked'])]; }
     else { $notes[] = 'hours and attendance: not available to you'; }
-    if (self::leaveAccess($u, $pid) && Modules::enabled('hr') && class_exists('Modules\\Hr\\Services\\LeaveService')) { $out['leave_days'] = \Modules\Hr\Services\LeaveService::approvedLeaveDays($pid, $from, $to); }
+    if (self::leaveAccess($u, $pid) && feature_on('leave') && class_exists('Modules\\Hr\\Services\\LeaveService')) { $out['leave_days'] = \Modules\Hr\Services\LeaveService::approvedLeaveDays($pid, $from, $to); }
     $self = self::self($u, $p);
     $canReports = $self ? Scope::can('projects.reports.submit', $u) : (Scope::can('projects.reports.approve', $u) && (Scope::projectIds($u) === null || People::isDirectReport($u, $pid) || (bool) DB::value('SELECT 1 FROM project_members pm JOIN projects mp ON mp.id=pm.project_id WHERE pm.user_id=? AND mp.manager_id=? LIMIT 1', [$pid, $u['id']])));
-    if ($canReports && Modules::enabled('projects')) {
+    if ($canReports && feature_on('work_reports')) {
       $out['work_reports'] = array_map(static fn ($r) => ['type' => $r['type'], 'period' => $r['period_start'].($r['period_end'] !== $r['period_start'] ? ' to '.$r['period_end'] : ''), 'status' => $r['status'], 'hours' => $r['hours'] !== null ? (float) $r['hours'] : null, 'summary' => self::cut($r['summary'], 220), 'blockers' => self::cut($r['blockers'], 140), 'url' => '/work-reports/'.$r['id']],
         DB::all('SELECT id, type, period_start, period_end, status, hours, summary, blockers FROM work_reports WHERE user_id=? AND period_start<=? AND period_end>=? ORDER BY period_start DESC LIMIT 10', [$pid, $to, $from])); }
     else { $notes[] = 'work reports: not available to you'; }

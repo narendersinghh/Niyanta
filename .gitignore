@@ -8,6 +8,7 @@
 /storage/sessions/*
 /storage/updates/*
 /storage/screenshots/*
+/storage/desktop/*
 /assets/uploads/branding/*
 !/storage/**/.gitkeep
 !/assets/uploads/branding/.gitkeep

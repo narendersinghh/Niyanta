@@ -29,18 +29,27 @@ final class AttendanceService {
     if ($r['clock_out']) { return 'done'; }
     return empty($r['open_break']) ? 'in' : 'break'; }
 
-  /** Live worked & break seconds (open days computed up to now). */
+  /**
+   * Seconds tracked in time entries that started on $date (running entries up to now, discarded idle excluded), or null
+   * when the day has no entries. The tracker's day is the attendance day: only tracked time counts as worked time.
+   */
+  public static function trackedSeconds(int $uid, string $date): ?int {
+    $r = DB::first('SELECT COUNT(*) AS n, COALESCE(SUM(CASE WHEN is_running=1 THEN GREATEST(0, TIMESTAMPDIFF(SECOND, started_at, NOW()) - discarded_seconds) ELSE duration_seconds END),0) AS s FROM time_entries WHERE user_id=? AND started_at>=? AND started_at<?', [$uid, $date.' 00:00:00', date('Y-m-d', strtotime($date.' +1 day')).' 00:00:00']);
+    return (int) $r['n'] ? (int) $r['s'] : null; }
+
+  /** Live worked & break seconds (open days computed up to now). Worked time is the tracked time when the day has entries. */
   public static function live(?array $r, ?int $now = null): array {
     if (!$r || !$r['clock_in']) { return ['worked' => 0, 'break' => 0]; }
     if ($r['clock_out']) { return ['worked' => (int) $r['worked_seconds'], 'break' => (int) $r['break_seconds']]; }
     $now ??= time();
     $br = (int) $r['break_seconds'] + (empty($r['open_break']) ? 0 : max(0, $now - strtotime($r['open_break']['start_at'])));
-    return ['worked' => max(0, $now - strtotime($r['clock_in']) - $br), 'break' => $br]; }
+    $tracked = isset($r['user_id'], $r['work_date']) ? self::trackedSeconds((int) $r['user_id'], $r['work_date']) : null;
+    return ['worked' => $tracked ?? max(0, $now - strtotime($r['clock_in']) - $br), 'break' => $br]; }
 
-  public static function clockIn(int $uid, string $ip): string {
-    return DB::transaction(static function () use ($uid, $ip): string {
+  public static function clockIn(int $uid, string $ip, ?string $at = null): string {
+    return DB::transaction(static function () use ($uid, $ip, $at): string {
       self::lock($uid);
-      $today = date('Y-m-d'); $now = date('Y-m-d H:i:s');
+      $today = date('Y-m-d'); $now = $at ?? date('Y-m-d H:i:s');
       foreach (DB::all('SELECT * FROM attendance WHERE user_id=? AND clock_out IS NULL AND clock_in IS NOT NULL AND work_date<?', [$uid, $today]) as $old) { self::autoCloseRow($old); }
       $r = self::today($uid);
       $st = self::state($r);
@@ -56,38 +65,38 @@ final class AttendanceService {
       Audit::log('attendance.clock_in', 'attendance', $id, [], $uid);
       return 'Clocked in at '.ftime($now).'. Have a great day!'; }); }
 
-  public static function startBreak(int $uid): string {
-    return DB::transaction(static function () use ($uid): string {
+  public static function startBreak(int $uid, ?string $at = null): string {
+    return DB::transaction(static function () use ($uid, $at): string {
       self::lock($uid);
       $r = self::today($uid);
       if (self::state($r) !== 'in') { throw new \DomainException(self::state($r) === 'break' ? 'You are already on a break.' : 'Clock in before starting a break.'); }
-      DB::insert('attendance_breaks', ['attendance_id' => $r['id'], 'start_at' => date('Y-m-d H:i:s')]);
+      DB::insert('attendance_breaks', ['attendance_id' => $r['id'], 'start_at' => $at ?? date('Y-m-d H:i:s')]);
       Audit::log('attendance.break_start', 'attendance', (int) $r['id'], [], $uid);
       return 'Break started. Enjoy!'; }); }
 
-  public static function endBreak(int $uid): string {
-    return DB::transaction(static function () use ($uid): string {
+  public static function endBreak(int $uid, ?string $at = null): string {
+    return DB::transaction(static function () use ($uid, $at): string {
       self::lock($uid);
       $r = self::today($uid);
       if (self::state($r) !== 'break') { throw new \DomainException('You are not on a break.'); }
-      DB::update('attendance_breaks', ['end_at' => date('Y-m-d H:i:s')], 'id=?', [$r['open_break']['id']]);
+      DB::update('attendance_breaks', ['end_at' => max($at ?? date('Y-m-d H:i:s'), $r['open_break']['start_at'])], 'id=?', [$r['open_break']['id']]);
       self::recompute((int) $r['id']);
       Audit::log('attendance.break_end', 'attendance', (int) $r['id'], [], $uid);
       return 'Welcome back, break ended.'; }); }
 
-  public static function clockOut(int $uid, string $ip): string {
-    return DB::transaction(static function () use ($uid, $ip): string {
+  public static function clockOut(int $uid, string $ip, ?string $at = null): string {
+    return DB::transaction(static function () use ($uid, $ip, $at): string {
       self::lock($uid);
       $r = self::today($uid) ?? DB::first('SELECT * FROM attendance WHERE user_id=? AND clock_out IS NULL AND clock_in IS NOT NULL ORDER BY work_date DESC LIMIT 1', [$uid]);
       if ($r && !array_key_exists('open_break', $r)) { $r['open_break'] = DB::first('SELECT * FROM attendance_breaks WHERE attendance_id=? AND end_at IS NULL LIMIT 1', [$r['id']]); }
       if (!in_array(self::state($r), ['in', 'break'], true)) { throw new \DomainException('You are not clocked in.'); }
-      $now = date('Y-m-d H:i:s');
+      $now = max($at ?? date('Y-m-d H:i:s'), $r['clock_in']);
+      $stopped = TimeService::stop($uid, $now, 'clock-out');
       self::closeRow($r, $now);
       DB::update('attendance', ['ip_out' => $ip], 'id=?', [$r['id']]);
-      $stopped = TimeService::stop($uid, null, 'clock-out');
       Audit::log('attendance.clock_out', 'attendance', (int) $r['id'], ['timer_stopped' => (bool) $stopped], $uid);
       $w = (int) DB::value('SELECT worked_seconds FROM attendance WHERE id=?', [$r['id']]);
-      return 'Clocked out. You worked '.hours($w).' today'.($stopped ? ' (running timer stopped)' : '').'.'; }); }
+      return 'Day ended. You worked '.hours($w).' today.'; }); }
 
   /** Recalculate break & worked seconds (and present/half-day) from the stored breaks. */
   public static function recompute(int $id): void {
@@ -96,9 +105,14 @@ final class AttendanceService {
     $br = (int) DB::value('SELECT COALESCE(SUM(GREATEST(0, TIMESTAMPDIFF(SECOND, start_at, end_at))),0) FROM attendance_breaks WHERE attendance_id=? AND end_at IS NOT NULL', [$id]);
     $d = ['break_seconds' => $br, 'worked_seconds' => 0];
     if ($r['clock_in'] && $r['clock_out']) {
-      $d['worked_seconds'] = max(0, strtotime($r['clock_out']) - strtotime($r['clock_in']) - $br);
+      $d['worked_seconds'] = self::trackedSeconds((int) $r['user_id'], $r['work_date']) ?? max(0, strtotime($r['clock_out']) - strtotime($r['clock_in']) - $br);
       if (in_array($r['status'], ['present', 'half_day'], true)) { $d['status'] = $d['worked_seconds'] < self::workSeconds((int) $r['user_id']) / 2 ? 'half_day' : 'present'; } }
     DB::update('attendance', $d, 'id=?', [$id]); }
+
+  /** After a manual time change: recompute a closed, not HR-edited day so its worked time stays equal to the tracked time. */
+  public static function resync(int $uid, string $date): void {
+    $id = DB::value('SELECT id FROM attendance WHERE user_id=? AND work_date=? AND clock_out IS NOT NULL AND edited_by IS NULL', [$uid, $date]);
+    if ($id) { self::recompute((int) $id); } }
 
   public static function closeRow(array $r, string $at, ?string $note = null): void {
     DB::delete('attendance_breaks', 'attendance_id=? AND end_at IS NULL AND start_at>=?', [$r['id'], $at]);
@@ -108,23 +122,27 @@ final class AttendanceService {
     DB::update('attendance', $d, 'id=?', [$r['id']]);
     self::recompute((int) $r['id']); }
 
-  /** Close a forgotten day at clock-in + work hours + breaks (or at the start of a never-ended break), never past the end of that day (or now). */
+  /**
+   * Close a forgotten day: at the end of its last tracked entry when the day was tracked, otherwise at clock-in + work hours
+   * + breaks (or at the start of a never-ended break); never past the end of that day (or now).
+   */
   public static function autoCloseRow(array $r): void {
     $in = strtotime($r['clock_in']);
-    $end = min($in + self::workSeconds((int) $r['user_id']) + (int) $r['break_seconds'], strtotime($r['work_date'].' 23:59:59'), time());
+    $last = DB::value('SELECT MAX(COALESCE(ended_at, last_heartbeat_at, started_at)) FROM time_entries WHERE user_id=? AND started_at>=? AND started_at<?', [$r['user_id'], $r['work_date'].' 00:00:00', date('Y-m-d', strtotime($r['work_date'].' +1 day')).' 00:00:00']);
+    $end = min($last ? strtotime($last) : $in + self::workSeconds((int) $r['user_id']) + (int) $r['break_seconds'], strtotime($r['work_date'].' 23:59:59'), time());
     $open = DB::value('SELECT MIN(start_at) FROM attendance_breaks WHERE attendance_id=? AND end_at IS NULL', [$r['id']]);
-    if ($open) { $end = min($end, strtotime($open)); }
+    if ($open && !$last) { $end = min($end, strtotime($open)); }
     self::closeRow($r, date('Y-m-d H:i:s', max($in, $end)), 'auto-closed'); }
 
-  /** Cron: close open attendance and stop running timers. */
+  /** Cron: stop running timers (at their last heartbeat), then close open attendance days. */
   public static function autoClose(): string {
+    $t = 0;
+    foreach (DB::column('SELECT user_id FROM time_entries WHERE is_running=1') as $uid) { if (TimeService::stop((int) $uid, null, 'auto-close', true)) { $t++; } }
     $n = 0;
     foreach (DB::all('SELECT * FROM attendance WHERE clock_out IS NULL AND clock_in IS NOT NULL AND work_date<=?', [date('Y-m-d')]) as $r) {
       DB::transaction(static fn () => self::autoCloseRow($r));
       Audit::log('attendance.auto_close', 'attendance', (int) $r['id'], [], (int) $r['user_id']);
       $n++; }
-    $t = 0;
-    foreach (DB::column('SELECT user_id FROM time_entries WHERE is_running=1') as $uid) { if (TimeService::stop((int) $uid, null, 'auto-close', true)) { $t++; } }
     return "closed $n attendance, stopped $t timers"; }
 
   /** HR/manager edit or create of a record (audit-logged, edited_by set). */

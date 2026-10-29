@@ -11,7 +11,7 @@ final class Router {
   public function post(string $p, callable|array $h, array|string $o = []): self { return $this->add('POST', $p, $h, $o); }
   public function any(string $p, callable|array $h, array|string $o = []): self { $this->add('GET', $p, $h, $o); return $this->add('POST', $p, $h, $o); }
 
-  /** Options: perm (string|array any-of), auth (bool, default true), csrf (bool, default true), module (string), throttle ([max, seconds]) */
+  /** Options: perm (string|array any-of), feature (string|array any-of, on top of the features of perm), auth (bool, default true), csrf (bool, default true), module (string), throttle ([max, seconds]) */
   public function add(string $m, string $p, callable|array $h, array|string $o = []): self {
     if (is_string($o) || ($o !== [] && array_is_list($o))) { $o = ['perm' => $o]; }
     $o += $this->groupOpts + ['auth' => true, 'csrf' => true, 'module' => $this->module];
@@ -26,6 +26,18 @@ final class Router {
     $fn($this);
     [$this->module, $this->groupOpts] = $prev; }
 
+  public function hasRoutes(): bool { return $this->routes !== []; }
+
+  /** False when the GET route serving $path is switched off (its module, or every feature of its permissions, is disabled). Unknown paths count as reachable. */
+  public function reachable(string $path): bool {
+    $path = rtrim((string) parse_url($path, PHP_URL_PATH), '/') ?: '/';
+    foreach ($this->routes['GET'] ?? [] as [$rx, , $o]) {
+      if (!preg_match($rx, $path)) { continue; }
+      if (!empty($o['module']) && !Modules::enabled($o['module'])) { return false; }
+      if (!empty($o['feature']) && !array_filter((array) $o['feature'], [Features::class, 'enabled'])) { return false; }
+      return empty($o['perm']) || (bool) array_filter((array) $o['perm'], [Features::class, 'permEnabled']); }
+    return true; }
+
   public function dispatch(Request $req): Response {
     $path = rtrim($req->path(), '/') ?: '/';
     foreach ($this->routes[$req->method()] ?? [] as [$rx, $h, $o]) {
@@ -36,7 +48,7 @@ final class Router {
       if ($o['auth']) {
         if (!Auth::check()) { return $req->wantsJson() ? Response::json(['error' => 'Unauthenticated'], 401) : Response::redirect(url('/login').'?next='.rawurlencode($req->uri())); }
         if (!empty($o['module']) && !Modules::enabled($o['module'])) { return Response::error(403, 'This module has been disabled by the administrator.', $req, 'module'); }
-        if (!empty($o['perm']) && !array_filter((array) $o['perm'], [Features::class, 'permEnabled'])) { return Response::error(403, 'This feature has been turned off by the administrator.', $req, 'module'); }
+        if ((!empty($o['perm']) && !array_filter((array) $o['perm'], [Features::class, 'permEnabled'])) || (!empty($o['feature']) && !array_filter((array) $o['feature'], [Features::class, 'enabled']))) { return Response::error(403, 'This feature has been turned off by the administrator.', $req, 'module'); }
         if (!empty($o['perm']) && !Gate::any((array) $o['perm'])) { Audit::log('access.denied', null, null, ['path' => $path]); return Response::error(403, 'You do not have permission to access this page.', $req); } }
       try { $res = is_array($h) ? (new $h[0]($req))->{$h[1]}(...array_values($params)) : $h($req, ...array_values($params)); }
       catch (HttpException $e) { return Response::error($e->status, $e->getMessage() ?: 'Request failed.', $req); }

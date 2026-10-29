@@ -3,7 +3,7 @@ namespace Modules\Attendance\Controllers;
 use Core\{DB, Response};
 use Modules\Attendance\Services\{AttendanceService as A, Team, TimeService};
 
-/** Own attendance (today card + monthly calendar), team board, CSV export and HR edits. */
+/** Own attendance (today card + monthly calendar, read-only: the day is started and ended in the desktop tracker), team board, CSV export and HR edits. */
 final class AttendanceController extends BaseController {
   public function index(): Response {
     $u = $this->user();
@@ -14,13 +14,8 @@ final class AttendanceController extends BaseController {
     $week[date('Y-m-d')] = A::live($today)['worked'];
     $records = DB::all('SELECT a.*, e.name AS editor FROM attendance a LEFT JOIN users e ON e.id=a.edited_by WHERE a.user_id=? AND a.work_date BETWEEN ? AND ? ORDER BY a.work_date DESC', [$u['id'], $ym.'-01', date('Y-m-t', strtotime($ym.'-01'))]);
     return $this->view('attendance::attendance/index', ['title' => 'Attendance', 'today' => $today, 'state' => A::state($today), 'live' => A::live($today), 'month' => A::month($u, $ym), 'ym' => $ym, 'week' => $week, 'ws' => $ws,
-      'records' => $records, 'running' => TimeService::running((int) $u['id']), 'onLeave' => (bool) (A::leaveMap([(int) $u['id']], date('Y-m-d'), date('Y-m-d'))[(int) $u['id']] ?? false), 'holiday' => A::isHoliday(date('Y-m-d')),
+      'records' => $records, 'running' => TimeService::running((int) $u['id']), 'tracker' => \Modules\Attendance\Services\Tracker::state((int) $u['id']), 'onLeave' => (bool) (A::leaveMap([(int) $u['id']], date('Y-m-d'), date('Y-m-d'))[(int) $u['id']] ?? false), 'holiday' => A::isHoliday(date('Y-m-d')),
       'styles' => ['css/attendance.css'], 'scripts' => ['js/attendance.js']]); }
-
-  public function clockIn(): Response { $this->authorize('attendance.track'); return $this->act(fn () => A::clockIn($this->uid(), $this->request->ip())); }
-  public function startBreak(): Response { $this->authorize('attendance.track'); return $this->act(fn () => A::startBreak($this->uid())); }
-  public function endBreak(): Response { $this->authorize('attendance.track'); return $this->act(fn () => A::endBreak($this->uid())); }
-  public function clockOut(): Response { $this->authorize('attendance.track'); return $this->act(fn () => A::clockOut($this->uid(), $this->request->ip())); }
 
   /** Team board for a date: who is in, on break, out, on leave. */
   public function team(): Response {

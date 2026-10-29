@@ -18,12 +18,12 @@ $sec = static fn (string $icon, string $color, string $title, string $hint) => '
       <div class="form-grid">
         <div class="field"><label for="f-name">Contact name *</label><input id="f-name" type="text" name="name" value="<?= e($v('name')) ?>" required maxlength="150" autofocus placeholder="Priya Nair"><?= error_for('name') ?></div>
         <div class="field"><label for="f-company">Company</label><input id="f-company" type="text" name="company" value="<?= e($v('company')) ?>" maxlength="190" placeholder="Sunrise Bakery Pvt Ltd"><?= error_for('company') ?></div>
-        <div class="field"><label for="f-email">Email</label><input id="f-email" type="email" name="email" value="<?= e($v('email')) ?>" maxlength="190" placeholder="name@company.com"><div class="hint">Invoices are e-mailed here by default.</div><?= error_for('email') ?></div>
+        <div class="field"><label for="f-email">Email</label><input id="f-email" type="email" name="email" value="<?= e($v('email')) ?>" maxlength="190" placeholder="name@company.com"><?php if (feature_on('invoices')): ?><div class="hint">Invoices are e-mailed here by default.</div><?php endif ?><?= error_for('email') ?></div>
         <div class="field"><label for="f-phone">Phone</label><input id="f-phone" type="tel" name="phone" value="<?= e($v('phone')) ?>" placeholder="+91 98765 43210"><?= error_for('phone') ?></div>
         <div class="field"><label for="f-wa">WhatsApp</label><input id="f-wa" type="tel" name="whatsapp" value="<?= e($v('whatsapp')) ?>" placeholder="Same as phone"><div class="hint">Leave blank to use the phone number.</div><?= error_for('whatsapp') ?></div>
         <div class="field"><label for="f-web">Website</label><input id="f-web" type="text" name="website" value="<?= e($v('website')) ?>" placeholder="example.com"><?= error_for('website') ?></div>
         <div class="field"><label for="f-ind">Industry</label><input id="f-ind" type="text" name="industry" value="<?= e($v('industry')) ?>" maxlength="120" list="crm-industries" placeholder="Hospitality"><datalist id="crm-industries"><?php foreach (['Retail', 'E-commerce', 'Healthcare', 'Education', 'Real estate', 'Hospitality', 'Finance', 'Technology', 'Manufacturing', 'Media', 'Non-profit'] as $i): ?><option value="<?= e($i) ?>"><?php endforeach ?></datalist><?= error_for('industry') ?></div>
-        <div class="field"><label for="f-tax">Tax ID / GSTIN</label><input id="f-tax" type="text" name="tax_id" value="<?= e($v('tax_id')) ?>" maxlength="60" placeholder="29ABCDE1234F1Z5"><div class="hint">Printed on quotations and invoices.</div><?= error_for('tax_id') ?></div>
+        <div class="field"><label for="f-tax">Tax ID / GSTIN</label><input id="f-tax" type="text" name="tax_id" value="<?= e($v('tax_id')) ?>" maxlength="60" placeholder="29ABCDE1234F1Z5"><?php if (feature_on('quotations') || feature_on('invoices')): ?><div class="hint">Printed on <?= e(\Modules\Admin\Services\SettingsSchema::join([feature_on('quotations') ? 'quotations' : null, feature_on('invoices') ? 'invoices' : null])) ?>.</div><?php endif ?><?= error_for('tax_id') ?></div>
       </div>
     </section>
     <section class="card form">
@@ -53,7 +53,7 @@ $sec = static fn (string $icon, string $color, string $title, string $hint) => '
       <div class="hint">Tags are comma separated; new ones are created automatically.</div>
     </section>
     <section class="card form">
-      <?= $sec('users', 'mint', 'Account team', 'Assigned managers can see this client, its documents and invoices.') ?>
+      <?= $sec('users', 'mint', 'Account team', 'Assigned managers can see this client, its documents'.(feature_on('invoices') ? ' and invoices' : '').'.') ?>
       <div class="crm-picklist">
         <?php foreach ($candidates as $uid => $un): ?>
         <label class="crm-pick"><input type="checkbox" name="managers[]" value="<?= (int) $uid ?>"<?= checked(in_array((int) $uid, $sel, true)) ?>><?= avatar($un, null, 'sm') ?><span class="grow"><?= e($un) ?></span><?= (int) $uid === (int) user()['id'] ? '<span class="pill pill-lav">You</span>' : '' ?></label>

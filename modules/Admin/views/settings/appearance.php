@@ -19,9 +19,10 @@ $reset = '<form method="post" action="'.e(url('/admin/settings/appearance/reset'
   <aside class="card pv-card-wrap"><div class="card-head"><h3>Live preview</h3><span class="pill pill-lav" data-pv-state>Saved</span></div>
     <div class="pv" data-preview-box style="<?= e($pvStyle) ?>;--font:'<?= e(preg_replace('/[^\w ]/', '', $font)) ?>',system-ui,sans-serif">
       <div class="pv-side"><div class="pv-brand"><i data-pv-logo><?= $logo ? '<img src="'.e(url('assets/uploads/branding/'.basename((string) $logo))).'" alt="">' : e(mb_substr(company_name(), 0, 1)) ?></i><span class="truncate"><b data-pv="name"><?= e(company_name()) ?></b><small>on Niyanta</small></span></div>
-        <span class="pv-nav on">Dashboard</span><span class="pv-nav">Clients</span><span class="pv-nav">Projects</span><span class="pv-nav">Team</span></div>
+        <span class="pv-nav on">Dashboard</span><?php foreach (array_slice(array_keys(array_filter(['Clients' => feature_on('clients'), 'Projects' => feature_on('projects'), 'Team' => true, 'Invoices' => feature_on('invoices'), 'Leave' => feature_on('leave')])), 0, 3) as $pn): ?><span class="pv-nav"><?= e($pn) ?></span><?php endforeach ?></div>
       <div class="pv-body"><h5>Good morning</h5>
-        <div class="pv-tiles"><div class="pv-tile" style="--a:var(--lav)"><span>Projects</span><b>12</b></div><div class="pv-tile" style="--a:var(--mint)"><span>Tasks done</span><b>48</b></div><div class="pv-tile" style="--a:var(--lemon)"><span>Hours</span><b>32h</b></div><div class="pv-tile" style="--a:var(--peach)"><span>Invoices</span><b>7</b></div></div>
+        <?php $pv = array_slice(array_filter([['Projects', '12', feature_on('projects')], ['Tasks done', '48', feature_on('projects')], ['Hours', '32h', feature_on('attendance')], ['Invoices', '7', feature_on('invoices')], ['Clients', '9', feature_on('clients')], ['Leave days', '3', feature_on('leave')], ['Team', '24', true], ['Updates', '5', true]], static fn ($t) => $t[2]), 0, 4); ?>
+        <div class="pv-tiles"><?php foreach (array_values($pv) as $i => [$pl, $pvv]): ?><div class="pv-tile" style="--a:var(--<?= ['lav', 'mint', 'lemon', 'peach'][$i] ?>)"><span><?= e($pl) ?></span><b><?= e($pvv) ?></b></div><?php endforeach ?></div>
         <div class="pv-card"><span>Website redesign</span><span class="pv-btn">Open</span></div></div>
     </div>
     <p class="xs muted mt mb0">Updates as you edit. Saving applies it for everyone.</p>

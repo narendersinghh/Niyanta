@@ -7,7 +7,7 @@ final class PayslipPdf {
   public static function render(array $s): string {
     $company = company_name();
     $period = PayrollService::monthLabel($s['period_month']);
-    $earn = json_decode((string) $s['earnings'], true) ?: [];
+    $earn = PayrollService::earningsFor($s);
     $ded = json_decode((string) $s['deductions'], true) ?: [];
     $pdf = new Pdf("Payslip $period - ".$s['name']);
     $W = $pdf->width(); $L = 40; $R = $W - 40;
@@ -23,7 +23,7 @@ final class PayslipPdf {
     $left = [['Employee', $s['name']], ['Employee code', $s['employee_code'] ?: '-'], ['Designation', $s['designation'] ?: '-'], ['Department', $s['department'] ?: '-']];
     $right = $s['pay_type'] === 'hourly'
       ? [['Pay period', $period], ['Pay type', 'Hourly'], ['Hourly rate', money($s['rate'])], ['Hours worked', number_format((float) $s['worked_hours'], 2).' h']]
-      : [['Pay period', $period], ['Working days', self::num($s['working_days'])], ['Paid days', self::num($s['paid_days'])], ['Unpaid leave (LOP)', self::num($s['unpaid_leave_days'])]];
+      : [['Pay period', $period], ['Working days', self::num($s['working_days'])], ['Paid days', self::num($s['paid_days'])], ...(($s['expected_hours'] ?? null) !== null ? [['Tracked hours', number_format((float) $s['worked_hours'], 2).' of '.number_format((float) $s['expected_hours'], 2).' h']] : []), ...(feature_on('leave') || (float) $s['unpaid_leave_days'] > 0 ? [['Unpaid leave (LOP)', self::num($s['unpaid_leave_days'])]] : [])];
     foreach ([[$left, $L + 16], [$right, $L + 272]] as [$rows, $x]) {
       $yy = $y + 24;
       foreach ($rows as [$k, $v]) { $pdf->font(false, 8.5)->text($x, $yy, strtoupper($k), '#7b7b8c'); $pdf->font(true, 10)->text($x + 100, $yy, mb_substr((string) $v, 0, 34), '#16161d'); $yy += 22; } }

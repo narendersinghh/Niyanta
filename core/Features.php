@@ -1,7 +1,7 @@
 <?php
 namespace Core;
 
-/** Bundles & features (see core/features.php). State lives in the `modules` table as "bundle:<key>" / "feature:<key>". */
+/** Bundles & features (see core/features.php). State lives in the `modules` table as "bundle:<key>" / "feature:<key>". The pseudo feature "ai" is the AI assistant switch (ai.enabled). */
 final class Features {
   private static ?array $defs = null;
   private static ?array $state = null;
@@ -21,6 +21,7 @@ final class Features {
     return null; }
 
   public static function enabled(string $feature): bool {
+    if ($feature === 'ai') { return Modules::enabled('ai') && Settings::bool('ai.enabled'); }
     $f = self::find($feature);
     if (!$f) { return true; }
     return self::bundleEnabled($f['bundle']) && (int) (self::state()['feature:'.$feature] ?? 1) === 1; }

@@ -83,6 +83,7 @@ final class WorkReportController extends Controller {
     $d = $this->validate(['type' => 'required|in:daily,weekly', 'period_start' => 'required|date', 'project_id' => 'nullable|integer', 'summary' => 'required|max:5000', 'accomplishments' => 'nullable|max:10000', 'blockers' => 'nullable|max:5000', 'next_steps' => 'nullable|max:5000', 'hours' => 'nullable|numeric|min:0|max:'.($this->request->str('type') === 'weekly' ? 168 : 24)], ['period_start' => 'Date', 'project_id' => 'Project']);
     [$d['period_start'], $d['period_end']] = $this->period($d['type'], $d['period_start']);
     if ($d['period_start'] > date('Y-m-d', strtotime('+1 day'))) { throw new ValidationException(['period_start' => 'You cannot report on a future period.']); }
+    if (!feature_on('projects')) { $d['project_id'] = null; }
     if ($d['project_id'] && !PA::canSee($this->user(), (int) $d['project_id'])) { throw new ValidationException(['project_id' => 'Project is invalid.']); }
     $dup = DB::value('SELECT id FROM work_reports WHERE user_id=? AND type=? AND period_start=? AND (project_id <=> ?)'.($id ? ' AND id<>?' : '').' LIMIT 1', [$this->uid(), $d['type'], $d['period_start'], $d['project_id'], ...($id ? [$id] : [])]);
     if ($dup) { throw new ValidationException(['period_start' => 'You already submitted a '.$d['type'].' report for this period'.($d['project_id'] ? ' and project' : '').'.']); }
@@ -121,7 +122,7 @@ final class WorkReportController extends Controller {
   public function show(int $id): Response {
     $r = $this->report($id);
     $mine = (int) $r['user_id'] === $this->uid();
-    $tasks = DB::all("SELECT t.id, t.title, t.project_id, p.name AS project FROM tasks t JOIN projects p ON p.id=t.project_id WHERE t.assignee_id=? AND t.status='done' AND t.completed_at>=? AND t.completed_at<? ORDER BY t.completed_at LIMIT 30", [(int) $r['user_id'], $r['period_start'].' 00:00:00', date('Y-m-d', strtotime($r['period_end'].' +1 day')).' 00:00:00']);
+    $tasks = !feature_on('projects') ? [] : DB::all("SELECT t.id, t.title, t.project_id, p.name AS project FROM tasks t JOIN projects p ON p.id=t.project_id WHERE t.assignee_id=? AND t.status='done' AND t.completed_at>=? AND t.completed_at<? ORDER BY t.completed_at LIMIT 30", [(int) $r['user_id'], $r['period_start'].' 00:00:00', date('Y-m-d', strtotime($r['period_end'].' +1 day')).' 00:00:00']);
     $vis = PA::visibleProjectIds($this->user());
     if ($vis !== null) { $tasks = array_values(array_filter($tasks, static fn ($t) => in_array((int) $t['project_id'], $vis, true))); }
     return $this->view('projects::reports/show', ['title' => 'Work report', 'r' => $r, 'mine' => $mine, 'canReview' => !$mine && $r['status'] === 'submitted' && $this->can('projects.reports.approve') && $this->canReview($r), 'logged' => PS::on('time') ? PS::userSeconds((int) $r['user_id'], $r['period_start'], $r['period_end']) : null, 'tasks' => $tasks, 'styles' => ['css/projects.css']]); }

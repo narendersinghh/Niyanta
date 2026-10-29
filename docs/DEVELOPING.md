@@ -13,6 +13,7 @@ views/               layouts/app.php, layouts/blank.php, partials/, errors/
 assets/css/app.css   design system   assets/js/app.js  core UI   assets/img/icons.svg  icon sprite
 assets/img/illustrations/*.svg   cartoon illustrations (use illus('name'))
 storage/             private: uploads, backups, logs, cache, sessions (denied by .htaccess)
+desktop/             Niyanta Tracker, the Electron time-tracking app (not deployed; see desktop/README.md and modules/Attendance/AGENT_API.md)
 ```
 Namespaces: `Core\X` → `core/X.php`; `Modules\Crm\Controllers\ClientController` → `modules/Crm/Controllers/ClientController.php`.
 
@@ -26,6 +27,7 @@ Returns an array: `key, name, description, icon, order, version, requires[], per
 - **global_scripts**: `['js/x.js' => 'perm']`, loaded on every app page for users holding the permission (keep them tiny).
 - **global_styles**: `['css/x.css' => 'perm']` loaded on every app page.
 - **topbar** / **body_end**: `fn(array $user): string` HTML slots in the layout (top-bar buttons; drawers/dialogs before </body>).
+- **Feature switches** (core/features.php): disabling a feature denies its permissions and blocks its routes, but anything gated by another permission (or none) must also check the feature. Use `feature_on('leave')` in views/services (`'ai'` is the AI assistant switch) and `route_on('/path')` to test whether a link target is still on. Declarative keys: route option `'feature' => name|[names]` (any-of, on top of the permission's own feature), `'feature'` on `nav` entries, `widgets`, `cron` jobs and settings fields/sections (SettingsSchema), and `global_scripts`/`global_styles` values `['perm' => ..., 'feature' => ...]`. Notifications and search results whose URL points at a switched-off feature are dropped automatically. Settings tabs map to features in `SettingsSchema::TAB_FEATURES`.
 - **file_access**: `'client' => fn(array $user, int $entityId, array $file, string $mode): bool`, authorises downloads of files attached via `Storage::attach($upload, 'crm', 'client', $id, 'category')`. Download link: `url('/files/'.$id)`; inline view `/files/{id}/view`; delete POST `/files/{id}/delete` (mode 'delete').
 
 Validator note: rules are split on `|`; for a `regex:` rule containing `|` pass the rules as an array (`['required', 'regex:/a|b/']`).

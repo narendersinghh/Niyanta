@@ -1,122 +1,109 @@
 <?php
-use Modules\Attendance\Services\TimeService;
+use Modules\Attendance\Services\{DesktopApp, TimeService};
+/* $st (Tracker::state), $app (DesktopApp::latest), $days, $ws, $weekTotal, $tokens, $monitoring, $consent, $policy, $retention, $shotsToday, $ts, $projects */
 $hms = static fn (int $s): string => sprintf('%02d:%02d:%02d', intdiv($s, 3600), intdiv($s % 3600, 60), $s % 60);
-$elapsed = $running ? TimeService::elapsed($running) : 0;
+$size = static fn (int $b): string => $b >= 1048576 ? round($b / 1048576).' MB' : ($b > 0 ? max(1, (int) round($b / 1024)).' KB' : '');
 $prev = date('Y-m-d', strtotime($ws.' -7 days')); $next = date('Y-m-d', strtotime($ws.' +7 days'));
 $isThisWeek = $ws === TimeService::weekStart();
-$actions = '<button class="btn ghost" data-modal="entry-dialog" data-entry-new>'.icon('plus', 'sm').' Add time</button><a class="btn ghost" href="'.e(url('/timesheets?week='.$ws)).'">'.icon('calendar', 'sm').' Timesheet</a>'.($monitoring ? '<a class="btn soft" href="'.e(url('/time/screenshots')).'">'.icon('image', 'sm').' My screenshots</a>' : '');
+$run = $st['running']; $tot = $st['totals'];
+$runElapsed = $run ? (int) $run['elapsed'] : 0;
+$chip = ['tracking' => ['dot-in pulse', 'live'], 'paused' => ['dot-break', 'idle'], 'stopped' => ['dot-break', 'idle'], 'ended' => ['dot-done', ''], 'not_started' => ['dot-out', '']][$st['state']];
+$osIc = ['windows' => '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M3 5.5 10.5 4.5v7H3zm8.5-1.1L21 3v8.5h-9.5zM3 12.5h7.5v7L3 18.5zm8.5 0H21V21l-9.5-1.3z"/></svg>',
+  'mac' => '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M16.4 12.7c0-2.4 2-3.5 2-3.6-1.1-1.6-2.8-1.8-3.4-1.8-1.4-.2-2.8.9-3.5.9s-1.8-.8-3-.8C7 7.4 5.6 8.3 4.8 9.7c-1.6 2.8-.4 7 1.2 9.3.8 1.1 1.7 2.4 2.9 2.3 1.2 0 1.6-.7 3-.7s1.8.7 3 .7c1.3 0 2.1-1.1 2.8-2.3.9-1.3 1.3-2.6 1.3-2.6s-2.6-1-2.6-3.7zM14.2 5.6c.6-.8 1.1-1.8 1-2.9-1 0-2.1.7-2.8 1.5-.6.7-1.1 1.8-1 2.8 1.1.1 2.2-.6 2.8-1.4z"/></svg>',
+  'linux' => '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2c-2.2 0-3.6 1.8-3.6 4.4 0 1.5-.3 2.4-1.2 3.6C5.9 11.7 5 13.6 5 15.6c0 .5 0 1 .1 1.4-.6.4-1.6.9-1.6 1.8 0 1.2 1.7 1.3 2.8 1.8 1.1.6 1.9 1.4 2.8 1.4.8 0 1.3-.5 1.6-1h2.6c.3.5.8 1 1.6 1 .9 0 1.7-.8 2.8-1.4 1.1-.5 2.8-.6 2.8-1.8 0-.9-1-1.4-1.6-1.8.1-.4.1-.9.1-1.4 0-2-.9-3.9-2.2-5.6-.9-1.2-1.2-2.1-1.2-3.6C15.6 3.8 14.2 2 12 2zm-1.5 4.2c.5 0 .8.6.8 1.2s-.3 1-.8 1-.8-.5-.8-1 .3-1.2.8-1.2zm3 0c.5 0 .8.6.8 1.2s-.3 1-.8 1-.8-.5-.8-1 .3-1.2.8-1.2zM12 9.2c.9 0 2 .5 2 .9s-1.1 1.1-2 1.1-2-.7-2-1.1 1.1-.9 2-.9z"/></svg>'];
+$osIc['deb'] = $osIc['linux'];
+$archLbl = ['arm64' => 'Apple silicon', 'x64' => 'Intel', 'universal' => 'Universal'];
+$actions = '<a class="btn ghost" href="'.e(url('/timesheets?week='.$ws)).'">'.icon('calendar', 'sm').' Timesheet</a>'.($monitoring || $shotsToday ? '<a class="btn ghost" href="'.e(url('/time/screenshots')).'">'.icon('image', 'sm').' My screenshots</a>' : '').'<a class="btn soft" href="#desktop">'.icon('download', 'sm').' Desktop app</a>';
 ?>
-<?= partial('partials/page_head', ['title' => 'Time Tracker', 'subtitle' => 'Track what you work on: start a timer or log time manually. Time is approved automatically.', 'crumbs' => [['Work'], ['Time Tracker']], 'actions' => $actions]) ?>
+<?= partial('partials/page_head', ['title' => 'Time Tracking', 'subtitle' => 'Your workday is tracked by the Niyanta Tracker desktop app. Here you see your live status, your time and your screenshots.', 'crumbs' => [['Work'], ['Time Tracking']], 'actions' => $actions]) ?>
 <div class="grid g-side">
   <div class="stack">
-    <div class="tt-card<?= $running ? ' running' : '' ?>" data-tracker data-running="<?= $running ? 1 : 0 ?>" data-idle-min="<?= (int) $idleMinutes ?>">
+    <div class="tt-card live-card<?= $st['state'] === 'tracking' ? ' running' : '' ?>" data-live-status data-state="<?= e($st['state']) ?>" aria-live="polite">
       <div class="tt-top">
-        <div class="flex wrap"><?php if ($running): ?><span class="tt-chip live" data-state-live><span class="dotc dot-in pulse"></span>Tracking</span><span class="tt-chip idle hide" data-state-idle><span class="dotc dot-break pulse"></span>Idle, are you there?</span><?php else: ?><span class="tt-chip"><span class="dotc dot-out"></span>Ready</span><?php endif ?></div>
+        <span class="tt-chip <?= e($chip[1]) ?>" data-ls-chip><span class="dotc <?= e($chip[0]) ?>"></span><span data-ls-label><?= e($st['label']) ?></span></span>
         <span class="tt-chip"><?= icon('calendar', 'sm') ?> <?= e(date('D, d M')) ?></span>
       </div>
-      <?php if ($running): ?>
-        <div class="tt-main">
-          <div><div class="tt-digits" data-tick data-timer data-base="<?= $elapsed ?>"><?= e($hms($elapsed)) ?></div><div class="tt-sub">Started at <b><?= e(ftime($running['started_at'])) ?></b><?= $running['source'] === 'agent' ? ' · via desktop agent' : '' ?></div></div>
-          <form method="post" action="<?= e(url('/time/stop')) ?>"><?= csrf_field() ?><button class="tt-btn stop" aria-label="Stop timer" title="Stop timer"><?= icon('stop') ?></button></form>
-        </div>
-        <div class="tt-run-meta">
-          <span class="pj"><?= e($running['project_name'] ?? 'No project') ?><?php if ($running['task_title']): ?> <span class="muted">· <?= e($running['task_title']) ?></span><?php endif ?></span>
-          <span class="muted small"><?= e($running['description'] ?: 'No description') ?></span>
-          <span class="flex wrap"><span class="small muted" data-idle-total>Idle recorded: <?= e(hours($running['idle_seconds'])) ?></span></span>
-        </div>
-        <div class="tt-foot"><span><?= icon('info', 'sm') ?> Keep this tab open while tracking. Without activity for <?= (int) $idleMinutes ?> min you are marked idle; with no heartbeat for 10 min the timer stops.</span></div>
-      <?php else: ?>
-        <form method="post" action="<?= e(url('/time/start')) ?>"><?= csrf_field() ?>
-          <div class="tt-main">
-            <div><div class="tt-digits">00:00:00</div><div class="tt-sub">What are you working on?</div></div>
-            <button class="tt-btn go" aria-label="Start timer" title="Start timer"><?= icon('play') ?></button>
-          </div>
-          <div class="tt-fields">
-            <select name="project_id" data-project-select data-task-target="tt-task" aria-label="Project"><option value="">No project</option><?php foreach ($projects as $id => $n): ?><option value="<?= (int) $id ?>"><?= e($n) ?></option><?php endforeach ?></select>
-            <select name="task_id" id="tt-task" aria-label="Task" disabled><option value="">Select a project first</option></select>
-            <input type="text" name="description" class="full" maxlength="500" placeholder="Describe the work (optional)">
-          </div>
-          <div class="tt-foot"><input type="hidden" name="billable" value="1"><span>Today: <b><?= e(hours($stats['total'])) ?></b> tracked</span></div>
-        </form>
-      <?php endif ?>
+      <div class="tt-main">
+        <div class="grow"><div class="tt-digits" data-tick data-ls-total data-base="<?= (int) $tot['tracked'] ?>"<?= $st['state'] === 'tracking' ? '' : ' data-paused' ?>><?= e($hms((int) $tot['tracked'])) ?></div>
+          <div class="tt-sub" data-ls-line><?php if ($run): ?>Tracking<?= $run['device'] ? ' on <b>'.e($run['device']).'</b>' : '' ?> · <b><?= e(feature_on('projects') ? ($run['project'] ?? 'No project') : 'Tracked time') ?></b><?= $run['task'] ? ' · '.e(str_limit($run['task'], 40)) : '' ?>
+            <?php elseif ($st['state'] === 'paused'): ?>Paused since <b><?= e(ftime($st['day']['paused_since'])) ?></b>. Resume in the desktop app.
+            <?php elseif ($st['state'] === 'stopped'): ?>Your day is open but nothing is being tracked. Is the desktop app running?
+            <?php elseif ($st['state'] === 'ended'): ?>Day ended at <b><?= e(ftime($st['day']['clock_out'])) ?></b>. Nice work.
+            <?php else: ?>Not started yet. Open Niyanta Tracker and click <b>Start day</b>.<?php endif ?></div></div>
+        <div class="live-entry<?= $run ? '' : ' hide' ?>" data-ls-entry><span class="xs">Current entry</span><b data-tick data-ls-entry-t data-base="<?= $runElapsed ?>"<?= $run ? '' : ' data-paused' ?>><?= e($hms($runElapsed)) ?></b></div>
+      </div>
+      <div class="tt-foot"><span><?= icon('monitor', 'sm') ?> Start, pause, switch project and end your day in the Niyanta Tracker app. This view refreshes every 30 seconds.</span><span class="xs" data-ls-updated></span></div>
     </div>
-    <div class="card">
+
+    <div class="card dl-card" id="desktop">
+      <div class="card-head"><div><h3>Get the desktop app</h3><p class="small muted mb0">Niyanta Tracker for Windows, macOS and Linux. Track your day, pause, switch projects and see your activity.</p></div>
+        <?php if ($app['version']): ?><span class="pill pill-lav">Latest <?= e($app['version']) ?><?= $app['date'] ? ' · '.e(fdate($app['date'])) : '' ?></span><?php endif ?></div>
+      <div class="os-grid" data-os-grid>
+        <?php foreach (DesktopApp::PLATFORMS as $pk => [$pl, $hint]): $files = $app['platforms'][$pk]; $f0 = $files[0] ?? null; ?>
+        <div class="os-card" data-os="<?= e($pk) ?>">
+          <div class="os-top"><span class="os-ic os-<?= e($pk) ?>"><?= $osIc[$pk] ?></span><div class="grow"><b><?= e($pl) ?></b><div class="xs muted"><?= e($hint) ?></div></div><span class="pill pill-mint os-you hide">Your system</span></div>
+          <?php if ($f0): ?>
+            <div class="os-meta xs"><span>v<?= e($f0['version']) ?></span><?= $size((int) $f0['size']) ? '<span>'.e($size((int) $f0['size'])).'</span>' : '' ?><span><?= e(fdate($f0['date'])) ?></span></div>
+            <div class="os-btns"><?php foreach ($files as $f): ?><a class="btn sm <?= $f === $f0 ? 'primary' : 'ghost' ?>" href="<?= e($f['url']) ?>"<?= $f['source'] === 'github' ? ' rel="noopener noreferrer"' : '' ?> download><?= icon('download', 'sm') ?> <?= e($pk === 'mac' ? ($archLbl[$f['arch']] ?? $f['arch']).($f['ext'] === 'zip' ? ' (.zip)' : '') : ($pk === 'windows' ? 'Download .exe' : ($pk === 'deb' ? 'Download .deb' : 'Download AppImage'))) ?></a><?php endforeach ?></div>
+          <?php else: ?><div class="os-meta xs muted">Not published yet</div><div class="os-btns"><span class="btn sm ghost is-disabled" aria-disabled="true"><?= icon('download', 'sm') ?> Coming soon</span></div><?php endif ?>
+        </div>
+        <?php endforeach ?>
+      </div>
+      <?php if (!$app['version'] && user()['role_slug'] === 'super_admin'): ?><div class="alert warn mt mb0"><?= icon('info', 'sm') ?><div>No installers yet. Upload them or connect a GitHub repository in <a href="<?= e(url('/admin/settings/attendance#desktop')) ?>"><b>Settings › Attendance &amp; time tracking</b></a>.</div></div><?php endif ?>
+      <div class="dl-steps">
+        <div><h4><?= icon('package', 'sm') ?> Install</h4><ol class="steps-list small">
+          <li data-os-step="windows"><b>Windows:</b> run the .exe and follow the installer.</li>
+          <li data-os-step="mac"><b>macOS:</b> open the .dmg, drag Niyanta Tracker to Applications, then allow <i>Screen Recording</i> when asked.</li>
+          <li data-os-step="linux"><b>Linux:</b> make the AppImage executable (<span class="mono">chmod +x</span>) and run it, or install the .deb with <span class="mono">sudo apt install ./niyanta-tracker-*.deb</span>.</li></ol></div>
+        <div><h4><?= icon('link', 'sm') ?> Connect</h4><p class="small mb">Sign in with your Niyanta email and password and this workspace address:</p>
+          <div class="token-box"><code><?= e(absolute_url('/')) ?></code><button type="button" class="btn icon sm ghost" data-copy="<?= e(absolute_url('/')) ?>" aria-label="Copy workspace address"><?= icon('copy', 'sm') ?></button></div></div>
+      </div>
+    </div>
+
+    <div class="card wk-card">
       <div class="card-head"><h3>Week entries</h3>
         <div class="wk-nav"><a class="btn icon sm ghost" href="<?= e(url('/time?week='.$prev)) ?>" aria-label="Previous week"><?= icon('chevron-left', 'sm') ?></a><span class="range small"><?= e(fdate($ws, 'd M')) ?> - <?= e(fdate(date('Y-m-d', strtotime($ws.' +6 days')), 'd M Y')) ?></span><?php if (!$isThisWeek): ?><a class="btn icon sm ghost" href="<?= e(url('/time?week='.$next)) ?>" aria-label="Next week"><?= icon('chevron-right', 'sm') ?></a><?php endif ?>
-          <span class="pill pill-lav"><?= e(hours($weekTotal + $elapsed)) ?></span><?php if ($ts): ?><a href="<?= e(url('/timesheets?week='.$ws)) ?>"><?= $ts['status'] === 'rejected' ? badge('rejected', 'Week rejected') : badge('approved', 'Week approved') ?></a><?php endif ?></div></div>
+          <span class="pill pill-lav"><?= e(hours($weekTotal + ($isThisWeek ? $runElapsed : 0))) ?></span><?php if ($ts): ?><a href="<?= e(url('/timesheets?week='.$ws)) ?>"><?= $ts['status'] === 'rejected' ? badge('rejected', 'Week rejected') : badge('approved', 'Week approved') ?></a><?php endif ?>
+          <button class="btn sm ghost" data-modal="entry-dialog" data-entry-new><?= icon('plus', 'sm') ?> Add time manually</button></div></div>
       <?php if ($ts && $ts['status'] === 'rejected'): ?><div class="alert error"><?= icon('alert', 'sm') ?><div class="grow">This week was rejected<?= $ts['review_note'] ? ': <b>'.e($ts['review_note']).'</b>' : '.' ?> Fix the entries, then <a href="<?= e(url('/timesheets?week='.$ws)) ?>"><b>resubmit the week</b></a>.</div></div><?php endif ?>
       <?= partial('attendance::partials/entries', ['days' => $days, 'ws' => $ws, 'editable' => true]) ?>
+      <p class="xs muted mt mb0"><?= icon('info', 'sm') ?> Time you add by hand is labelled <b>Manual</b>. Like tracked time it is approved automatically and your manager can reject the week.</p>
     </div>
   </div>
   <div class="stack">
     <div class="card">
       <div class="card-head"><h3>Today</h3><span class="muted small"><?= e(date('d M')) ?></span></div>
       <div class="mini-tiles">
-        <div class="mini m-mint"><span class="lbl"><?= icon('activity', 'sm') ?> Active</span><span class="val"><?= e(hours($stats['active'])) ?></span></div>
-        <div class="mini m-lemon"><span class="lbl"><?= icon('pause', 'sm') ?> Idle</span><span class="val"><?= e(hours($stats['idle'])) ?></span></div>
-        <div class="mini m-peach"><span class="lbl"><?= icon('coffee', 'sm') ?> Break</span><span class="val"><?= e(hours($stats['break'])) ?></span></div>
-        <div class="mini m-lav"><span class="lbl"><?= icon('clock', 'sm') ?> Total</span><span class="val"><?= e(hours($stats['total'])) ?></span></div>
+        <div class="mini m-mint"><span class="lbl"><?= icon('activity', 'sm') ?> Active</span><span class="val" data-ls-active><?= e(hours($tot['active'])) ?></span></div>
+        <div class="mini m-lemon"><span class="lbl"><?= icon('pause', 'sm') ?> Idle</span><span class="val" data-ls-idle><?= e(hours($tot['idle'])) ?></span></div>
+        <div class="mini m-peach"><span class="lbl"><?= icon('coffee', 'sm') ?> Paused</span><span class="val" data-ls-paused><?= e(hours($tot['paused'])) ?></span></div>
+        <div class="mini m-lav"><span class="lbl"><?= icon('clock', 'sm') ?> Total</span><span class="val" data-ls-tracked><?= e(hours($tot['tracked'])) ?></span></div>
       </div>
-      <div class="flex between mt">
-        <span class="small"><?= ['out' => 'You have not clocked in today.', 'in' => 'You are clocked in.', 'break' => 'You are on a break.', 'done' => 'You have clocked out.'][$attState] ?></span>
-        <?php if ($attState === 'out' && can('attendance.track')): ?><form method="post" action="<?= e(url('/attendance/clock-in')) ?>"><?= csrf_field() ?><button class="btn sm primary"><?= icon('log-in', 'sm') ?> Clock in</button></form><?php else: ?><a class="btn sm ghost" href="<?= e(url('/attendance')) ?>">Attendance</a><?php endif ?>
-      </div>
+      <p class="xs muted mt mb0">Only tracked time counts as worked time. Started <?= $st['day']['clock_in'] ? '<b>'.e(ftime($st['day']['clock_in'])).'</b>' : 'not yet' ?><?= $st['day']['clock_out'] ? ', ended <b>'.e(ftime($st['day']['clock_out'])).'</b>' : '' ?>. <a href="<?= e(url('/attendance')) ?>">Attendance</a></p>
     </div>
-    <?php if ($monitoring): ?>
+    <?php if ($monitoring || $consent): ?>
     <div class="card" id="monitoring">
       <div class="card-head"><h3>Screen monitoring</h3><?= $consent ? '<span class="pill pill-mint">Consent given</span>' : '<span class="pill pill-lemon">Consent needed</span>' ?></div>
       <?php if (!$consent): ?>
-        <?= illus('security-shield', 'idle-art') ?>
-        <div class="notice">
-          <b>Monitoring notice (policy <?= e(\Modules\Attendance\Services\Monitoring::POLICY_VERSION) ?>)</b>
-          <ul>
-            <li>Screenshots are taken <b>only while your timer is running</b> and only after you click "Enable screen capture" and choose what to share.</li>
-            <li>One image every <b><?= (int) $interval ?> minute<?= $interval > 1 ? 's' : '' ?></b>, scaled down, with your activity level.</li>
-            <li>You can always see your own screenshots. Your manager or HR may view them if they hold monitoring access.</li>
-            <li>Images are stored privately and deleted automatically after <b><?= (int) $retention ?> days</b>.</li>
-            <li>You can revoke consent at any time. Capture stops immediately.</li>
-          </ul>
-        </div>
-        <form method="post" action="<?= e(url('/time/consent')) ?>" class="form mt"><?= csrf_field() ?>
+        <div class="notice"><b><?= e($policy['title']) ?> (policy <?= e($policy['version']) ?>)</b><ul><?php foreach ($policy['points'] as $pt): ?><li><?= e($pt) ?></li><?php endforeach ?></ul></div>
+        <p class="small muted mt">The desktop app shows this notice before the first capture. You can also accept it here.</p>
+        <form method="post" action="<?= e(url('/time/consent')) ?>" class="form"><?= csrf_field() ?>
           <label class="check small"><input type="checkbox" name="agree" value="1" required> I have read and accept this monitoring notice.</label>
-          <button class="btn primary"><?= icon('shield', 'sm') ?> Accept & continue</button>
-        </form>
+          <button class="btn primary sm"><?= icon('shield', 'sm') ?> Accept</button></form>
       <?php else: ?>
-        <p class="small muted">Accepted <?= e(fdatetime($consent['consented_at'])) ?> · every <?= (int) $interval ?> min · kept <?= (int) $retention ?> days · <?= (int) $shotsToday ?> today.</p>
-        <?php if ($running): ?>
-          <div class="cap-box" data-capture data-interval="<?= (int) $interval ?>">
-            <div><span class="rec hide" data-cap-on>Recording</span><span class="small muted" data-cap-off>Screen capture is off</span><div class="xs muted" data-cap-last></div></div>
-            <div class="flex"><button type="button" class="btn sm primary" data-cap-start><?= icon('camera', 'sm') ?> Enable screen capture</button><button type="button" class="btn sm danger hide" data-cap-stop><?= icon('stop', 'sm') ?> Stop</button></div>
-          </div>
-        <?php else: ?><div class="alert info mb0"><?= icon('info', 'sm') ?> Start a timer to enable screen capture.</div><?php endif ?>
-        <p class="xs muted mt">Browser capture works only while this tab is open and permission is granted. Full-desktop capture requires the separately authorised desktop agent.</p>
-        <div class="flex between"><a class="btn sm ghost" href="<?= e(url('/time/screenshots')) ?>"><?= icon('image', 'sm') ?> My screenshots</a>
-          <form method="post" action="<?= e(url('/time/consent/revoke')) ?>" data-confirm="Revoke monitoring consent? Screen capture will stop."><?= csrf_field() ?><button class="btn sm danger"><?= icon('x', 'sm') ?> Revoke consent</button></form></div>
+        <p class="small muted">Accepted <?= e(fdatetime($consent['consented_at'])) ?> · <?= e(\Modules\Attendance\Services\Monitoring::intervalLabel()) ?> while tracking · kept <?= (int) $retention ?> days · <b><?= (int) $shotsToday ?></b> today.</p>
+        <div class="flex between wrap"><a class="btn sm ghost" href="<?= e(url('/time/screenshots')) ?>"><?= icon('image', 'sm') ?> My screenshots</a>
+          <form method="post" action="<?= e(url('/time/consent/revoke')) ?>" data-confirm="Revoke monitoring consent? The desktop app stops capturing immediately."><?= csrf_field() ?><button class="btn sm danger"><?= icon('x', 'sm') ?> Revoke consent</button></form></div>
       <?php endif ?>
     </div>
     <?php endif ?>
-    <div class="card" id="agent">
-      <div class="card-head"><h3>Desktop agent</h3><span class="pill pill-sky"><?= icon('monitor', 'sm') ?> API</span></div>
-      <p class="small muted">Personal tokens let an authorised desktop agent start/stop your timer, send activity heartbeats<?= $monitoring ? ' and screenshots (with your consent)' : '' ?>. Treat a token like a password.</p>
-      <?php if ($newToken): ?>
-        <div class="alert ok"><?= icon('check-circle', 'sm') ?> Token for "<?= e($newToken['name']) ?>". Copy it now, it won't be shown again.</div>
-        <div class="token-box mb"><code><?= e($newToken['token']) ?></code><button type="button" class="btn icon sm ghost" data-copy="<?= e($newToken['token']) ?>" aria-label="Copy token"><?= icon('copy', 'sm') ?></button></div>
-      <?php endif ?>
-      <?php if ($tokens): ?><div class="list mb"><?php foreach ($tokens as $tk): ?>
-        <div class="list-item"><span class="tok-ic"><?= icon('key', 'sm') ?></span><div class="grow"><b class="small"><?= e($tk['name']) ?></b><div class="meta">Created <?= e(fdate($tk['created_at'])) ?> · <?= $tk['last_used_at'] ? 'used '.e(ago($tk['last_used_at'])) : 'never used' ?></div></div>
-          <form method="post" action="<?= e(url('/time/tokens/'.$tk['id'].'/revoke')) ?>" data-confirm="Revoke this token? The agent using it will stop working."><?= csrf_field() ?><button class="btn sm danger">Revoke</button></form></div>
+    <div class="card" id="devices">
+      <div class="card-head"><h3>Connected devices</h3><span class="pill pill-sky"><?= icon('monitor', 'sm') ?> <?= count($tokens) ?></span></div>
+      <?php if (!$tokens): ?><p class="small muted mb0">No computer is connected yet. Install the desktop app and sign in.</p><?php else: ?><div class="list"><?php foreach ($tokens as $tk): ?>
+        <div class="list-item"><span class="tok-ic"><?= icon($tk['kind'] === 'desktop' ? 'monitor' : 'key', 'sm') ?></span><div class="grow"><b class="small"><?= e($tk['name']) ?></b><div class="meta"><?= e(trim(($tk['device_os'] ?? '').($tk['app_version'] ? ' · v'.$tk['app_version'] : ''), ' ·')) ?><?= $tk['device_os'] || $tk['app_version'] ? ' · ' : '' ?><?= $tk['last_used_at'] ? 'active '.e(ago($tk['last_used_at'])) : 'never used' ?></div></div>
+          <form method="post" action="<?= e(url('/time/tokens/'.$tk['id'].'/revoke')) ?>" data-confirm="Disconnect <?= e($tk['name']) ?>? The tracker there signs out."><?= csrf_field() ?><button class="btn sm ghost">Disconnect</button></form></div>
       <?php endforeach ?></div><?php endif ?>
-      <form method="post" action="<?= e(url('/time/tokens')) ?>" class="flex"><?= csrf_field() ?><input type="text" name="name" maxlength="100" placeholder="Device name, e.g. Work laptop" required aria-label="Device name"><button class="btn sm primary"><?= icon('plus', 'sm') ?> Create</button></form>
-      <?= error_for('name') ?>
     </div>
   </div>
 </div>
-<dialog class="modal" id="idle-dialog">
-  <div class="modal-body center">
-    <?= illus('coffee-break', 'idle-art') ?>
-    <h3>Welcome back!</h3>
-    <p class="muted">You were idle for <b data-idle-mins>0 min</b> while your timer was running. Keep that time or remove it from this entry?</p>
-    <div class="flex" style="justify-content:center"><button type="button" class="btn ghost" data-idle-keep>Keep time</button><button type="button" class="btn primary" data-idle-discard><?= icon('trash', 'sm') ?> Discard idle time</button></div>
-  </div>
-</dialog>
 <?= partial('attendance::partials/entry_dialog', ['projects' => $projects]) ?>

@@ -7,7 +7,7 @@
 return [
   'people' => ['name' => 'HR & Employee Management', 'icon' => 'users', 'color' => '#12B5A0', 'description' => 'Employees, attendance & time, leave & holidays, payroll, reimbursements and company documents.', 'features' => [
     'employees' => ['name' => 'Employee directory & records', 'module' => 'hr', 'icon' => 'id-card', 'perms' => ['hr.directory', 'hr.employees', 'hr.documents'], 'description' => 'Profiles, secure ID proofs & agreements, onboarding/offboarding.'],
-    'attendance' => ['name' => 'Attendance & time tracking', 'module' => 'attendance', 'icon' => 'timer', 'perms' => ['attendance'], 'description' => 'Clock in/out, time tracker, timesheets and activity monitoring.'],
+    'attendance' => ['name' => 'Attendance & time tracking', 'module' => 'attendance', 'icon' => 'timer', 'perms' => ['attendance'], 'description' => 'Desktop time tracker (Windows, macOS, Linux), attendance, timesheets and activity monitoring.'],
     'leave' => ['name' => 'Leave & holidays', 'module' => 'hr', 'icon' => 'umbrella', 'perms' => ['hr.leave'], 'description' => 'Fixed & optional holidays, leave requests, balances and approvals.'],
     'payroll' => ['name' => 'Salary & payroll', 'module' => 'payroll', 'icon' => 'wallet', 'perms' => ['payroll.view_own', 'payroll.manage', 'payroll.compensation'], 'description' => 'Compensation, payroll runs and payslips.'],
     'reimbursements' => ['name' => 'Reimbursements', 'module' => 'payroll', 'icon' => 'receipt', 'perms' => ['payroll.reimbursements'], 'description' => 'Expense claims with receipts and approvals.'],

@@ -24,6 +24,11 @@ final class DemoData {
     'attendance' => ['Attendance days', 'clock', 'mint'], 'time_entries' => ['Time entries', 'timer', 'mint'], 'timesheets' => ['Timesheets', 'calendar', 'mint'], 'compensations' => ['Compensations', 'wallet', 'pink'], 'pay_components' => ['Pay components', 'sliders', 'pink'],
     'payroll_runs' => ['Payroll runs', 'rupee', 'pink'], 'payslips' => ['Payslips', 'file-text', 'pink'], 'reimbursements' => ['Reimbursements', 'receipt', 'lemon'], 'notifications' => ['Notifications', 'bell', 'sky']];
 
+  /** table => feature it belongs to (rows of switched-off features are not listed). */
+  public const FEATURE = ['employee_profiles' => 'employees', 'holidays' => 'leave', 'leave_requests' => 'leave', 'company_documents' => 'company_docs', 'clients' => 'clients', 'client_contacts' => 'clients', 'client_activities' => 'clients', 'tags' => 'clients',
+    'quotations' => 'quotations', 'quotation_items' => 'quotations', 'invoices' => 'invoices', 'invoice_items' => 'invoices', 'payments' => 'invoices', 'projects' => 'projects', 'milestones' => 'projects', 'tasks' => 'projects', 'task_comments' => 'projects',
+    'change_requests' => 'projects', 'work_reports' => 'work_reports', 'attendance' => 'attendance', 'time_entries' => 'attendance', 'timesheets' => 'attendance', 'compensations' => 'payroll', 'pay_components' => 'payroll', 'payroll_runs' => 'payroll', 'payslips' => 'payroll', 'reimbursements' => 'reimbursements'];
+
   private array $rec = [];
   private array $files = [];
   private string $now;
@@ -488,10 +493,12 @@ final class DemoData {
         'review_note' => $st === 'rejected' ? 'Please use the company devices instead.' : null, 'created_at' => date('Y-m-d H:i:s', strtotime(($at + 1).' days'))]); } }
 
   private function notifications(array $U): void {
+    /* Each sample notification is created only when the page it links to is switched on. */
     $n = [['aarav', 'Timesheets approved automatically', 'Last week\'s timesheets were approved automatically. Reject any that need changes.', '/timesheets/approvals', 'timer', null], ['aarav', 'Leave request from Vikram Singh', 'Optional holiday on Guru Nanak Jayanti.', '/hr/leave/approvals', 'umbrella', null],
       ['rohan', '1 overdue invoice needs attention', 'BluePeak Fintech, Brand refresh final invoice.', '/invoices?status=overdue', 'receipt', null], ['ananya', 'New comment on "Homepage visual design"', 'Aarav: Looks good, moving to review.', '/tasks', 'message', -1],
       ['vikram', 'Task due tomorrow: Subscription box logic', 'Saffron Spice D2C Store', '/tasks', 'clock', null], ['priya', 'Reimbursement claims pending', '3 claims are waiting for review.', '/reimbursements', 'wallet', null],
       ['karan', 'Your leave was approved', 'Personal work, approved by Rohan Kapoor.', '/hr/leave', 'check', -30], ['sneha', 'Please acknowledge: Leave & Holiday Policy', 'A company document needs your acknowledgement.', '/hr/me', 'book', null]];
     foreach ($n as $i => [$u, $title, $body, $url, $icon, $read]) {
+      if (!route_on($url) || ($icon === 'book' && !Features::enabled('company_docs'))) { continue; }
       $this->add('notifications', ['user_id' => $U[$u], 'title' => $title, 'body' => $body, 'url' => $url, 'icon' => $icon, 'read_at' => $read === null ? null : date('Y-m-d H:i:s', strtotime("$read days")), 'created_at' => date('Y-m-d H:i:s', strtotime('-'.($i * 3 + 1).' hours'))]); }
     $this->add('notifications', ['user_id' => $this->by, 'title' => 'Demo data is ready', 'body' => 'Sign in as any demo user with the shared password, or explore as yourself. Remove it from Settings › Demo data.', 'url' => '/admin/settings/demo', 'icon' => 'sparkles', 'read_at' => null, 'created_at' => $this->now]); } }

@@ -46,10 +46,10 @@ return [
     $r->post('/reimbursements/{id}/delete', [ReimbursementController::class, 'destroy'], 'payroll.reimbursements.request');
   },
   'widgets' => [
-    ['zone' => 'kpis', 'order' => 40, 'perm' => 'payroll.view_own', 'render' => static function (array $u): string {
+    ['zone' => 'kpis', 'order' => 40, 'perm' => 'payroll.view_own', 'feature' => 'payroll', 'render' => static function (array $u): string {
       $s = DB::first("SELECT s.id, s.net, r.period_month FROM payslips s JOIN payroll_runs r ON r.id=s.run_id WHERE s.user_id=? AND r.status IN ('finalized','paid') ORDER BY r.period_month DESC LIMIT 1", [$u['id']]);
       return '<a class="tile bg-peach" href="'.e(url($s ? '/payslips/'.$s['id'] : '/payslips')).'"><span class="tile-ic">'.icon('wallet').'</span><div><div class="num">'.e($s ? money($s['net']) : '-').'</div><div class="lbl">Last net pay'.($s ? ' · '.e(date('M Y', strtotime($s['period_month']))) : '').'</div></div>'.'</a>'; }],
-    ['zone' => 'side', 'order' => 40, 'perm' => 'payroll.manage', 'render' => static function (array $u): string {
+    ['zone' => 'side', 'order' => 40, 'perm' => ['payroll.manage', 'payroll.reimbursements.approve'], 'feature' => 'reimbursements', 'render' => static function (array $u): string {
       $rows = DB::all("SELECT r.id, r.title, r.amount, r.created_at, u.name FROM reimbursements r JOIN users u ON u.id=r.user_id WHERE r.status='pending' ORDER BY r.created_at LIMIT 5");
       $n = $rows ? (int) DB::value("SELECT COUNT(*) FROM reimbursements WHERE status='pending'") : 0;
       $link = Gate::allows('payroll.reimbursements.approve', $u) ? url('/reimbursements?tab=queue') : url('/payroll');
@@ -64,7 +64,7 @@ return [
     $rows = DB::all("SELECT s.id, s.net, r.period_month FROM payslips s JOIN payroll_runs r ON r.id=s.run_id WHERE s.user_id=? AND r.status IN ('finalized','paid') AND (DATE_FORMAT(r.period_month, '%M %Y') LIKE ? OR DATE_FORMAT(r.period_month, '%Y-%m') LIKE ? OR ? LIKE '%payslip%') ORDER BY r.period_month DESC LIMIT 8", [$u['id'], DB::like($q), DB::like($q), strtolower($q)]);
     return ['Payslips' => array_map(static fn ($r) => ['title' => 'Payslip · '.date('F Y', strtotime($r['period_month'])), 'meta' => 'Net '.money($r['net']), 'url' => '/payslips/'.$r['id'], 'icon' => 'file-text'], $rows)]; },
   'cron' => [
-    'payroll_reminder' => ['monthly' => '25 10:00', 'run' => [PayrollService::class, 'reminder']],
+    'payroll_reminder' => ['feature' => 'payroll', 'monthly' => '25 10:00', 'run' => [PayrollService::class, 'reminder']],
   ],
   'file_access' => [
     'reimbursement' => static function (array $user, int $id, array $file, string $mode): bool {

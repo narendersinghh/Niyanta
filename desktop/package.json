@@ -1,0 +1,126 @@
+{
+  "name": "niyanta-tracker",
+  "productName": "Niyanta Tracker",
+  "version": "1.0.0",
+  "description": "Niyanta desktop time tracker: day tracking, project switching, activity levels and consent-based screenshots synced with your Niyanta workspace.",
+  "main": "src/main/main.js",
+  "author": "Niyanta",
+  "license": "UNLICENSED",
+  "private": true,
+  "homepage": "https://niyanta.app",
+  "scripts": {
+    "start": "electron .",
+    "check": "node scripts/check.js",
+    "icons": "electron scripts/icons.js",
+    "dist": "electron-builder",
+    "dist:win": "electron-builder --win nsis --x64 --publish never",
+    "dist:mac": "electron-builder --mac dmg zip --x64 --arm64 --publish never",
+    "dist:linux": "electron-builder --linux AppImage deb --x64 --publish never"
+  },
+  "devDependencies": {
+    "electron": "33.4.11",
+    "electron-builder": "25.1.8"
+  },
+  "build": {
+    "appId": "app.niyanta.tracker",
+    "productName": "Niyanta Tracker",
+    "artifactName": "niyanta-tracker-${version}-${os}-${arch}.${ext}",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "build/tray",
+        "to": "tray",
+        "filter": [
+          "*.png"
+        ]
+      }
+    ],
+    "asar": true,
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "Niyanta Tracker",
+      "artifactName": "niyanta-tracker-${version}-win-${arch}.${ext}"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png",
+      "category": "public.app-category.productivity",
+      "hardenedRuntime": true,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "extendInfo": {
+        "NSScreenCaptureUsageDescription": "Niyanta Tracker captures your screen at the interval set by your organisation, only while you are tracking time and after you accept the monitoring notice.",
+        "LSUIElement": false
+      },
+      "notarize": false
+    },
+    "dmg": {
+      "title": "Niyanta Tracker ${version}"
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icons",
+      "category": "Office",
+      "maintainer": "Niyanta <support@niyanta.app>",
+      "synopsis": "Niyanta time tracker",
+      "executableName": "niyanta-tracker"
+    },
+    "deb": {
+      "depends": [
+        "libnotify4",
+        "libxtst6",
+        "libnss3"
+      ]
+    },
+    "publish": null
+  }
+}

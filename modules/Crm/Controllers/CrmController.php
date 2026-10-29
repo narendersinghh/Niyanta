@@ -21,8 +21,8 @@ abstract class CrmController extends Controller {
   /** Load a quotation/invoice joined to its client, enforcing client visibility. */
   protected function doc(string $table, int $id): array {
     [$w, $p] = $this->scope('d.client_id');
-    $proj = \Core\Modules::enabled('projects') ? ', pr.name AS project_name' : ', NULL AS project_name';
-    $join = \Core\Modules::enabled('projects') ? ' LEFT JOIN projects pr ON pr.id=d.project_id' : '';
+    $proj = feature_on('projects') ? ', pr.name AS project_name' : ', NULL AS project_name';
+    $join = feature_on('projects') ? ' LEFT JOIN projects pr ON pr.id=d.project_id' : '';
     $row = DB::first('SELECT d.*, c.name AS client_name, c.company AS client_company, c.email AS client_email'.$proj.' FROM '.DB::id($table).' d JOIN clients c ON c.id=d.client_id'.$join.' WHERE d.id=? AND '.$w, [$id, ...$p]);
     return $row ?? $this->abort(404, 'Record not found.'); }
 

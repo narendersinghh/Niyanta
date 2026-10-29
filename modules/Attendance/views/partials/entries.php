@@ -1,15 +1,16 @@
 <?php /* $days (date => entries), $ws, $editable (bool) */
-$srcIc = ['timer' => 'timer', 'manual' => 'edit', 'agent' => 'monitor'];
-if (!$days): ?><?= empty_state('No time logged this week', $editable ? 'Start the timer or add time manually. Time you log is approved automatically.' : 'Nothing was tracked in this week.', 'clock-worker') ?><?php else: foreach ($days as $d => $list): $sum = 0; foreach ($list as $x) { $sum += \Modules\Attendance\Services\TimeService::elapsed($x); } ?>
+$srcIc = ['timer' => 'timer', 'manual' => 'edit', 'agent' => 'monitor', 'desktop' => 'monitor'];
+$srcLbl = ['timer' => 'Web timer', 'manual' => 'Manual', 'agent' => 'Agent', 'desktop' => 'Desktop app'];
+if (!$days): ?><?= empty_state('No time logged this week', $editable ? 'Track your day with the Niyanta Tracker desktop app. Tracked time is approved automatically.' : 'Nothing was tracked in this week.', 'clock-worker') ?><?php else: foreach ($days as $d => $list): $sum = 0; foreach ($list as $x) { $sum += \Modules\Attendance\Services\TimeService::elapsed($x); } ?>
 <div class="day-group">
   <div class="day-head"><b><?= e(fdate($d, 'l, d M')) ?></b><span class="pill pill-gray"><?= e(hours($sum)) ?></span></div>
   <?php foreach ($list as $en): $dur = \Modules\Attendance\Services\TimeService::elapsed($en); ?>
   <div class="entry">
-    <span class="bar c-<?= e($en['project_color'] ?? 'gray') ?>"></span>
+    <span class="bar c-<?= e(feature_on('projects') ? $en['project_color'] ?? 'gray' : 'gray') ?>"></span>
     <div class="grow">
-      <div class="ttl"><?= e($en['project_name'] ?? 'No project') ?><?php if ($en['task_title']): ?><span class="muted small">· <?= e(str_limit($en['task_title'], 50)) ?></span><?php endif ?></div>
+      <div class="ttl"><?= e(\Modules\Attendance\Services\TimeService::label($en)) ?><?php if ($en['task_title'] && feature_on('projects')): ?><span class="muted small">· <?= e(str_limit($en['task_title'], 50)) ?></span><?php endif ?></div>
       <div class="meta"><span><?= e(ftime($en['started_at'])) ?> - <?= $en['is_running'] || !$en['ended_at'] ? 'now' : e(ftime($en['ended_at'])) ?></span><?php if ($en['description']): ?><span>· <?= e(str_limit($en['description'], 80)) ?></span><?php endif ?>
-        <span class="pill pill-gray"><?= icon($srcIc[$en['source']] ?? 'clock', 'sm') ?> <?= e(ucfirst($en['source'])) ?></span><?= $en['billable'] ? '<span class="pill pill-lemon">Billable</span>' : '' ?>
+        <span class="pill pill-gray"><?= icon($srcIc[$en['source']] ?? 'clock', 'sm') ?> <?= e($srcLbl[$en['source']] ?? ucfirst($en['source'])) ?></span><?= $en['billable'] ? '<span class="pill pill-lemon">Billable</span>' : '' ?>
         <?php if ((int) $en['idle_seconds'] > 0): ?><span class="pill pill-peach" title="Idle detected<?= (int) $en['discarded_seconds'] ? ', '.e(hours($en['discarded_seconds'])).' discarded' : '' ?>">Idle <?= e(hours($en['idle_seconds'])) ?></span><?php endif ?>
         <?= $en['is_running'] ? '<span class="rec">Running</span>' : ($en['status'] === 'rejected' ? badge('rejected', 'Rejected') : '') ?></div>
     </div>

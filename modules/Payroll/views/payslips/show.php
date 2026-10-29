@@ -1,6 +1,6 @@
 <?php
 use Modules\Payroll\Services\PayrollService;
-$earn = json_decode((string) $s['earnings'], true) ?: [];
+$earn = PayrollService::earningsFor($s);
 $ded = json_decode((string) $s['deductions'], true) ?: [];
 $label = PayrollService::monthLabel($s['period_month']);
 $own = (int) $s['user_id'] === (int) user()['id'];
@@ -17,7 +17,7 @@ $crumbs = $own ? [['My HR'], ['My Payslips', '/payslips'], [$label]] : [['HR Adm
     </div>
     <div class="grid g2 pay-info">
       <dl class="kv"><dt>Employee</dt><dd><?= e($s['name']) ?></dd><dt>Employee code</dt><dd><?= e($s['employee_code'] ?: '-') ?></dd><dt>Designation</dt><dd><?= e($s['designation'] ?: '-') ?></dd><dt>Department</dt><dd><?= e($s['department'] ?: '-') ?></dd></dl>
-      <dl class="kv"><?php if ($s['pay_type'] === 'hourly'): ?><dt>Pay type</dt><dd>Hourly</dd><dt>Hourly rate</dt><dd><?= e(money($s['rate'])) ?></dd><dt>Hours worked</dt><dd><?= e(number_format((float) $s['worked_hours'], 2)) ?> h</dd><?php else: ?><dt>Pay type</dt><dd>Monthly · <?= e(money($s['rate'])) ?></dd><dt>Working days</dt><dd><?= e($n1($s['working_days'])) ?></dd><dt>Paid days</dt><dd><?= e($n1($s['paid_days'])) ?></dd><dt>Unpaid leave</dt><dd><?= e($n1($s['unpaid_leave_days'])) ?></dd><?php endif ?></dl>
+      <dl class="kv"><?php if ($s['pay_type'] === 'hourly'): ?><dt>Pay type</dt><dd>Hourly</dd><dt>Hourly rate</dt><dd><?= e(money($s['rate'])) ?></dd><dt>Hours worked</dt><dd><?= e(number_format((float) $s['worked_hours'], 2)) ?> h</dd><?php else: ?><dt>Pay type</dt><dd>Monthly · <?= e(money($s['rate'])) ?></dd><dt>Working days</dt><dd><?= e($n1($s['working_days'])) ?></dd><dt>Paid days</dt><dd><?= e($n1($s['paid_days'])) ?></dd><?php if ($s['expected_hours'] !== null): ?><dt>Tracked hours</dt><dd><?= e(number_format((float) $s['worked_hours'], 2)) ?> of <?= e(number_format((float) $s['expected_hours'], 2)) ?> h expected (<?= (float) $s['expected_hours'] > 0 ? (int) round(min(100, 100 * (float) $s['worked_hours'] / (float) $s['expected_hours'])) : 0 ?>% paid)</dd><?php endif ?><?php if (feature_on('leave') || (float) $s['unpaid_leave_days'] > 0): ?><dt>Unpaid leave</dt><dd><?= e($n1($s['unpaid_leave_days'])) ?></dd><?php endif ?><?php endif ?></dl>
     </div>
     <div class="grid g2 mt pay-top">
       <?php foreach ([['Earnings', $earn, 'Gross earnings', $s['gross'], ''], ['Deductions', $ded, 'Total deductions', $s['total_deductions'], ' ded']] as [$t, $rows, $tl, $tot, $c]): ?>
@@ -38,11 +38,11 @@ $crumbs = $own ? [['My HR'], ['My Payslips', '/payslips'], [$label]] : [['HR Adm
   </div>
   <div class="stack">
     <div class="card"><div class="flex"><span class="pay-ic lav"><?= icon('printer') ?></span><div><h4 class="mb0">Need a copy?</h4><p class="small muted mb0">Print-ready PDF for loans, visas or your records.</p></div></div><a class="btn ghost sm mt" href="<?= e(url('/payslips/'.$s['id'].'/pdf')) ?>"><?= icon('download', 'sm') ?> Download PDF</a></div>
-    <div class="card">
+    <?php if (feature_on('reimbursements')): ?><div class="card">
       <div class="card-head"><h4>Reimbursements included</h4><b class="small"><?= e(money($s['reimbursement_total'])) ?></b></div>
       <?php if (!$claims): ?><p class="muted small mb0">No claims were paid with this payslip.</p><?php else: ?><div class="list"><?php foreach ($claims as $c): ?>
         <div class="list-item"><span class="pay-ic sky"><?= icon('receipt', 'sm') ?></span><div class="grow"><b class="small"><?= e($c['title']) ?></b><div class="meta"><?= e(fdate($c['expense_date'])) ?> · <?= e(ucfirst($c['status'])) ?></div></div><b class="small"><?= e(money($c['amount'])) ?></b></div>
       <?php endforeach ?></div><?php endif ?>
-    </div>
+    </div><?php endif ?>
   </div>
 </div>

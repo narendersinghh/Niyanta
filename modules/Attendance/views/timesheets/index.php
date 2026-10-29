@@ -1,6 +1,6 @@
 <?php
 $actions = (can('attendance.timesheets.approve') ? '<a class="btn ghost" href="'.e(url('/timesheets/approvals')).'">'.icon('check-square', 'sm').' Team approvals'.($rejectedTeam ? ' <span class="pill pill-red">'.(int) $rejectedTeam.' rejected</span>' : '').'</a>' : '')
-  .(can('attendance.track') ? '<a class="btn soft" href="'.e(url('/time?week='.$ws)).'">'.icon('timer', 'sm').' Time tracker</a>' : '');
+  .(can('attendance.track') ? '<a class="btn soft" href="'.e(url('/time?week='.$ws)).'">'.icon('timer', 'sm').' Time Tracking</a>' : '');
 $canAdd = can('attendance.track') && \Modules\Attendance\Services\Timesheets::canEditDate(min(date('Y-m-d'), date('Y-m-d', strtotime($ws.' +6 days'))), ($ts['status'] ?? '') === 'rejected');
 ?>
 <?= partial('partials/page_head', ['title' => 'Timesheets', 'subtitle' => 'Your week at a glance. Time is approved automatically unless your manager rejects it.', 'crumbs' => [['Work'], ['Timesheets']], 'actions' => $actions]) ?>

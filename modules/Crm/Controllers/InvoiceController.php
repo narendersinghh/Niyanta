@@ -159,8 +159,8 @@ final class InvoiceController extends CrmController {
 
   /** Public, token-protected PDF for the e-mailed link. Returns a plain 404 for any mismatch. */
   public function sharedPdf(int $id, string $token): Response {
-    if (!Modules::enabled('crm')) { return Response::error(404, 'Not found.'); }
-    $doc = DB::first('SELECT d.*'.(Modules::enabled('projects') ? ', pr.name AS project_name' : ', NULL AS project_name').' FROM invoices d'.(Modules::enabled('projects') ? ' LEFT JOIN projects pr ON pr.id=d.project_id' : '').' WHERE d.id=?', [$id]);
+    if (!feature_on('invoices')) { return Response::error(404, 'Not found.'); }
+    $doc = DB::first('SELECT d.*'.(feature_on('projects') ? ', pr.name AS project_name' : ', NULL AS project_name').' FROM invoices d'.(feature_on('projects') ? ' LEFT JOIN projects pr ON pr.id=d.project_id' : '').' WHERE d.id=?', [$id]);
     if (!$doc || $doc['status'] === 'cancelled' || !hash_equals(Finance::shareToken($doc), $token)) { return Response::error(404, 'This invoice link is invalid or has expired.'); }
     Audit::log('crm.invoice.shared_view', 'invoice', $id);
     return new Response($this->render($doc), 200, ['Content-Type' => 'application/pdf', 'Content-Disposition' => 'inline; filename="'.preg_replace('/[^\w.\-]+/', '_', $doc['number']).'.pdf"', 'Cache-Control' => 'private, no-store']); }

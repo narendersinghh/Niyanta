@@ -4,8 +4,8 @@ namespace Core;
 /**
  * Module registry. Each modules/<Name>/module.php returns a manifest:
  * key, name, description, icon, version, requires[], core(bool), permissions[key => [label, roles[]]],
- * nav[] (label, icon, url, perm, group, order), routes(Router), widgets[] (callable(user) => html),
- * search(callable(string q, array user) => results[]), cron[] (name => [every minutes | daily "HH:MM", callable]),
+ * nav[] (label, icon, url, perm, feature, group, order), routes(Router), widgets[] (zone, order, perm, feature, render callable(user) => html),
+ * search(callable(string q, array user) => results[]), cron[] (name => [every minutes | daily "HH:MM", run callable, optional feature]),
  * file_access[entity_type => callable(array user, int entityId, array file) => bool], settings_view (view name)
  */
 final class Modules {
@@ -59,6 +59,7 @@ final class Modules {
       if (!self::enabled($k)) { continue; }
       foreach ($m['nav'] as $n) {
         if (!empty($n['perm']) && !Gate::any((array) $n['perm'])) { continue; }
+        if (!empty($n['feature']) && !array_filter((array) $n['feature'], [Features::class, 'enabled'])) { continue; }
         if (!empty($n['hide_if']) && Gate::any((array) $n['hide_if']) && !Auth::isSuperAdmin()) { continue; }
         if (!empty($n['hide_if']) && Auth::isSuperAdmin()) { continue; }
         $sec = $n['section'] ?? ($legacy[$n['group'] ?? 'Main'] ?? 'work');

@@ -54,7 +54,7 @@ $balClass = match (true) { $st === 'cancelled' => 'is-muted', $st === 'paid' || 
       <?php if (can('crm.clients.view')): ?><a class="crm-party" href="<?= e(url('/clients/'.(int) $client['id'])) ?>"><?php else: ?><div class="crm-party"><?php endif ?>
         <?= avatar($client['company'] ?: $client['name'], null) ?><div class="grow"><b><?= e($client['company'] ?: $client['name']) ?></b><div class="crm-sub"><?= e($client['email'] ?: $client['phone'] ?: '') ?></div></div><?= can('crm.clients.view') ? icon('chevron-right', 'sm').'</a>' : '</div>' ?>
       <dl class="crm-facts">
-        <?php if ($quote): ?><dt>From quotation</dt><dd><?= can('crm.quotations.view') ? '<a href="'.e(url('/quotations/'.$quote['id'])).'">'.e($quote['number']).'</a>' : e($quote['number']) ?></dd><?php endif ?>
+        <?php if ($quote && feature_on('quotations')): ?><dt>From quotation</dt><dd><?= can('crm.quotations.view') ? '<a href="'.e(url('/quotations/'.$quote['id'])).'">'.e($quote['number']).'</a>' : e($quote['number']) ?></dd><?php endif ?>
         <dt>Created</dt><dd><?= e(fdatetime($doc['created_at'])) ?></dd>
         <dt>Updated</dt><dd><?= e(fdatetime($doc['updated_at'])) ?></dd>
         <?php if ($doc['last_reminder_at']): ?><dt>Last reminder</dt><dd><?= e(fdatetime($doc['last_reminder_at'])) ?></dd><?php endif ?>

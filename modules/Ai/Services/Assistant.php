@@ -113,7 +113,7 @@ final class Assistant {
     $me = DB::first('SELECT u.name, u.designation, u.department, r.name AS role FROM users u JOIN roles r ON r.id=u.role_id WHERE u.id=?', [(int) $u['id']]) ?? ['name' => $u['name'], 'designation' => null, 'department' => null, 'role' => $u['role_name'] ?? ''];
     $team = People::names($u, 40);
     $lines = [
-      'You are Goraiya, the friendly and concise AI assistant of '.company_name().' inside Niyanta, its business management app (projects, tasks, time, attendance, leave, HR, clients, invoices).',
+      'You are Goraiya, the friendly and concise AI assistant of '.company_name().' inside Niyanta, its business management app ('.(\Modules\Admin\Services\SettingsSchema::join(array_keys(array_filter(['projects, tasks' => feature_on('projects'), 'time, attendance' => feature_on('attendance'), 'leave' => feature_on('leave'), 'HR' => feature_on('employees'), 'payroll' => feature_on('payroll'), 'clients' => feature_on('clients'), 'invoices' => feature_on('invoices')]))) ?: 'workspace data').').',
       'Today is '.date('l, j F Y').' ('.date('Y-m-d').'), local time '.date('H:i').', timezone '.$tz.'. Weeks run Monday to Sunday.',
       'You are talking to '.$me['name'].', role '.$me['role'].($me['designation'] ? ', '.$me['designation'] : '').($me['department'] ? ', '.$me['department'] : '').'.',
       'They can ask about: '.implode('; ', self::abilities($u, $tools)).'.',
@@ -141,7 +141,7 @@ final class Assistant {
     if ($mgr && ($s = People::scope($u)) && count($s) > 1) { $first = (string) DB::value("SELECT name FROM users WHERE status='active' AND id<>? AND id IN ".DB::in($s).' ORDER BY manager_id=? DESC, name LIMIT 1', [(int) $u['id'], ...$s, (int) $u['id']]); }
     $first = $first ? explode(' ', $first)[0] : '';
     if ($hr) {
-      if (Scope::can('hr.directory.view', $u)) { $out[] = 'Who is on leave today?'; }
+      if (Scope::can('hr.directory.view', $u) && feature_on('leave')) { $out[] = 'Who is on leave today?'; }
       if (Scope::can('attendance.view_all', $u)) { $out[] = 'Summarise attendance for this week'; }
       if (Scope::can('hr.leave.request', $u)) { $out[] = 'Show the holiday calendar for this year'; }
       if (Scope::can('hr.company_docs.view', $u)) { $out[] = 'Which company policies need acknowledgement?'; } }
@@ -149,7 +149,7 @@ final class Assistant {
       if ($first) { $out[] = 'Summarise '.$first.'\'s work this week'; }
       if (Scope::can('crm.finance.view', $u)) { $out[] = 'Which invoices are overdue?'; }
       if (Scope::can('projects.view', $u)) { $p = []; $name = (string) DB::value("SELECT name FROM projects WHERE status='active'".Scope::where(Scope::projectIds($u), 'id', $p).' ORDER BY updated_at DESC LIMIT 1', $p); $out[] = $name ? 'Status of the '.$name.' project' : 'Which projects are behind schedule?'; }
-      if (Scope::can('hr.directory.view', $u)) { $out[] = 'Who is on leave today?'; } }
+      if (Scope::can('hr.directory.view', $u) && feature_on('leave')) { $out[] = 'Who is on leave today?'; } }
     if (count($out) < 4) {
       if (Scope::can('projects.view', $u)) { $out[] = 'What are my tasks this week?'; }
       if (Scope::can('hr.leave.request', $u)) { $out[] = 'How many optional holidays do I have left?'; }

@@ -6,6 +6,7 @@ use Modules\Ai\Services\{AiException, Http, ModelRegistry, Provider, Usage};
 /** Settings › AI assistant (Super Admin): on/off, models (keys are write-only and encrypted), budgets and privacy. */
 final class SettingsController extends Controller {
   public function index(): Response {
+    if (!feature_on('ai')) { $this->flash('The AI assistant is switched off. Turn it on here to choose models, budgets and privacy.', 'error'); return $this->redirect('/admin/settings/features'); }
     $models = ModelRegistry::all();
     $used = Usage::monthUsed(); $budget = Usage::budget();
     return $this->view('ai::settings', ['title' => 'AI assistant · Settings', 'tab' => 'ai', 'tabs' => \Modules\Admin\Services\SettingsSchema::tabs(), 'models' => $models, 'presets' => ModelRegistry::presets(), 'providers' => ModelRegistry::providers(),
@@ -18,7 +19,7 @@ final class SettingsController extends Controller {
     Settings::set('ai.enabled', $on ? '1' : '0');
     Audit::log($on ? 'feature.enable' : 'feature.disable', 'feature', null, ['key' => 'ai']);
     $this->flash($on ? 'AI assistant turned on.'.(ModelRegistry::usable(ModelRegistry::current()) ? '' : ' Add a model so people can start chatting.') : 'AI assistant turned off. Conversations are kept.');
-    return $this->back(); }
+    return $on ? $this->back() : $this->redirect('/admin/settings/features'); }
 
   /** Budgets, limits and privacy. */
   public function save(): Response {

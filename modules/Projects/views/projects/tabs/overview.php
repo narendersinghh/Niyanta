@@ -60,7 +60,7 @@ if ($pr['manager_id'] && !in_array((int) $pr['manager_id'], array_map('intval', 
     </section>
   </div>
   <div class="stack">
-    <section class="card">
+    <section class="card spotlight">
       <div class="card-head"><div class="sec-head mb0"><span class="sec-ic"><?= icon('wallet') ?></span><h3>Budget<?= $time ? ' &amp; hours' : '' ?></h3></div><span class="pill pill-gray"><?= e(PS::BILLING[$pr['billing_type']]) ?></span></div>
       <div class="kv-list">
         <div class="kv-row"><span>Budget</span><b><?= $pr['budget'] !== null ? e(money($pr['budget'])) : '-' ?></b></div>

@@ -3,13 +3,19 @@ use Core\{DB, Modules, Request};
 $u = user();
 $path = Request::current()->path();
 $nav = Modules::nav();
-$unread = (int) DB::value('SELECT COUNT(*) FROM notifications WHERE user_id=? AND read_at IS NULL', [$u['id']]);
+$unread = \Core\Controllers\NotificationController::unread((int) $u['id']);
 $isActive = static function (string $url) use ($path): bool { $u = parse_url($url, PHP_URL_PATH) ?: '/'; return $u === '/' ? $path === '/' : ($path === $u || str_starts_with($path, rtrim($u, '/').'/')); };
+/* global_scripts/global_styles values: a permission (string|list) or ['perm' => ..., 'feature' => ...]. */
+$allowed = static function (mixed $rule): bool {
+  $perm = is_array($rule) && !array_is_list($rule) ? ($rule['perm'] ?? null) : $rule;
+  $feat = is_array($rule) && !array_is_list($rule) ? ($rule['feature'] ?? null) : null;
+  return (!$perm || \Core\Gate::any((array) $perm)) && (!$feat || array_filter((array) $feat, 'feature_on')); };
 $scripts = $scripts ?? [];
-foreach (Modules::hooks('global_scripts') as $gs) { foreach ($gs as $js => $perm) { if (!$perm || \Core\Gate::any((array) $perm)) { $scripts[] = $js; } } }
+foreach (Modules::hooks('global_scripts') as $gs) { foreach ($gs as $js => $rule) { if ($allowed($rule)) { $scripts[] = $js; } } }
 $scripts = array_values(array_unique($scripts));
 $styles = $styles ?? [];
-foreach (Modules::hooks('global_styles') as $gs) { foreach ($gs as $css => $perm) { if (!$perm || \Core\Gate::any((array) $perm)) { $styles[] = $css; } } }
+foreach (Modules::hooks('global_styles') as $gs) { foreach ($gs as $css => $rule) { if ($allowed($rule)) { $styles[] = $css; } } }
+$searchHint = implode(', ', array_keys(array_filter(['clients' => feature_on('clients'), 'projects' => feature_on('projects'), 'tasks' => feature_on('projects')])));
 $styles = array_values(array_unique($styles));
 /* Module layout slots: 'topbar' (buttons before the theme switch) and 'body_end' (drawers, dialogs). Each is fn(array $user): string. */
 $slot = static function (string $name) use ($u): string { $h = ''; foreach (Modules::hooks($name) as $mod => $fn) { try { $h .= (string) $fn($u); } catch (\Throwable $e) { error_log("Slot $name/$mod: ".$e->getMessage()); } } return $h; };
@@ -28,7 +34,7 @@ echo partial('partials/head', get_defined_vars());
   </div>
   <nav class="nav" data-nav>
     <a href="<?= e(url('/')) ?>" class="<?= $path === '/' ? 'active' : '' ?>"><span class="ni" style="--c:#7C5CFF"><?= icon('home') ?></span> Dashboard</a>
-    <?php foreach ($nav as $sec => $items): [$label, $collapsible] = Modules::SECTIONS[$sec];
+    <?php foreach ($nav as $sec => $items): [$label, $collapsible] = Modules::SECTIONS[$sec]; if ($sec === 'clients' && !feature_on('clients')) { $label = 'Billing'; }
       $hasActive = (bool) array_filter($items, static fn ($n) => $isActive($n['url']));
       $links = '';
       foreach ($items as $n) { $links .= '<a href="'.e(url($n['url'])).'" class="'.($isActive($n['url']) ? 'active' : '').'"><span class="ni" style="--c:'.e($n['color']).'">'.icon($n['icon'] ?? 'grid').'</span> '.e($n['label']).'</a>'; } ?>
@@ -41,7 +47,7 @@ echo partial('partials/head', get_defined_vars());
 <div class="main">
   <header class="topbar">
     <button class="icon-btn menu-toggle" data-nav-toggle aria-label="Open menu"><?= icon('menu') ?></button>
-    <form class="search" action="<?= e(url('/search')) ?>" method="get" role="search"><?= icon('search', 'sm') ?><input type="search" name="q" placeholder="Search clients, projects, tasks…" value="<?= e($_GET['q'] ?? '') ?>" data-search aria-label="Search"><span class="kbd">/</span></form>
+    <form class="search" action="<?= e(url('/search')) ?>" method="get" role="search"><?= icon('search', 'sm') ?><input type="search" name="q" placeholder="<?= e($searchHint ? 'Search '.$searchHint.'…' : 'Search…') ?>" value="<?= e($_GET['q'] ?? '') ?>" data-search aria-label="Search"><span class="kbd">/</span></form>
     <div class="top-actions"><?= $slot('topbar') ?>
       <div class="theme-switch" role="group" aria-label="Theme">
         <button type="button" data-theme-set="light" title="Light"><?= icon('sun', 'sm') ?></button><button type="button" data-theme-set="system" title="System"><?= icon('monitor', 'sm') ?></button><button type="button" data-theme-set="dark" title="Dark"><?= icon('moon', 'sm') ?></button>

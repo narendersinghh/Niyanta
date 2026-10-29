@@ -18,7 +18,7 @@ $warn = array_keys(array_filter($status, static fn ($s) => $s[1] === 'warn'));
   </div>
   <?= illus('settings-gears', 'set-hero-illus') ?>
 </div>
-<?php foreach (SettingsSchema::GROUPS as $gk => [$gl, $gd, $gi, $gc]): if (empty($byGroup[$gk])) { continue; } ?>
+<?php foreach (SettingsSchema::groups() as $gk => [$gl, $gd, $gi, $gc]): if (empty($byGroup[$gk])) { continue; } ?>
 <section class="set-group">
   <header class="set-group-head"><span class="ic-chip sm" style="--c:var(--<?= e($gc) ?>)"><?= icon($gi, 'sm') ?></span><div><h3><?= e($gl) ?></h3><p><?= e($gd) ?></p></div></header>
   <div class="set-tiles">
