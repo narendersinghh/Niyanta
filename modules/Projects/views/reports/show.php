@@ -35,7 +35,7 @@ $block = static function (string $title, string $ic, string $color, array $items
       <div class="sec-head"><span class="sec-ic"><?= icon('eye') ?></span><h3>Your review</h3></div>
       <form class="form" method="post" action="<?= e(url('/work-reports/'.$r['id'].'/review')) ?>"><?= csrf_field() ?>
         <div class="field<?= error_for('review_note') ? ' has-error' : '' ?>"><label for="rv-note">Note <span class="muted">(required when asking for changes)</span></label><textarea id="rv-note" name="review_note" rows="3" maxlength="500" placeholder="Feedback for <?= e(explode(' ', $r['author'])[0]) ?>"><?= e(old('review_note')) ?></textarea><?= error_for('review_note') ?></div>
-        <div class="flex wrap"><button name="decision" value="approved" class="btn primary grow"><?= icon('check', 'sm') ?> Approve</button><button name="decision" value="rejected" class="btn ghost grow"><?= icon('refresh', 'sm') ?> Request changes</button></div>
+        <div class="review-acts"><button name="decision" value="approved" class="btn primary"><?= icon('check', 'sm') ?> Approve</button><button name="decision" value="rejected" class="btn ghost"><?= icon('refresh', 'sm') ?> Request changes</button></div>
       </form>
     </section>
     <?php endif ?>

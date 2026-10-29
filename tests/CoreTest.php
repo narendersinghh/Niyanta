@@ -58,7 +58,7 @@ return [
     Modules::setEnabled('crm', true);
     assert_true(in_array($code, [403, 404], true), "got $code");
     assert_eq($before, (int) DB::value('SELECT COUNT(*) FROM clients')); },
-  'super admin pages render' => function () { act_as($GLOBALS['ADMIN_ID']); foreach (['/', '/admin/users', '/admin/roles', '/admin/modules', '/account', '/notifications', '/search?q=te'] as $p) { assert_eq(200, http('GET', $p)->status(), $p); } },
+  'super admin pages render' => function () { act_as($GLOBALS['ADMIN_ID']); foreach (['/', '/admin/users', '/admin/roles', '/admin/settings/features', '/account', '/notifications', '/search?q=te'] as $p) { assert_eq(200, http('GET', $p)->status(), $p); } },
   'HR cannot create or edit a super admin' => function () {
     act_as(make_user('hr', 'hr@unit.test'));
     $sa = (int) DB::value("SELECT id FROM roles WHERE slug='super_admin'");

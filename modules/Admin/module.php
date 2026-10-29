@@ -12,7 +12,6 @@ return [
   'nav' => [
     ['label' => 'Users', 'icon' => 'users', 'color' => '#2E9BF6', 'url' => '/admin/users', 'perm' => 'admin.users.view', 'section' => 'system', 'order' => 1],
     ['label' => 'Roles & Access', 'icon' => 'key', 'color' => '#F5A524', 'url' => '/admin/roles', 'perm' => '__super_admin', 'section' => 'system', 'order' => 2],
-    ['label' => 'Features', 'icon' => 'puzzle', 'color' => '#12B5A0', 'url' => '/admin/modules', 'perm' => '__super_admin', 'section' => 'system', 'order' => 3],
     ['label' => 'Settings', 'icon' => 'sliders', 'color' => '#7C5CFF', 'url' => '/admin/settings', 'perm' => '__super_admin', 'section' => 'system', 'order' => 4],
     ['label' => 'Audit Log', 'icon' => 'history', 'color' => '#FF6F59', 'url' => '/admin/audit', 'perm' => 'admin.audit.view', 'section' => 'system', 'order' => 5],
   ],

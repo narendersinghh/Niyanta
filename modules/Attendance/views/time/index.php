@@ -22,7 +22,7 @@ $actions = '<button class="btn ghost" data-modal="entry-dialog" data-entry-new>'
         <div class="tt-run-meta">
           <span class="pj"><?= e($running['project_name'] ?? 'No project') ?><?php if ($running['task_title']): ?> <span class="muted">· <?= e($running['task_title']) ?></span><?php endif ?></span>
           <span class="muted small"><?= e($running['description'] ?: 'No description') ?></span>
-          <span class="flex wrap"><?= $running['billable'] ? '<span class="pill pill-lemon">Billable</span>' : '<span class="pill pill-gray">Non-billable</span>' ?><span class="small muted" data-idle-total>Idle recorded: <?= e(hours($running['idle_seconds'])) ?></span></span>
+          <span class="flex wrap"><span class="small muted" data-idle-total>Idle recorded: <?= e(hours($running['idle_seconds'])) ?></span></span>
         </div>
         <div class="tt-foot"><span><?= icon('info', 'sm') ?> Keep this tab open while tracking. Without activity for <?= (int) $idleMinutes ?> min you are marked idle; with no heartbeat for 10 min the timer stops.</span></div>
       <?php else: ?>
@@ -36,7 +36,7 @@ $actions = '<button class="btn ghost" data-modal="entry-dialog" data-entry-new>'
             <select name="task_id" id="tt-task" aria-label="Task" disabled><option value="">Select a project first</option></select>
             <input type="text" name="description" class="full" maxlength="500" placeholder="Describe the work (optional)">
           </div>
-          <div class="tt-foot"><label class="flex"><span class="switch"><input type="checkbox" name="billable" value="1" checked><span></span></span> Billable</label><span>Today: <b><?= e(hours($stats['total'])) ?></b> tracked</span></div>
+          <div class="tt-foot"><input type="hidden" name="billable" value="1"><span>Today: <b><?= e(hours($stats['total'])) ?></b> tracked</span></div>
         </form>
       <?php endif ?>
     </div>

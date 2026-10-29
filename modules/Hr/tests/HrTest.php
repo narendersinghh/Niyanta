@@ -27,7 +27,7 @@ return [
   'simplified holiday model: optional pool active, legacy types inactive' => function () {
     hr_fixture();
     assert_true(hr_oh() > 0, 'OH type exists and is active');
-    assert_eq(0, (int) DB::value("SELECT COUNT(*) FROM leave_types WHERE code IN ('CL','SL','EL') AND active=1"), 'unused CL/SL/EL deactivated');
+    assert_eq(0, (int) DB::value("SELECT COUNT(*) FROM leave_types WHERE code IN ('CL','SL','EL')"), 'legacy CL/SL/EL removed');
     assert_eq(15.0, (float) DB::value('SELECT annual_quota FROM leave_types WHERE id=?', [hr_oh()])); },
   'allocation is idempotent' => function () {
     hr_fixture();

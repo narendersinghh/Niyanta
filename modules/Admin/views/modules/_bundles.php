@@ -1,6 +1,6 @@
-<?php use Core\{DB, Features};
-$raw = DB::pairs("SELECT `key`, enabled FROM modules WHERE `key` LIKE 'feature:%'"); ?>
-<?= partial('partials/page_head', ['title' => 'Features', 'subtitle' => 'Switch whole areas or individual features on and off for everyone. Turning something off hides and blocks it, data is always kept.', 'crumbs' => [['System'], ['Features']]]) ?>
+<?php use Core\{DB, Features, Modules};
+$raw = DB::pairs("SELECT `key`, enabled FROM modules WHERE `key` LIKE 'feature:%'");
+$bundles = Features::bundles(); $labs = array_filter(Modules::all(), static fn ($m) => !empty($m['labs'])); ?>
 <div class="feature-bundles">
 <?php foreach ($bundles as $bk => $b): $bon = Features::bundleEnabled($bk); ?>
   <section class="card bundle-card<?= $bon ? '' : ' is-off' ?>" style="--bc:<?= e($b['color']) ?>">

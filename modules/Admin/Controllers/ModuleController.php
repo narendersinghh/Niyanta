@@ -4,7 +4,8 @@ use Core\{Audit, Controller, Features, Modules, Response};
 
 /** Bundles & features on/off. Data is never deleted; disabled features are hidden and blocked for everyone. */
 final class ModuleController extends Controller {
-  public function index(): Response { return $this->view('admin::modules/index', ['title' => 'Features', 'bundles' => Features::bundles(), 'labs' => array_filter(Modules::all(), static fn ($m) => !empty($m['labs']))]); }
+  /** Features now live inside Settings. */
+  public function index(): Response { return $this->redirect('/admin/settings/features'); }
 
   public function toggle(string $key): Response {
     [$kind, $name] = array_pad(explode(':', $key, 2), 2, '');

@@ -35,7 +35,7 @@ $info = static fn (string $ic, string $c, string $title, string $html) => '<div 
     <?= $info('bell', 'lav', 'Deadline reminders', 'Every day at <b>09:00</b> the scheduler sends assignees one digest of their tasks that are overdue, due today or due tomorrow. Make sure <a href="'.e(url('/admin/cron')).'">cron is running</a>.') ?>
     <?= $info('clipboard', 'lemon', 'Work reports', 'Daily and weekly reports are reviewed by the reporting manager set on each user. Change managers under <a href="'.e(url('/admin/users')).'">Users</a>.') ?>
     <?= $info('rupee', 'mint', 'Billing per project', 'Billing type (fixed, hourly, retainer or non-billable), hourly rate, budget and estimate are set on each project, so no global defaults are needed.') ?>
-    <?= $info('puzzle', 'sky', 'Turn parts on or off', 'Projects & tasks and Work reports are features of the Team & Work bundle. <a href="'.e(url('/admin/modules')).'">Manage features →</a>') ?>
+    <?= $info('puzzle', 'sky', 'Turn parts on or off', 'Projects & tasks and Work reports are features of the Team & Work bundle. <a href="'.e(url('/admin/settings/features')).'">Manage features →</a>') ?>
   </div>
 <?php break; case 'invoicing': ?>
   <?= partial('admin::settings/_head', ['tabs' => $tabs, 'tab' => $tab, 'actions' => '<a class="btn ghost" href="'.e(url('/admin/settings/general')).'">'.icon('building', 'sm').' Company details</a>']) ?>
