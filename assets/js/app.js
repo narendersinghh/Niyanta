@@ -10,6 +10,10 @@ if(!r.ok){throw Object.assign(new Error(j.error||"Request failed ("+r.status+")"
 toast(m,t="ok"){const w=$("[data-toasts]");if(!w)return;const el=d.createElement("div");el.className="toast"+(t==="error"?" error":"");el.innerHTML='<span class="t-ic">'+(t==="error"?"!":"✓")+"</span>";el.append(m);w.append(el);setTimeout(()=>el.remove(),4500)},
 esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))},
 fmtMoney(v){return(Number(v)||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}};
+/* report JavaScript errors to Audit log > Error logs (max 5 per page) */
+let errN=0;const report=o=>{if(errN++>4||!navigator.sendBeacon)return;try{navigator.sendBeacon(N.url("errors/client"),new Blob([JSON.stringify({...o,page:location.pathname+location.search})],{type:"application/json"}))}catch(e){}};
+addEventListener("error",e=>{if(e.message)report({message:e.message,source:(e.filename||"").replace(location.origin,""),line:e.lineno,column:e.colno,stack:e.error&&e.error.stack})});
+addEventListener("unhandledrejection",e=>{const r=e.reason||{};report({message:"Unhandled promise rejection: "+(r.message||String(r)),stack:r.stack})});
 /* theme (guests keep their choice in localStorage) */
 const html=d.documentElement,guest=html.dataset.guest==="1",applyTheme=p=>{html.dataset.pref=p;html.dataset.theme=p==="system"?(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light"):p;$$("[data-theme-set]").forEach(b=>b.classList.toggle("on",b.dataset.themeSet===p))};
 applyTheme(html.dataset.pref||"system");

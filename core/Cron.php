@@ -10,7 +10,7 @@ final class Cron {
     $jobs = [
       'core.mail_queue' => ['every' => 1, 'run' => static fn () => 'sent '.Mailer::processQueue(30)],
       'core.cleanup' => ['daily' => '03:10', 'run' => [self::class, 'cleanup']]];
-    foreach (Modules::hooks('cron') as $mod => $list) { foreach ($list as $name => $def) { $jobs["$mod.$name"] = $def; } }
+    foreach (Modules::hooks('cron') as $mod => $list) { foreach ($list as $name => $def) { if (empty($def['feature']) || array_filter((array) $def['feature'], [Features::class, 'enabled'])) { $jobs["$mod.$name"] = $def; } } }
     return $jobs; }
 
   public static function run(bool $force = false, ?string $only = null): array {
@@ -25,7 +25,7 @@ final class Cron {
       if (!$force && !self::due($j, isset($last[$name]) ? strtotime($last[$name]) : 0, $now)) { continue; }
       $t = microtime(true);
       try { $out = (string) (is_callable($j['run']) ? call_user_func($j['run']) : ''); $status = 'success'; }
-      catch (\Throwable $e) { $out = $e->getMessage(); $status = 'failed'; error_log("Cron $name failed: ".$e); }
+      catch (\Throwable $e) { $out = $e->getMessage(); $status = 'failed'; error_log("Cron $name failed: ".$e); ErrorLog::record('server', 'cron', "Scheduled job $name failed: ".$e->getMessage(), $e->getFile(), $e->getLine(), ['job' => $name, 'trace' => mb_substr($e->getTraceAsString(), 0, 6000)]); }
       $ms = (int) ((microtime(true) - $t) * 1000);
       DB::query('INSERT INTO cron_jobs (name, last_run_at, last_status, last_output) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE last_run_at=VALUES(last_run_at), last_status=VALUES(last_status), last_output=VALUES(last_output)', [$name, date('Y-m-d H:i:s', $now), $status, mb_substr($out, 0, 1000)]);
       DB::insert('cron_logs', ['job' => $name, 'status' => $status, 'output' => mb_substr($out, 0, 2000), 'duration_ms' => $ms, 'ran_at' => date('Y-m-d H:i:s')]);
@@ -63,6 +63,7 @@ final class Cron {
     if ($d = $days('retention.notifications_days', 90)) { $c['notifications'] = DB::delete('notifications', 'read_at IS NOT NULL AND read_at < ?', [$cut($d)]); }
     if ($d = $days('retention.mail_queue_days', 30)) { $c['mail_queue'] = DB::delete('mail_queue', "status IN ('sent','failed') AND COALESCE(sent_at, created_at) < ?", [$cut($d)]); }
     if ($d = $days('retention.cron_logs_days', 30)) { $c['cron_logs'] = DB::delete('cron_logs', 'ran_at < ?', [$cut($d)]); }
+    if ($d = $days('retention.error_logs_days', 60)) { $c['error_logs'] = DB::delete('error_logs', 'last_seen < ?', [$cut($d)]); }
     if (($d = $days('retention.ai_usage_days', 180)) && $has('ai_usage')) { $c['ai_usage'] = DB::delete('ai_usage', 'created_at < ?', [$cut($d)]); }
     if ($d = $days('retention.sessions_days', 2)) {
       $c['sessions'] = 0;

@@ -30,6 +30,7 @@ final class App {
     ini_set('log_errors', '1');
     ini_set('error_log', NY_ROOT.'/storage/logs/php-'.date('Y-m').'.log');
     if (self::installed()) {
+      set_error_handler([ErrorLog::class, 'phpError']);
       DB::init(self::config('db'));
       if (date_default_timezone_get() !== ($tz = (string) Settings::get('general.timezone', self::config('timezone', 'UTC')))) { date_default_timezone_set($tz); DB::syncTimezone(); }
       Modules::load(); } }
@@ -52,6 +53,7 @@ final class App {
   public static function handleException(\Throwable $e, ?Request $req = null): void {
     $id = substr(bin2hex(random_bytes(4)), 0, 8);
     error_log("[$id] ".$e::class.': '.$e->getMessage().' @ '.$e->getFile().':'.$e->getLine()."\n".$e->getTraceAsString());
+    ErrorLog::exception($e, $id);
     if (PHP_SAPI === 'cli') { fwrite(STDERR, "[$id] ".$e->getMessage()."\n"); return; }
     $debug = (bool) self::config('debug');
     if ($req && $req->wantsJson()) { (new Response(json_encode(['error' => $debug ? $e->getMessage() : 'Server error', 'ref' => $id]), 500, ['Content-Type' => 'application/json']))->send(); return; }

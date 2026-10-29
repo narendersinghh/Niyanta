@@ -1,0 +1,2 @@
+<?php $openErrors = (int) \Core\DB::value('SELECT COUNT(*) FROM error_logs WHERE resolved_at IS NULL'); ?>
+<nav class="tabs mb" aria-label="Audit log sections"><a class="<?= $active === 'activity' ? 'active' : '' ?>" href="<?= e(url('/admin/audit')) ?>"><?= icon('history', 'sm') ?> Activity</a><a class="<?= $active === 'errors' ? 'active' : '' ?>" href="<?= e(url('/admin/audit/errors')) ?>"><?= icon('alert', 'sm') ?> Error logs<?php if ($openErrors): ?> <span class="pill pill-red"><?= $openErrors ?></span><?php endif ?></a></nav>

@@ -5,6 +5,7 @@ $hasFilter = (bool) array_filter($f);
 ?>
 <?= partial('partials/page_head', ['title' => 'Audit log', 'subtitle' => 'Who did what, when and from where. '.(($ad = (int) (setting('retention.audit_days') ?? setting('security.audit_retention_days', 365))) ? 'Entries older than '.$ad.' days are pruned nightly (Settings › Data retention).' : 'Entries are kept forever (Settings › Data retention).'), 'crumbs' => [['System'], ['Audit log']],
   'actions' => '<a class="btn ghost" href="'.e(url('/admin/audit').query_merge(['export' => 'csv', 'page' => null])).'">'.icon('download', 'sm').' Export CSV</a>']) ?>
+<?= partial('admin::audit/_tabs', ['active' => 'activity']) ?>
 <div class="grid g4 mb">
   <div class="tile dark"><span class="tile-ic"><?= icon('history') ?></span><div><div class="num"><?= number_format((int) $p['total']) ?></div><div class="lbl"><?= $hasFilter ? 'Matching entries' : 'Total entries' ?></div></div></div>
   <div class="tile bg-lav"><span class="tile-ic"><?= icon('activity') ?></span><div><div class="num"><?= (int) $today ?></div><div class="lbl">Events today</div></div></div>

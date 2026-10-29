@@ -100,5 +100,12 @@ return [
     assert_true(!Gate::allows('crm.finance.view') && !Modules::enabled('crm') && Gate::allows('projects.view'), 'bundle off');
     \Core\Features::set('bundle:clients', true);
     assert_true(Modules::enabled('crm')); },
+  'error log groups repeats and captures browser errors' => function () {
+    \Core\ErrorLog::record('server', 'error', 'Boom 12345', 'core/X.php', 10);
+    \Core\ErrorLog::record('server', 'error', 'Boom 67890', 'core/X.php', 10);
+    assert_eq(2, (int) DB::value("SELECT occurrences FROM error_logs WHERE message LIKE 'Boom%'"), 'numbers normalised into one group');
+    http('POST', '/errors/client', ['message' => 'TypeError: x is undefined', 'source' => '/assets/js/app.js', 'line' => 3], false);
+    assert_eq(1, (int) DB::value("SELECT COUNT(*) FROM error_logs WHERE source='browser'"));
+    act_as($GLOBALS['ADMIN_ID']); assert_eq(200, http('GET', '/admin/audit/errors')->status()); },
   'audit log records actions' => function () { act_as($GLOBALS['ADMIN_ID']); \Core\Audit::log('test.action', 'thing', 7, ['a' => 1]); assert_eq(1, (int) DB::value("SELECT COUNT(*) FROM audit_logs WHERE action='test.action' AND entity_id=7")); },
 ];

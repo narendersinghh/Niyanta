@@ -40,6 +40,9 @@ return [
     $r->post('/admin/settings/demo/import', [DemoController::class, 'import'], $sa + ['throttle' => [5, 600]]);
     $r->post('/admin/settings/demo/delete', [DemoController::class, 'delete'], $sa + ['throttle' => [5, 600]]);
     $r->get('/admin/audit', [AuditController::class, 'index'], 'admin.audit.view');
+    $r->get('/admin/audit/errors', [Modules\Admin\Controllers\ErrorLogController::class, 'index'], 'admin.audit.view');
+    $r->post('/admin/audit/errors/{id}/resolve', [Modules\Admin\Controllers\ErrorLogController::class, 'resolve'], 'admin.audit.view');
+    $r->post('/admin/audit/errors/clear', [Modules\Admin\Controllers\ErrorLogController::class, 'clear'], '__super_admin');
     $r->get('/admin/backups', [BackupController::class, 'index'], $sa);
     $r->post('/admin/backups', [BackupController::class, 'create'], $sa);
     $r->get('/admin/backups/{id}/download', [BackupController::class, 'download'], $sa);
