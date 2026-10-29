@@ -73,6 +73,7 @@ return [
     ['zone' => 'kpis', 'order' => 11, 'perm' => 'crm.finance.view', 'render' => fn (array $u): string => Hooks::outstandingTile($u)],
     ['zone' => 'main', 'order' => 20, 'perm' => 'crm.clients.view', 'render' => fn (array $u): string => Hooks::followUpsWidget($u)],
     ['zone' => 'side', 'order' => 20, 'perm' => 'crm.finance.view', 'render' => fn (array $u): string => Hooks::overdueWidget($u)],
+    ['zone' => 'side', 'order' => 21, 'perm' => 'crm.quotations.view', 'render' => fn (array $u): string => Hooks::quotationsWidget($u)],
   ],
   'search' => fn (string $q, array $u): array => Hooks::search($q, $u),
   'cron' => [

@@ -16,7 +16,7 @@ final class QuotationController extends CrmController {
     [$w2, $p2] = $this->scope('d.client_id');
     $stats = [];
     foreach (DB::all("SELECT d.status, COUNT(*) AS n, COALESCE(SUM(d.total),0) AS v FROM quotations d WHERE $w2 GROUP BY d.status", $p2) as $r) { $stats[$r['status']] = $r; }
-    return $this->view('crm::quotations/index', ['title' => 'Quotations', 'p' => $page, 'stats' => $stats, 'clients' => $this->clientOptions(), 'styles' => ['css/crm.css']]); }
+    return $this->view('crm::quotations/index', ['title' => 'Quotations', 'p' => $page, 'stats' => $stats, 'clients' => $this->clientOptions(), 'styles' => ['css/crm.css'], 'scripts' => ['js/crm.js']]); }
 
   public function create(): Response {
     $cid = $this->request->int('client_id');
@@ -38,7 +38,7 @@ final class QuotationController extends CrmController {
     $client = DB::find('clients', (int) $doc['client_id']);
     $items = DB::all('SELECT * FROM quotation_items WHERE quotation_id=? ORDER BY position, id', [$id]);
     $inv = $doc['invoice_id'] ? DB::first('SELECT id, number, status FROM invoices WHERE id=?', [$doc['invoice_id']]) : null;
-    return $this->view('crm::quotations/show', ['title' => 'Quotation '.$doc['number'], 'doc' => $doc, 'client' => $client, 'items' => $items, 'inv' => $inv, 'styles' => ['css/crm.css']]); }
+    return $this->view('crm::quotations/show', ['title' => 'Quotation '.$doc['number'], 'doc' => $doc, 'client' => $client, 'items' => $items, 'inv' => $inv, 'styles' => ['css/crm.css'], 'scripts' => ['js/crm.js']]); }
 
   public function edit(int $id): Response {
     $doc = $this->doc('quotations', $id);
@@ -69,6 +69,8 @@ final class QuotationController extends CrmController {
     return $this->redirect('/quotations/'.$id); }
 
   public function convert(int $id): Response {
+    // Converting creates an invoice, so it also needs the (independently switchable) invoices feature.
+    $this->authorize('crm.finance.manage');
     $this->doc('quotations', $id);
     $invId = Finance::numbered(function () use ($id) {
       $q = DB::first('SELECT * FROM quotations WHERE id=? FOR UPDATE', [$id]);
@@ -81,10 +83,10 @@ final class QuotationController extends CrmController {
       DB::update('quotations', ['invoice_id' => $invId, 'updated_at' => $this->now()], 'id=?', [$id]);
       return $invId; });
     if ($invId === 0) { $this->flash('Only accepted quotations can be converted to an invoice.', 'error'); return $this->redirect('/quotations/'.$id); }
-    if ($invId < 0) { $this->flash('This quotation was already converted.', 'error'); return $this->redirect('/invoices/'.(-$invId)); }
+    if ($invId < 0) { $this->flash('This quotation was already converted.', 'error'); return $this->redirect($this->can('crm.finance.view') ? '/invoices/'.(-$invId) : '/quotations/'.$id); }
     Audit::log('crm.quotation.convert', 'quotation', $id, ['invoice_id' => $invId]);
     $this->flash('Invoice created from quotation. Review it and mark it as sent.');
-    return $this->redirect('/invoices/'.$invId); }
+    return $this->redirect($this->can('crm.finance.view') ? '/invoices/'.$invId : '/quotations/'.$id); }
 
   public function destroy(int $id): Response {
     $doc = $this->doc('quotations', $id);

@@ -1,44 +1,51 @@
 <?php
+use Modules\Crm\Services\{Hooks, Ui};
 $m = can('crm.quotations.manage');
 $n = static fn ($s) => (int) ($stats[$s]['n'] ?? 0);
 $val = static fn ($s) => (float) ($stats[$s]['v'] ?? 0);
 $open = $val('draft') + $val('sent');
 $decided = $n('accepted') + $n('rejected');
 $win = $decided ? (int) round($n('accepted') / $decided * 100) : 0;
-$filtered = ($_GET['q'] ?? '') !== '' || !empty($_GET['status']) || !empty($_GET['client_id']);
+$status = (string) ($_GET['status'] ?? '');
+$tabs = ['' => 'All', 'draft' => 'Draft', 'sent' => 'Sent', 'accepted' => 'Accepted', 'rejected' => 'Rejected', 'expired' => 'Expired'];
+$filtered = ($_GET['q'] ?? '') !== '' || !empty($_GET['client_id']);
+$today = date('Y-m-d');
+$more = Ui::more([can('crm.finance.view') ? Ui::link('/invoices', 'receipt', 'Invoices') : '', can('crm.reports.view') ? Ui::link('/crm/reports', 'chart', 'Financial reports') : '']);
 ?>
-<?= partial('partials/page_head', ['title' => 'Quotations', 'subtitle' => 'Proposals and estimates sent to clients.', 'crumbs' => [['Finance'], ['Quotations']], 'actions' => $m ? '<a class="btn primary" href="'.e(url('/quotations/create')).'">'.icon('plus', 'sm').' New quotation</a>' : '']) ?>
+<div class="crm">
+<?= partial('partials/page_head', ['title' => 'Quotations', 'subtitle' => 'Proposals and estimates — track every one from draft to accepted.', 'actions' => $more.($m ? '<a class="btn primary" href="'.e(url('/quotations/create')).'">'.icon('plus', 'sm').' New quotation</a>' : '')]) ?>
 <div class="grid g4 mb">
-  <div class="tile bg-sky"><span class="tile-ic"><?= icon('send') ?></span><div><div class="num"><?= $n('sent') + $n('draft') ?></div><div class="lbl">Open · <?= e(money($open)) ?></div></div></div>
-  <div class="tile bg-mint"><span class="tile-ic"><?= icon('check-circle') ?></span><div><div class="num"><?= $n('accepted') ?></div><div class="lbl">Accepted · <?= e(money($val('accepted'))) ?></div></div></div>
-  <div class="tile bg-pink"><span class="tile-ic"><?= icon('x') ?></span><div><div class="num"><?= $n('rejected') + $n('expired') ?></div><div class="lbl">Rejected / expired</div></div></div>
-  <div class="tile dark"><span class="tile-ic"><?= icon('target') ?></span><div><div class="num"><?= $win ?>%</div><div class="lbl">Win rate</div></div></div>
+  <?= Ui::tile('sky', 'send', Hooks::compact($open), 'Open · '.($n('sent') + $n('draft')).' awaiting reply', '/quotations?status=sent', money($open)) ?>
+  <?= Ui::tile('mint', 'check-circle', Hooks::compact($val('accepted')), 'Accepted · '.$n('accepted').' quotation'.($n('accepted') === 1 ? '' : 's'), '/quotations?status=accepted', money($val('accepted'))) ?>
+  <?= Ui::tile('pink', 'x', (string) ($n('rejected') + $n('expired')), 'Rejected or expired', '/quotations?status=rejected') ?>
+  <?= Ui::tile('lav', 'target', $win.'%', 'Win rate (accepted vs rejected)') ?>
 </div>
-<div class="card">
-  <form class="filters" method="get">
-    <input type="search" name="q" value="<?= e($_GET['q'] ?? '') ?>" placeholder="Number, title or client" class="grow">
-    <select name="status" data-autosubmit><option value="">Any status</option><?php foreach (\Modules\Crm\Services\Finance::QUOTE_STATUSES as $s): ?><option value="<?= $s ?>"<?= selected($s, $_GET['status'] ?? '') ?>><?= e(ucfirst($s)) ?></option><?php endforeach ?></select>
-    <select name="client_id" data-autosubmit><option value="">All clients</option><?php foreach ($clients as $cid => $cn): ?><option value="<?= (int) $cid ?>"<?= selected($cid, $_GET['client_id'] ?? '') ?>><?= e($cn) ?></option><?php endforeach ?></select>
-    <button class="btn ghost sm"><?= icon('filter', 'sm') ?> Filter</button>
-    <?php if ($filtered): ?><a class="btn sm soft" href="<?= e(url('/quotations')) ?>"><?= icon('x', 'sm') ?> Clear</a><?php endif ?>
+<div class="card crm-list">
+  <nav class="crm-stabs" aria-label="Status"><?php foreach ($tabs as $k => $l): $c = $k === '' ? array_sum(array_map(static fn ($r) => (int) $r['n'], $stats)) : $n($k); ?><a href="<?= e(query_merge(['status' => $k ?: null, 'page' => null])) ?>" class="<?= $status === $k || ($k === '' && !isset($tabs[$status])) ? 'active' : '' ?>"><?= e($l) ?><?php if ($c): ?> <span class="crm-count"><?= $c ?></span><?php endif ?></a><?php endforeach ?></nav>
+  <form class="crm-bar" method="get">
+    <?php if ($status !== ''): ?><input type="hidden" name="status" value="<?= e($status) ?>"><?php endif ?>
+    <label class="crm-search"><?= icon('search', 'sm') ?><input type="search" name="q" value="<?= e($_GET['q'] ?? '') ?>" placeholder="Search number, title or client" aria-label="Search quotations"></label>
+    <select name="client_id" data-autosubmit aria-label="Client"><option value="">All clients</option><?php foreach ($clients as $cid => $cn): ?><option value="<?= (int) $cid ?>"<?= selected($cid, $_GET['client_id'] ?? '') ?>><?= e($cn) ?></option><?php endforeach ?></select>
+    <?php if ($filtered): ?><a class="crm-clear" href="<?= e(url('/quotations'.($status !== '' ? '?status='.rawurlencode($status) : ''))) ?>"><?= icon('x', 'sm') ?> Clear</a><?php endif ?>
   </form>
   <?php if (!$p['items']): ?>
-    <?= empty_state($filtered ? 'No quotations match' : 'No quotations yet', $filtered ? 'Try different filters.' : 'Create an itemised quotation and convert it to an invoice once accepted.', 'money-wallet', $m && !$filtered ? '<a class="btn primary mt" href="'.e(url('/quotations/create')).'">'.icon('plus', 'sm').' New quotation</a>' : '') ?>
+    <?= $filtered || $status !== '' ? empty_state('No quotations here', 'Nothing matches this view right now.', 'empty-box') : empty_state('No quotations yet', 'Send an itemised estimate, then convert it to an invoice once the client accepts.', 'money-wallet', $m ? '<a class="btn primary" href="'.e(url('/quotations/create')).'">'.icon('plus', 'sm').' Create your first quotation</a>' : '') ?>
   <?php else: ?>
-  <div class="table-wrap"><table class="table">
-    <thead><tr><th>Number</th><th>Client</th><th>Issued</th><th>Valid until</th><th class="right">Total</th><th>Status</th><th></th></tr></thead>
-    <tbody><?php foreach ($p['items'] as $q): ?>
+  <div class="table-wrap"><table class="table crm-rt">
+    <thead><tr><th>Quotation</th><th>Client</th><th>Issued</th><th>Valid until</th><th class="amt">Amount</th><th>Status</th><th><span class="sr">Actions</span></th></tr></thead>
+    <tbody><?php foreach ($p['items'] as $q): $late = $q['valid_until'] && $q['valid_until'] < $today && in_array($q['status'], ['draft', 'sent'], true); ?>
       <tr>
-        <td><a class="row-link" href="<?= e(url('/quotations/'.$q['id'])) ?>"><?= e($q['number']) ?></a><div class="xs muted"><?= e(str_limit($q['title'] ?? '', 40)) ?></div></td>
-        <td><a class="flex" href="<?= e(url('/clients/'.$q['client_id'])) ?>"><?= avatar($q['client_company'] ?: $q['client_name'], null, 'sm') ?><span class="small b"><?= e($q['client_company'] ?: $q['client_name']) ?></span></a></td>
-        <td class="small"><?= e(fdate($q['issue_date'])) ?></td>
-        <td class="small <?= $q['valid_until'] && $q['valid_until'] < date('Y-m-d') && in_array($q['status'], ['draft', 'sent'], true) ? 'crm-late' : '' ?>"><?= e(fdate($q['valid_until'])) ?></td>
-        <td class="right nowrap b"><?= e(money($q['total'])) ?></td>
-        <td><?= badge($q['status']) ?><?= $q['invoice_id'] ? ' <span class="pill pill-mint">'.icon('receipt', 'sm').' Invoiced</span>' : '' ?></td>
-        <td class="actions"><a class="btn icon sm ghost" href="<?= e(url('/quotations/'.$q['id'])) ?>" title="Open"><?= icon('eye', 'sm') ?></a> <a class="btn icon sm ghost" href="<?= e(url('/quotations/'.$q['id'].'/pdf')) ?>" title="PDF"><?= icon('download', 'sm') ?></a></td>
+        <td class="rt-main"><a class="crm-num-link" href="<?= e(url('/quotations/'.$q['id'])) ?>"><?= e($q['number']) ?></a><div class="crm-sub"><?= e(str_limit($q['title'] ?? '', 40) ?: '—') ?></div></td>
+        <td data-l="Client"><span class="crm-cell"><?= avatar($q['client_company'] ?: $q['client_name'], null, 'sm') ?><span class="small b truncate"><?= e($q['client_company'] ?: $q['client_name']) ?></span></span></td>
+        <td class="small" data-l="Issued"><?= e(fdate($q['issue_date'])) ?></td>
+        <td class="small <?= $late ? 'crm-late' : '' ?>" data-l="Valid until"><?= e(fdate($q['valid_until'])) ?><?= $late ? ' · lapsed' : '' ?></td>
+        <td class="amt" data-l="Amount"><b><?= e(money($q['total'])) ?></b></td>
+        <td class="rt-side"><?= badge($q['status']) ?><?= $q['invoice_id'] ? '<div class="crm-sub">'.icon('receipt', 'sm').' Invoiced</div>' : '' ?></td>
+        <td class="actions rt-hide"><span class="crm-row-actions"><a class="crm-go" href="<?= e(url('/quotations/'.$q['id'].'/pdf')) ?>" title="Download PDF" aria-label="Download PDF"><?= icon('download', 'sm') ?></a><a class="crm-go" href="<?= e(url('/quotations/'.$q['id'])) ?>" title="Open" aria-label="Open"><?= icon('chevron-right', 'sm') ?></a></span></td>
       </tr>
     <?php endforeach ?></tbody>
   </table></div>
   <?= pager($p) ?>
   <?php endif ?>
+</div>
 </div>

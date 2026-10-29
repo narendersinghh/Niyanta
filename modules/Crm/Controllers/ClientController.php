@@ -37,13 +37,13 @@ final class ClientController extends CrmController {
 
   public function create(): Response {
     $c = ['id' => null, 'status' => 'lead', 'country' => '', 'currency' => setting('general.currency_code', 'INR')];
-    return $this->view('crm::clients/form', ['title' => 'New client', 'c' => $c, 'tagStr' => '', 'selected' => [$this->uid()], 'candidates' => $this->managerCandidates(), 'styles' => ['css/crm.css']]); }
+    return $this->view('crm::clients/form', ['title' => 'New client', 'c' => $c, 'tagStr' => '', 'selected' => [$this->uid()], 'candidates' => $this->managerCandidates(), 'styles' => ['css/crm.css'], 'scripts' => ['js/crm.js']]); }
 
   public function edit(int $id): Response {
     $c = $this->client($id);
     $tagStr = implode(', ', DB::column('SELECT t.name FROM client_tags ct JOIN tags t ON t.id=ct.tag_id WHERE ct.client_id=? ORDER BY t.name', [$id]));
     $sel = array_map('intval', DB::column('SELECT user_id FROM client_managers WHERE client_id=?', [$id]));
-    return $this->view('crm::clients/form', ['title' => 'Edit '.$c['name'], 'c' => $c, 'tagStr' => $tagStr, 'selected' => $sel, 'candidates' => $this->managerCandidates(), 'styles' => ['css/crm.css']]); }
+    return $this->view('crm::clients/form', ['title' => 'Edit '.$c['name'], 'c' => $c, 'tagStr' => $tagStr, 'selected' => $sel, 'candidates' => $this->managerCandidates(), 'styles' => ['css/crm.css'], 'scripts' => ['js/crm.js']]); }
 
   public function store(): Response {
     [$d, $tags, $mgrs] = $this->input();
@@ -85,9 +85,10 @@ final class ClientController extends CrmController {
 
   public function show(int $id): Response {
     $c = $this->client($id);
-    $fin = $this->can('crm.finance.view');
+    // Quotations and invoices are separate features: each part of the Finance tab follows its own permission.
+    $fin = $this->can('crm.finance.view'); $qv = $this->can('crm.quotations.view');
     $projOn = Modules::enabled('projects');
-    $data = ['title' => $c['company'] ?: $c['name'], 'c' => $c, 'fin' => $fin, 'projOn' => $projOn, 'styles' => ['css/crm.css'], 'scripts' => ['js/crm.js']];
+    $data = ['title' => $c['company'] ?: $c['name'], 'c' => $c, 'fin' => $fin, 'qv' => $qv, 'projOn' => $projOn, 'styles' => ['css/crm.css'], 'scripts' => ['js/crm.js']];
     $data['tags'] = DB::all('SELECT t.id, t.name, t.color FROM client_tags ct JOIN tags t ON t.id=ct.tag_id WHERE ct.client_id=? ORDER BY t.name', [$id]);
     $data['managers'] = DB::all('SELECT u.id, u.name, u.avatar, u.email, u.designation FROM client_managers cm JOIN users u ON u.id=cm.user_id WHERE cm.client_id=? ORDER BY u.name', [$id]);
     $data['contacts'] = DB::all('SELECT * FROM client_contacts WHERE client_id=? ORDER BY is_primary DESC, name', [$id]);
@@ -105,9 +106,9 @@ final class ClientController extends CrmController {
     $data['docs'] = DB::all("SELECT f.id, f.original_name, f.mime, f.size, f.created_at, u.name AS uploader FROM files f LEFT JOIN users u ON u.id=f.uploaded_by WHERE f.module='crm' AND f.entity_type='client' AND f.entity_id=? ORDER BY f.id DESC", [$id]);
     $data['sum'] = ['invoiced' => 0, 'paid' => 0, 'outstanding' => 0, 'overdue' => 0];
     $data['quotes'] = $data['invoices'] = $data['payments'] = [];
+    if ($qv) { $data['quotes'] = DB::all('SELECT id, number, title, issue_date, valid_until, status, total, invoice_id FROM quotations WHERE client_id=? ORDER BY id DESC LIMIT 50', [$id]); }
     if ($fin) {
       $data['sum'] = DB::first("SELECT COALESCE(SUM(CASE WHEN status NOT IN ('draft','cancelled') THEN total END),0) AS invoiced, COALESCE(SUM(CASE WHEN status<>'cancelled' THEN amount_paid END),0) AS paid, COALESCE(SUM(CASE WHEN status IN ".Finance::OPEN." THEN total-amount_paid END),0) AS outstanding, COALESCE(SUM(status='overdue'),0) AS overdue FROM invoices WHERE client_id=?", [$id]);
-      $data['quotes'] = DB::all('SELECT id, number, title, issue_date, valid_until, status, total, invoice_id FROM quotations WHERE client_id=? ORDER BY id DESC LIMIT 50', [$id]);
       $data['invoices'] = DB::all('SELECT id, number, title, issue_date, due_date, status, total, amount_paid FROM invoices WHERE client_id=? ORDER BY id DESC LIMIT 50', [$id]);
       $data['payments'] = DB::all('SELECT py.*, i.number FROM payments py JOIN invoices i ON i.id=py.invoice_id WHERE py.client_id=? ORDER BY py.paid_on DESC, py.id DESC LIMIT 50', [$id]); }
     $data['projectOptions'] = array_column($data['projects'], 'name', 'id');

@@ -345,3 +345,5 @@ details.dd>summary::-webkit-details-marker{display:none}
 .tp-light{background:linear-gradient(90deg,#13122B 22%,#F4F4FA 22%)}.tp-dark{background:linear-gradient(90deg,#0A0918 22%,#17162B 22%)}.tp-sys{background:linear-gradient(135deg,#F4F4FA 50%,#17162B 50%)}
 .profile-banner-body>.grow,.profile-banner-body>.avatar-upload{padding-top:56px}
 input:disabled,select:disabled,textarea:disabled{opacity:.7;cursor:not-allowed}
+
+@media (max-width:560px){.tile{min-height:112px;padding:16px 16px 14px}.tile .num{font-size:1.45rem;margin-top:18px;overflow-wrap:anywhere}.tile .tile-ic{width:38px;height:38px;top:14px;right:14px;border-radius:12px}.tile>div{padding-right:0}.tile .lbl{font-size:.78rem}}

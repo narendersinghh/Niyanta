@@ -22,7 +22,7 @@ final class InvoiceController extends CrmController {
     $counts = DB::pairs("SELECT d.status, COUNT(*) FROM invoices d WHERE $w2 GROUP BY d.status", $p2);
     [$w3, $p3] = $this->scope('py.client_id');
     $s['collected'] = (float) DB::value("SELECT COALESCE(SUM(py.amount),0) FROM payments py WHERE py.paid_on>=? AND $w3", [date('Y-m-01'), ...$p3]);
-    return $this->view('crm::invoices/index', ['title' => 'Invoices', 'p' => $page, 's' => $s, 'counts' => $counts, 'status' => $status, 'clients' => $this->clientOptions(), 'styles' => ['css/crm.css']]); }
+    return $this->view('crm::invoices/index', ['title' => 'Invoices', 'p' => $page, 's' => $s, 'counts' => $counts, 'status' => $status, 'clients' => $this->clientOptions(), 'styles' => ['css/crm.css'], 'scripts' => ['js/crm.js']]); }
 
   public function create(): Response {
     $days = max(0, (int) setting('crm.invoice_due_days', 15));
@@ -46,7 +46,7 @@ final class InvoiceController extends CrmController {
     $payments = DB::all('SELECT py.*, u.name AS recorder FROM payments py LEFT JOIN users u ON u.id=py.recorded_by WHERE py.invoice_id=? ORDER BY py.paid_on DESC, py.id DESC', [$id]);
     $quote = $doc['quotation_id'] ? DB::first('SELECT id, number FROM quotations WHERE id=?', [$doc['quotation_id']]) : null;
     $contactEmail = $client['email'] ?: DB::value("SELECT email FROM client_contacts WHERE client_id=? AND email IS NOT NULL AND email<>'' ORDER BY is_primary DESC, id LIMIT 1", [$client['id']]);
-    return $this->view('crm::invoices/show', ['title' => 'Invoice '.$doc['number'], 'doc' => $doc, 'client' => $client, 'items' => $items, 'payments' => $payments, 'quote' => $quote, 'contactEmail' => $contactEmail, 'styles' => ['css/crm.css']]); }
+    return $this->view('crm::invoices/show', ['title' => 'Invoice '.$doc['number'], 'doc' => $doc, 'client' => $client, 'items' => $items, 'payments' => $payments, 'quote' => $quote, 'contactEmail' => $contactEmail, 'styles' => ['css/crm.css'], 'scripts' => ['js/crm.js']]); }
 
   public function edit(int $id): Response {
     $doc = $this->doc('invoices', $id);
