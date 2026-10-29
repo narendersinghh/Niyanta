@@ -3,7 +3,7 @@ use Modules\Admin\Controllers\AuditController;
 $colorFor = static fn (string $a) => match (true) { str_starts_with($a, 'auth.failed'), str_starts_with($a, 'access.denied'), str_ends_with($a, 'delete'), str_contains($a, 'failed') => 'red', str_starts_with($a, 'auth.') => 'sky', str_starts_with($a, 'settings.'), str_starts_with($a, 'security.') => 'lav', str_starts_with($a, 'backup.'), str_starts_with($a, 'update.') => 'mint', str_ends_with($a, 'create') => 'lemon', default => 'gray' };
 $hasFilter = (bool) array_filter($f);
 ?>
-<?= partial('partials/page_head', ['title' => 'Audit log', 'subtitle' => 'Who did what, when and from where. Entries older than '.(int) setting('security.audit_retention_days', 365).' days are pruned automatically.', 'crumbs' => [['System'], ['Audit log']],
+<?= partial('partials/page_head', ['title' => 'Audit log', 'subtitle' => 'Who did what, when and from where. '.(($ad = (int) (setting('retention.audit_days') ?? setting('security.audit_retention_days', 365))) ? 'Entries older than '.$ad.' days are pruned nightly (Settings › Data retention).' : 'Entries are kept forever (Settings › Data retention).'), 'crumbs' => [['System'], ['Audit log']],
   'actions' => '<a class="btn ghost" href="'.e(url('/admin/audit').query_merge(['export' => 'csv', 'page' => null])).'">'.icon('download', 'sm').' Export CSV</a>']) ?>
 <div class="grid g4 mb">
   <div class="tile dark"><span class="tile-ic"><?= icon('history') ?></span><div><div class="num"><?= number_format((int) $p['total']) ?></div><div class="lbl"><?= $hasFilter ? 'Matching entries' : 'Total entries' ?></div></div></div>

@@ -2,11 +2,11 @@
 $lines = explode("\n", rtrim((string) $u['log']));
 $secs = $u['finished_at'] ? max(0, strtotime($u['finished_at']) - strtotime($u['started_at'])) : null;
 ?>
-<?= partial('partials/page_head', ['title' => 'Update #'.$u['id'], 'subtitle' => $u['from_version'].' → '.($u['to_version'] ?? '?').' via '.$u['channel'], 'crumbs' => [['System'], ['Updates', '/admin/updates'], ['#'.$u['id']]], 'actions' => '<a class="btn ghost" href="'.e(url('/admin/updates')).'">'.icon('arrow-left', 'sm').' Back to updates</a>']) ?>
 <div class="set-shell">
 <?= partial('admin::settings/_nav', ['tabs' => $tabs, 'tab' => 'updates']) ?>
 <div class="set-main">
-  <div class="grid g4">
+<?= partial('partials/page_head', ['title' => 'Update #'.$u['id'], 'subtitle' => $u['from_version'].' → '.($u['to_version'] ?? '?').' via '.$u['channel'], 'crumbs' => [['Settings', '/admin/settings'], ['Updates', '/admin/updates'], ['#'.$u['id']]], 'actions' => '<a class="btn ghost" href="'.e(url('/admin/updates')).'">'.icon('arrow-left', 'sm').' Back to updates</a>']) ?>
+  <div class="grid g4 mini-stats">
     <div class="tile <?= $u['status'] === 'success' ? 'bg-mint' : ($u['status'] === 'running' ? 'bg-sky' : 'bg-peach') ?>"><span class="tile-ic"><?= icon($u['status'] === 'success' ? 'check-circle' : 'alert') ?></span><div><div class="num" style="font-size:1.5rem"><?= e(ucwords(str_replace('_', ' ', $u['status']))) ?></div><div class="lbl">Status</div></div></div>
     <div class="tile bg-lav"><span class="tile-ic"><?= icon('package') ?></span><div><div class="num" style="font-size:1.5rem"><?= e($u['to_version'] ?? '?') ?></div><div class="lbl">from <?= e($u['from_version']) ?></div></div></div>
     <div class="tile bg-lemon"><span class="tile-ic"><?= icon('timer') ?></span><div><div class="num" style="font-size:1.5rem"><?= $secs !== null ? $secs.'s' : '—' ?></div><div class="lbl">Duration</div></div></div>

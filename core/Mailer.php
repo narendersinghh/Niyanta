@@ -9,7 +9,7 @@ final class Mailer {
   /** Wrap content in the branded email template. */
   public static function template(string $title, string $bodyHtml, ?string $ctaUrl = null, ?string $ctaLabel = null): string {
     $app = e(setting('branding.app_name', 'Niyanta'));
-    $c = e(setting('branding.primary_color', '#7c5cff'));
+    $c = e(setting('branding.primary_color', '#5B4CF5'));
     $cta = $ctaUrl ? '<p style="margin:24px 0"><a href="'.e($ctaUrl).'" style="background:'.$c.';color:#fff;padding:12px 22px;border-radius:999px;text-decoration:none;font-weight:600">'.e($ctaLabel ?? 'Open').'</a></p>' : '';
     return '<div style="background:#f4f4f7;padding:32px;font-family:Arial,sans-serif"><div style="max-width:560px;margin:auto;background:#fff;border-radius:18px;padding:32px"><div style="font-weight:800;font-size:20px;color:#111">'.$app.'</div><h2 style="color:#111">'.e($title).'</h2><div style="color:#444;line-height:1.6">'.$bodyHtml.'</div>'.$cta.'</div></div>'; }
 

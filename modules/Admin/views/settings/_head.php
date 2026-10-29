@@ -1,2 +1,2 @@
-<?php /* Tab heading: $tabs, $tab, optional $color, $actions */ [$label, $ic, $desc] = $tabs[$tab]; ?>
-<div class="card tab-head"><span class="bubble bg-<?= e($color ?? 'lav') ?>"><?= icon($ic, 'lg') ?></span><div class="grow"><h2><?= e($label) ?></h2><p><?= e($desc) ?></p></div><?= $actions ?? '' ?></div>
+<?php /* Settings page head: $tabs, $tab, optional $actions html */ [$label, $ic, $desc, $group, $c] = $tabs[$tab]; ?>
+<?= partial('partials/page_head', ['title' => $label, 'subtitle' => $desc, 'crumbs' => [['Settings', '/admin/settings'], [$group]], 'actions' => $actions ?? '']) ?>

@@ -1,57 +1,62 @@
 <?php
 use Modules\Admin\Services\BackupService;
-$colors = ['overview' => 'mint', 'general' => 'sky', 'users' => 'lav', 'modules' => 'lemon', 'appearance' => 'pink', 'email' => 'peach', 'ai' => 'lav', 'hr' => 'mint', 'payroll' => 'lemon', 'storage' => 'sky', 'security' => 'peach'];
-$sub = in_array($tab, ['overview', 'appearance'], true) ? 'admin::settings/'.$tab : null;
+$custom = in_array($tab, ['overview', 'appearance', 'email', 'retention', 'demo', 'features', 'users'], true);
+$form = static fn (array $x = []) => partial('admin::settings/_form', $x + ['tab' => $tab, 'fields' => $fields, 'sections' => $sections]);
+$info = static fn (string $ic, string $c, string $title, string $html) => '<div class="card info-card"><span class="ic-chip" style="--c:var(--'.$c.')">'.icon($ic).'</span><div class="grow"><h4>'.e($title).'</h4><div class="small muted">'.$html.'</div></div></div>';
 ?>
-<?= partial('partials/page_head', ['title' => 'Settings', 'subtitle' => 'Configure your workspace. Only Super Admins can see this area; every change is audit-logged.', 'crumbs' => [['System'], ['Settings', '/admin/settings'], [$tabs[$tab][0]]]]) ?>
 <div class="set-shell">
 <?= partial('admin::settings/_nav', ['tabs' => $tabs, 'tab' => $tab]) ?>
 <div class="set-main">
-<?php if ($sub): ?><?= partial($sub, get_defined_vars()) ?><?php else: ?>
-<?= partial('admin::settings/_head', ['tabs' => $tabs, 'tab' => $tab, 'color' => $colors[$tab] ?? 'lav']) ?>
+<?php if ($custom): ?><?= partial('admin::settings/'.$tab, get_defined_vars()) ?><?php else: ?>
 <?php switch ($tab):
-  case 'users': ?>
+  case 'employees': ?>
+  <?= partial('admin::settings/_head', ['tabs' => $tabs, 'tab' => $tab]) ?>
+  <?= $info('id-card', 'mint', 'Per-employee schedules', 'Part-timers or six-day weeks? Open the employee\'s HR profile and set their own hours per day and weekly off days — those override the company defaults below. '.(can('hr.employees.view') ? '<a href="'.e(url('/hr/employees')).'">Open employees →</a>' : '')) ?>
+  <?= $form() ?>
+<?php break; case 'leave': $fixed = (int) ($holidays[0] ?? 0); $opt = (int) ($holidays[1] ?? 0); ?>
+  <?= partial('admin::settings/_head', ['tabs' => $tabs, 'tab' => $tab, 'actions' => '<a class="btn ghost" href="'.e(url('/hr/holidays')).'">'.icon('calendar', 'sm').' Holiday calendar</a>']) ?>
+  <div class="grid g3 mini-stats">
+    <div class="tile bg-peach"><span class="tile-ic"><?= icon('flag') ?></span><div><div class="num"><?= $fixed ?></div><div class="lbl">Fixed holidays in <?= date('Y') ?></div></div></div>
+    <div class="tile bg-sky"><span class="tile-ic"><?= icon('umbrella') ?></span><div><div class="num"><?= $opt ?></div><div class="lbl">Optional festival days listed</div></div></div>
+    <div class="tile bg-mint"><span class="tile-ic"><?= icon('gift') ?></span><div><div class="num"><?= $ohQuota !== null ? rtrim(rtrim((string) $ohQuota, '0'), '.') : '—' ?></div><div class="lbl">Optional holidays per person</div></div></div>
+  </div>
+  <?= $form() ?>
+  <?= $info('info', 'sky', 'How holidays work', 'Fixed holidays (e.g. Republic Day, Diwali) are days off for everyone and skip working-day counts. Optional holidays are a personal pool: employees pick festival, personal or medical days and apply for them as <b>Optional Holiday (OH)</b> leave. Saving the allowance above also updates the OH leave type; per-employee quotas live on the employee profile.') ?>
+<?php break; case 'attendance': ?>
+  <?= partial('admin::settings/_head', ['tabs' => $tabs, 'tab' => $tab]) ?>
+  <?= $form() ?>
+<?php break; case 'payroll': ?>
+  <?= partial('admin::settings/_head', ['tabs' => $tabs, 'tab' => $tab, 'actions' => can('payroll.manage') ? '<a class="btn ghost" href="'.e(url('/payroll/components')).'">'.icon('sliders', 'sm').' Pay components</a>' : '']) ?>
+  <?= $form() ?>
+  <?= $info('wallet', 'pink', 'Salary structure lives in Payroll', 'Allowances, deductions and each employee\'s compensation are managed under Payroll. Reimbursement claims approved before a run are added to that month\'s payslips automatically.') ?>
+<?php break; case 'projects': ?>
+  <?= partial('admin::settings/_head', ['tabs' => $tabs, 'tab' => $tab, 'actions' => '<a class="btn ghost" href="'.e(url('/projects')).'">'.icon('folder', 'sm').' Open projects</a>']) ?>
   <div class="grid g2">
-    <div class="card"><div class="card-head"><h3>People & access</h3></div>
-      <div class="list"><?php foreach ($roles as $r): ?><div class="list-item"><span class="avatar bg-<?= $r['slug'] === 'super_admin' ? 'dark' : 'lav' ?> sm"><?= icon($r['slug'] === 'super_admin' ? 'shield' : 'user', 'sm') ?></span><div class="grow"><b><?= e($r['name']) ?></b></div><span class="pill pill-gray"><?= (int) $r['n'] ?> active</span></div><?php endforeach ?></div>
-    </div>
-    <div class="card soft-lav" style="border:0"><h3>Manage access</h3><p class="small muted">Add people, assign roles and fine-tune the <?= (int) $permCount ?> granular permissions enforced on every route.</p>
-      <div class="flex wrap"><a class="btn primary sm" href="<?= e(url('/admin/users')) ?>"><?= icon('users', 'sm') ?> Users</a><a class="btn ghost sm" href="<?= e(url('/admin/roles')) ?>"><?= icon('key', 'sm') ?> Roles & permissions</a></div></div>
+    <?= $info('bell', 'lav', 'Deadline reminders', 'Every day at <b>09:00</b> the scheduler sends assignees one digest of their tasks that are overdue, due today or due tomorrow. Make sure <a href="'.e(url('/admin/cron')).'">cron is running</a>.') ?>
+    <?= $info('clipboard', 'lemon', 'Work reports', 'Daily and weekly reports are reviewed by the reporting manager set on each user. Change managers under <a href="'.e(url('/admin/users')).'">Users</a>.') ?>
+    <?= $info('rupee', 'mint', 'Billing per project', 'Billing type (fixed, hourly, retainer or non-billable), hourly rate, budget and estimate are set on each project, so no global defaults are needed.') ?>
+    <?= $info('puzzle', 'sky', 'Turn parts on or off', 'Projects & tasks and Work reports are features of the Team & Work bundle. <a href="'.e(url('/admin/modules')).'">Manage features →</a>') ?>
   </div>
-  <?= partial('admin::settings/_form', ['tab' => 'users', 'fields' => $fields, 'title' => 'Password & sign-in policy']) ?>
-<?php break; case 'modules': $pal = ['lav', 'mint', 'lemon', 'peach', 'sky', 'pink']; $i = 0; ?>
-  <div class="card"><div class="card-head"><h3><?= count(array_filter(array_keys($modules), [\Core\Modules::class, 'enabled'])) ?> of <?= count($modules) ?> modules enabled</h3><a class="btn primary sm" href="<?= e(url('/admin/modules')) ?>"><?= icon('puzzle', 'sm') ?> Manage modules</a></div>
-    <?php foreach ($modules as $k => $m): $on = \Core\Modules::enabled($k); ?><div class="mod-row"><span class="mi bg-<?= $pal[$i++ % 6] ?>"><?= icon($m['icon'] ?? 'puzzle', 'sm') ?></span><div class="grow"><b><?= e($m['name']) ?></b><div class="xs muted truncate"><?= e($m['description'] ?? '') ?></div></div><span class="pill pill-gray">v<?= e($m['version'] ?? '1.0') ?></span><?= !empty($m['core']) ? badge('active', 'Core') : ($on ? badge('active', 'Enabled') : badge('inactive', 'Disabled')) ?></div><?php endforeach ?>
+<?php break; case 'invoicing': ?>
+  <?= partial('admin::settings/_head', ['tabs' => $tabs, 'tab' => $tab, 'actions' => '<a class="btn ghost" href="'.e(url('/admin/settings/general')).'">'.icon('building', 'sm').' Company details</a>']) ?>
+  <?= $form() ?>
+  <div class="grid g2">
+    <?= $info('alert', 'peach', 'Overdue & reminders', 'At <b>00:20</b> unpaid invoices past their due date are marked overdue. At <b>09:10</b> each client\'s account managers get a digest of overdue invoices and today\'s follow-ups.') ?>
+    <?= $info('building', 'sky', 'Your company on documents', 'Address, billing email, phone and tax ID come from <a href="'.e(url('/admin/settings/general')).'">General › Company</a>; your logo from Branding.') ?>
   </div>
-<?php break; case 'email': ?>
-  <?= partial('admin::settings/_form', ['tab' => 'email', 'fields' => $fields]) ?>
-  <div class="card hero-mini"><div><h3>Send a test email</h3><p class="small muted mb">Sends a message to <b><?= e(user()['email']) ?></b> right now (not queued) using the saved settings, and shows any error.</p>
-    <form method="post" action="<?= e(url('/admin/settings/email/test')) ?>"><?= csrf_field() ?><button class="btn primary"><?= icon('send', 'sm') ?> Send test email</button></form></div><?= illus('mail-envelope') ?></div>
-<?php break; case 'ai': ?>
-  <div class="card hero-mini"><div><span class="pill pill-<?= setting('ai.enabled') === '1' ? 'mint' : 'gray' ?>"><?= setting('ai.enabled') === '1' ? 'AI is on' : 'AI is off' ?></span><h2>AI assistant</h2>
-    <p class="small muted">Provider: <b><?= e(ucfirst((string) setting('ai.provider', 'anthropic'))) ?></b> · Monthly budget: <b><?= e(number_format((int) setting('ai.monthly_token_budget', 0))) ?></b> tokens · Per-user limit: <b><?= e(setting('ai.user_daily_requests', '50')) ?></b>/day · PII redaction: <b><?= setting('ai.redact_pii', '1') === '1' ? 'on' : 'off' ?></b></p>
-    <?php if ($aiOn): ?><a class="btn primary" href="<?= e(url('/ai/settings')) ?>"><?= icon('sliders', 'sm') ?> Open AI settings</a><?php else: ?><p class="small mb">The AI module is disabled.</p><a class="btn ghost" href="<?= e(url('/admin/modules')) ?>"><?= icon('puzzle', 'sm') ?> Enable it in Modules</a><?php endif ?></div><?= illus('ai-robot') ?></div>
-  <?php if ($aiView && $aiOn): ?><div class="alert info"><?= icon('info', 'sm') ?> API keys are stored encrypted and are never shown again after saving.</div><?php endif ?>
 <?php break; case 'storage': $max = max(1, array_sum(array_column($usage, 1))); ?>
-  <div class="grid g3">
+  <?= partial('admin::settings/_head', ['tabs' => $tabs, 'tab' => $tab]) ?>
+  <div class="grid g3 mini-stats">
     <div class="tile bg-sky"><span class="tile-ic"><?= icon('database') ?></span><div><div class="num"><?= e(BackupService::size(array_sum(array_column($usage, 1)))) ?></div><div class="lbl">Used by Niyanta data</div></div></div>
     <div class="tile bg-mint"><span class="tile-ic"><?= icon('server') ?></span><div><div class="num"><?= $health['disk_free'] !== null ? e(BackupService::size($health['disk_free'])) : '—' ?></div><div class="lbl">Free disk space</div></div></div>
     <div class="tile bg-lemon"><span class="tile-ic"><?= icon('upload') ?></span><div><div class="num"><?= e($health['limits']['upload_max_filesize']) ?></div><div class="lbl">PHP upload limit (post <?= e($health['limits']['post_max_size']) ?>)</div></div></div>
   </div>
   <div class="card"><div class="card-head"><h3>Disk usage</h3><span class="xs muted">Private folders, never served directly</span></div>
     <div class="usage"><?php foreach ($usage as $label => [$dir, $bytes, $c]): ?><div class="row"><div><b><?= e($label) ?></b><div class="xs muted mono"><?= e($dir) ?></div></div><div class="progress"><span style="width:<?= round($bytes / $max * 100, 1) ?>%;background:var(--<?= e($c) ?>)"></span></div><div class="right b"><?= e(BackupService::size($bytes)) ?></div></div><?php endforeach ?></div></div>
-  <?= partial('admin::settings/_form', ['tab' => 'storage', 'fields' => $fields, 'title' => 'Upload limits']) ?>
-<?php break; case 'security': ?>
-  <div class="grid g3">
-    <div class="tile dark"><span class="tile-ic"><?= icon('shield') ?></span><div><div class="num"><?= (int) $failed ?></div><div class="lbl">Failed sign-ins (7 days)</div></div></div>
-    <div class="tile bg-peach"><span class="tile-ic"><?= icon('lock') ?></span><div><div class="num"><?= (int) $denied ?></div><div class="lbl">Access denied (7 days)</div></div></div>
-    <a class="tile bg-lav" href="<?= e(url('/admin/audit')) ?>"><span class="tile-ic"><?= icon('history') ?></span><div><div class="b" style="font-size:1.2rem">Audit log</div><div class="lbl">Review every change <?= icon('arrow-right', 'sm') ?></div></div></a>
-  </div>
-  <?= partial('admin::settings/_form', ['tab' => 'security', 'fields' => $fields]) ?>
-  <div class="card danger-card"><div class="flex between wrap"><div class="grow"><h3><?= icon('log-out') ?> Sign out everyone</h3><p class="small muted mb0">Immediately ends every session of all <?= (int) $sessions ?> other user(s) on every device — use after a suspected compromise or a password policy change. You stay signed in.</p></div>
-    <form method="post" action="<?= e(url('/admin/settings/security/logout-all')) ?>" data-confirm="Sign out all other users on every device now?"><?= csrf_field() ?><button class="btn danger"><?= icon('log-out', 'sm') ?> Force sign-out all users</button></form></div></div>
+  <?= $form(['title' => 'Upload limits']) ?>
 <?php break; default: ?>
-  <?= partial('admin::settings/_form', ['tab' => $tab, 'fields' => $fields]) ?>
+  <?= partial('admin::settings/_head', ['tabs' => $tabs, 'tab' => $tab]) ?>
+  <?= $form() ?>
 <?php endswitch ?>
 <?php endif ?>
 </div>

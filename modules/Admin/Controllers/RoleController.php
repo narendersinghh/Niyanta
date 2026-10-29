@@ -11,7 +11,7 @@ final class RoleController extends Controller {
     foreach (DB::all('SELECT role_id, permission FROM role_permissions') as $g) { $grants[$g['role_id']][$g['permission']] = true; }
     $byModule = [];
     foreach ($perms as $p) { $byModule[$p['module']][] = $p; }
-    return $this->view('admin::roles/index', ['title' => 'Roles & Access', 'roles' => $roles, 'byModule' => $byModule, 'grants' => $grants, 'modules' => Modules::all()]); }
+    return $this->view('admin::roles/index', ['title' => 'Roles & Access', 'roles' => $roles, 'byModule' => $byModule, 'grants' => $grants, 'modules' => Modules::all(), 'styles' => ['css/admin.css'], 'scripts' => ['js/admin.js']]); }
 
   public function store(): Response {
     $d = $this->validate(['name' => 'required|max:100', 'description' => 'nullable|max:255']);

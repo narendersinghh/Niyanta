@@ -1,27 +1,29 @@
-<?php $id = $u['id']; $v = static fn (string $k, $d = '') => old($k, $u[$k] ?? $d); ?>
-<?= partial('partials/page_head', ['title' => $id ? 'Edit user' : 'Add user', 'crumbs' => [['Users', '/admin/users'], [$id ? $u['name'] : 'New']]]) ?>
-<form class="grid g-side" method="post" action="<?= e(url($id ? '/admin/users/'.$id : '/admin/users')) ?>"><?= csrf_field() ?>
-  <div class="card form">
-    <h3>Account</h3>
-    <div class="form-grid">
-      <div class="field"><label>Full name *</label><input name="name" value="<?= e($v('name')) ?>" required><?= error_for('name') ?></div>
-      <div class="field"><label>Email *</label><input type="email" name="email" value="<?= e($v('email')) ?>" required><?= error_for('email') ?></div>
-      <div class="field"><label>Phone</label><input name="phone" value="<?= e($v('phone')) ?>"><?= error_for('phone') ?></div>
-      <div class="field"><label>Role *</label><select name="role_id" required><option value="">Select…</option><?php foreach ($roles as $rid => $rn): ?><option value="<?= $rid ?>"<?= selected($rid, $v('role_id')) ?>><?= e($rn) ?></option><?php endforeach ?></select><?= error_for('role_id') ?></div>
-      <div class="field"><label>Status</label><select name="status"><option value="active"<?= selected('active', $v('status')) ?>>Active</option><option value="inactive"<?= selected('inactive', $v('status')) ?>>Inactive</option></select></div>
-      <div class="field"><label><?= $id ? 'New password' : 'Password' ?></label><input type="password" name="password" autocomplete="new-password" minlength="10"><div class="hint"><?= $id ? 'Leave blank to keep the current password.' : 'Leave blank to email an invitation link instead.' ?></div><?= error_for('password') ?></div>
-    </div>
-    <h3 class="mt">Work details</h3>
-    <div class="form-grid">
-      <div class="field"><label>Employee code</label><input name="employee_code" value="<?= e($v('employee_code')) ?>"><?= error_for('employee_code') ?></div>
-      <div class="field"><label>Joined on</label><input type="date" name="joined_on" value="<?= e($v('joined_on')) ?>"></div>
-      <div class="field"><label>Designation</label><input name="designation" value="<?= e($v('designation')) ?>"></div>
-      <div class="field"><label>Department</label><input name="department" value="<?= e($v('department')) ?>"></div>
-      <div class="field full"><label>Reporting manager</label><select name="manager_id"><option value="">None</option><?php foreach ($managers as $mid => $mn): if ((int) $mid === (int) $id) { continue; } ?><option value="<?= $mid ?>"<?= selected($mid, $v('manager_id')) ?>><?= e($mn) ?></option><?php endforeach ?></select><div class="hint">Managers approve leave and timesheets of their direct reports.</div></div>
-    </div>
-    <div class="form-actions"><a class="btn ghost" href="<?= e(url('/admin/users')) ?>">Cancel</a><button class="btn primary"><?= icon('check', 'sm') ?> Save user</button></div>
+<?php $id = $u['id']; $v = static fn (string $k, $d = '') => old($k, $u[$k] ?? $d); $err = errors(); $cls = static fn (string $k) => 'field'.(isset($err[$k]) ? ' has-error' : ''); ?>
+<?= partial('partials/page_head', ['title' => $id ? 'Edit '.$u['name'] : 'Add user', 'subtitle' => $id ? 'Update account, role and reporting line.' : 'Create an account. Leave the password empty to email an invitation link.', 'crumbs' => [['System'], ['Users', '/admin/users'], [$id ? 'Edit' : 'New']]]) ?>
+<form class="form-split" method="post" action="<?= e(url($id ? '/admin/users/'.$id : '/admin/users')) ?>"><?= csrf_field() ?>
+  <div class="set-form">
+    <section class="card set-card"><header class="set-card-head"><h3>Account</h3><p>Name, sign-in email and access level.</p></header>
+      <div class="form-grid">
+        <div class="<?= $cls('name') ?>"><label for="u-name">Full name *</label><input id="u-name" name="name" value="<?= e($v('name')) ?>" required autocomplete="off"><?= error_for('name') ?></div>
+        <div class="<?= $cls('email') ?>"><label for="u-email">Email *</label><input id="u-email" type="email" name="email" value="<?= e($v('email')) ?>" required autocomplete="off"><?= error_for('email') ?></div>
+        <div class="<?= $cls('phone') ?>"><label for="u-phone">Phone</label><input id="u-phone" type="tel" name="phone" value="<?= e($v('phone')) ?>"><?= error_for('phone') ?></div>
+        <div class="<?= $cls('role_id') ?>"><label for="u-role">Role *</label><select id="u-role" name="role_id" required><option value="">Select…</option><?php foreach ($roles as $rid => $rn): ?><option value="<?= $rid ?>"<?= selected($rid, $v('role_id')) ?>><?= e($rn) ?></option><?php endforeach ?></select><?= error_for('role_id') ?></div>
+        <div class="field"><label for="u-status">Status</label><select id="u-status" name="status"><option value="active"<?= selected('active', $v('status')) ?>>Active</option><option value="inactive"<?= selected('inactive', $v('status')) ?>>Inactive</option></select><div class="hint">Inactive users cannot sign in; their data is kept.</div></div>
+        <div class="<?= $cls('password') ?>"><label for="u-pass"><?= $id ? 'New password' : 'Password' ?></label><input id="u-pass" type="password" name="password" autocomplete="new-password" minlength="<?= (int) setting('security.password_min_length', 10) ?>"><div class="hint"><?= $id ? 'Leave blank to keep the current password. Changing it signs the user out everywhere.' : 'Leave blank to email an invitation link (valid 7 days).' ?></div><?= error_for('password') ?></div>
+      </div></section>
+    <section class="card set-card"><header class="set-card-head"><h3>Work details</h3><p>Used by HR, approvals and reports.</p></header>
+      <div class="form-grid">
+        <div class="<?= $cls('employee_code') ?>"><label for="u-code">Employee code</label><input id="u-code" name="employee_code" value="<?= e($v('employee_code')) ?>"><?= error_for('employee_code') ?></div>
+        <div class="field"><label for="u-joined">Joined on</label><input id="u-joined" type="date" name="joined_on" value="<?= e($v('joined_on')) ?>"></div>
+        <div class="field"><label for="u-desig">Designation</label><input id="u-desig" name="designation" value="<?= e($v('designation')) ?>" placeholder="e.g. UI/UX Designer"></div>
+        <div class="field"><label for="u-dept">Department</label><input id="u-dept" name="department" value="<?= e($v('department')) ?>" placeholder="e.g. Design"></div>
+        <div class="field full"><label for="u-mgr">Reporting manager</label><select id="u-mgr" name="manager_id"><option value="">None</option><?php foreach ($managers as $mid => $mn): if ((int) $mid === (int) $id) { continue; } ?><option value="<?= $mid ?>"<?= selected($mid, $v('manager_id')) ?>><?= e($mn) ?></option><?php endforeach ?></select><div class="hint">Managers approve leave, timesheets and work reports of their direct reports.</div></div>
+      </div></section>
+    <div class="save-bar"><span class="sb-note"><?= icon('shield', 'sm') ?> Changes are audit-logged</span><span class="sb-sub"></span><a class="btn ghost" href="<?= e(url('/admin/users')) ?>">Cancel</a><button class="btn primary"><?= icon('check', 'sm') ?> <?= $id ? 'Save changes' : 'Create user' ?></button></div>
   </div>
-  <div class="stack">
-    <div class="card soft-lav" style="border:0"><?= illus('team') ?><h4 class="mt">Roles at a glance</h4><p class="small mb0"><b>Super Admin</b> controls everything. <b>Manager</b> runs clients, projects & approvals. <b>HR</b> handles people, leave & payroll. <b>Employee</b> works on assigned tasks. Fine-tune in Roles & Access.</p></div>
-  </div>
+  <aside class="side">
+    <div class="card soft-lav" style="border:0"><?= illus('security-shield') ?><h4 class="mt">Roles at a glance</h4>
+      <ul class="steps-list small"><li><b>Super Admin</b> controls everything, including settings.</li><li><b>Manager</b> runs clients, projects and approvals.</li><li><b>HR</b> handles people, leave and payroll.</li><li><b>Employee</b> works on assigned tasks.</li></ul>
+      <?php if ((user()['role_slug'] ?? '') === 'super_admin'): ?><a class="btn ghost sm mt" href="<?= e(url('/admin/roles')) ?>"><?= icon('key', 'sm') ?> Fine-tune permissions</a><?php endif ?></div>
+  </aside>
 </form>

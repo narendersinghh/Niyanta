@@ -2,12 +2,11 @@
 $line = '* * * * * '.$php.' '.$path.' >/dev/null 2>&1';
 $state = ['healthy' => ['mint', 'Healthy', 'check-circle'], 'stale' => ['peach', 'Stale', 'alert'], 'never' => ['lemon', 'Never ran', 'alert']][$health['state']];
 ?>
-<?= partial('partials/page_head', ['title' => 'Cron & Scheduler', 'subtitle' => 'One system cron entry runs every background job: mail queue, reminders, backups and cleanup.', 'crumbs' => [['System'], ['Settings', '/admin/settings'], ['Cron']],
-  'actions' => '<form method="post" action="'.e(url('/admin/cron/run')).'">'.csrf_field().'<button class="btn primary">'.icon('play', 'sm').' Run all due jobs</button></form>']) ?>
 <div class="set-shell">
 <?= partial('admin::settings/_nav', ['tabs' => $tabs, 'tab' => 'cron']) ?>
 <div class="set-main">
-  <div class="grid g4">
+<?= partial('admin::settings/_head', ['tabs' => $tabs, 'tab' => 'cron', 'actions' => '<form method="post" action="'.e(url('/admin/cron/run')).'">'.csrf_field().'<button class="btn primary">'.icon('play', 'sm').' Run all due jobs</button></form>']) ?>
+  <div class="grid g4 mini-stats">
     <div class="tile bg-<?= $state[0] ?>"><span class="tile-ic"><?= icon($state[2]) ?></span><div><div class="num" style="font-size:1.6rem"><?= e($state[1]) ?></div><div class="lbl">Heartbeat <?= $health['heartbeat'] ? e(ago($health['heartbeat'])) : '—' ?></div></div></div>
     <div class="tile dark"><span class="tile-ic"><?= icon('list') ?></span><div><div class="num"><?= count($jobs) ?></div><div class="lbl">Registered jobs</div></div></div>
     <div class="tile bg-<?= $failed24 ? 'pink' : 'sky' ?>"><span class="tile-ic"><?= icon('activity') ?></span><div><div class="num"><?= (int) $failed24 ?></div><div class="lbl">Failed runs (24 h)</div></div></div>
@@ -24,7 +23,7 @@ $state = ['healthy' => ['mint', 'Healthy', 'check-circle'], 'stale' => ['peach',
       <p class="small muted">No crontab? Ask a free uptime/cron service to request this secret URL every 1–5 minutes. Requests are rate-limited and share the same lock.</p>
       <?php if ($webUrl): ?><div class="codebox"><code><?= e($webUrl) ?></code><button class="btn sm" data-copy="<?= e($webUrl) ?>"><?= icon('copy', 'sm') ?> Copy</button></div><?php endif ?>
       <form method="post" action="<?= e(url('/admin/cron/token')) ?>" data-confirm="Generate a new URL? The current URL stops working immediately." class="mt"><?= csrf_field() ?><button class="btn ghost sm"><?= icon('refresh', 'sm') ?> Regenerate secret URL</button></form></div>
-    <?= partial('admin::settings/_form', ['tab' => 'cron', 'fields' => $fields, 'title' => 'Web cron access']) ?>
+    <?= partial('admin::settings/_form', ['tab' => 'cron', 'fields' => $fields, 'title' => 'Web cron access', 'bar' => false]) ?>
   </div>
   <div class="card"><div class="card-head"><h3>Scheduled jobs</h3><span class="xs muted"><?= icon('lock', 'sm') ?> A file lock (storage/cache/cron.lock) prevents duplicate concurrent runs</span></div>
     <div class="table-wrap"><table class="table"><thead><tr><th>Job</th><th>Schedule</th><th>Last run</th><th>Status</th><th>Output</th><th></th></tr></thead><tbody>

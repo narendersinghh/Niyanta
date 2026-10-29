@@ -1,9 +1,9 @@
 <?php
-use Modules\Admin\Controllers\{UserController, RoleController, ModuleController, SettingsController, AuditController, BackupController, UpdateController, CronAdminController};
+use Modules\Admin\Controllers\{UserController, RoleController, ModuleController, SettingsController, AuditController, BackupController, UpdateController, CronAdminController, DemoController};
 
 return [
   'key' => 'admin', 'name' => 'System Administration', 'icon' => 'settings', 'core' => true, 'order' => 90, 'version' => '1.0.0',
-  'description' => 'Users, roles & permissions, modules, settings, branding, security, backups, updates and cron.',
+  'description' => 'Users, roles & permissions, features, settings, branding, security, data retention, demo data, backups, updates and cron.',
   'permissions' => [
     'admin.users.view' => ['label' => 'View users', 'roles' => ['hr']],
     'admin.users.manage' => ['label' => 'Create & edit users (non-admin roles)', 'roles' => ['hr']],
@@ -36,6 +36,10 @@ return [
     $r->post('/admin/settings/{tab}', [SettingsController::class, 'save'], $sa);
     $r->post('/admin/settings/email/test', [SettingsController::class, 'testEmail'], $sa + ['throttle' => [10, 600]]);
     $r->post('/admin/settings/security/logout-all', [SettingsController::class, 'logoutAll'], $sa);
+    $r->post('/admin/settings/appearance/reset', [SettingsController::class, 'resetTheme'], $sa);
+    $r->post('/admin/settings/retention/run', [SettingsController::class, 'runCleanup'], $sa + ['throttle' => [10, 600]]);
+    $r->post('/admin/settings/demo/import', [DemoController::class, 'import'], $sa + ['throttle' => [5, 600]]);
+    $r->post('/admin/settings/demo/delete', [DemoController::class, 'delete'], $sa + ['throttle' => [5, 600]]);
     $r->get('/admin/audit', [AuditController::class, 'index'], 'admin.audit.view');
     $r->get('/admin/backups', [BackupController::class, 'index'], $sa);
     $r->post('/admin/backups', [BackupController::class, 'create'], $sa);

@@ -1,9 +1,9 @@
 <?php
 namespace Modules\Admin\Controllers;
-use Core\{Audit, Auth, Controller, DB, HttpException, Mailer, Modules, Request, Response, Session, Settings, ValidationException};
-use Modules\Admin\Services\{BackupService, SettingsSchema, SystemHealth, UpdateService};
+use Core\{Audit, Auth, Controller, Cron, DB, Features, HttpException, Mailer, Modules, Request, Response, Session, Settings, ValidationException};
+use Modules\Admin\Services\{BackupService, DemoData, MailPresets, SettingsSchema, SystemHealth, UpdateService};
 
-/** Settings (Super Admin only): generic schema-driven tabs, branding uploads, test email, emergency sign-out and the system overview. */
+/** Settings (Super Admin only): category home, schema-driven tabs, branding uploads, theme reset, test email, retention cleanup and emergency sign-out. */
 final class SettingsController extends Controller {
   /** Tabs managed on their own pages: settings GET redirects there and saving returns there. */
   public const PAGES = ['backups' => '/admin/backups', 'cron' => '/admin/cron', 'updates' => '/admin/updates'];
@@ -13,20 +13,66 @@ final class SettingsController extends Controller {
     parent::__construct($request);
     if (!Auth::isSuperAdmin()) { throw new HttpException(403, 'Only a Super Admin can change system settings.'); } }
 
-  public function index(string $tab = 'overview'): Response {
+  private function base(string $tab, string $title): array { return ['title' => $title, 'tab' => $tab, 'tabs' => SettingsSchema::tabs(), 'styles' => ['css/admin.css'], 'scripts' => ['js/admin.js']]; }
+
+  public function index(string $tab = 'home'): Response {
+    if (array_key_exists($tab, SettingsSchema::MOVED)) { return $this->redirect('/admin/settings'.(SettingsSchema::MOVED[$tab] ? '/'.SettingsSchema::MOVED[$tab] : '')); }
+    if ($tab === 'home') { return $this->view('admin::settings/home', $this->base('home', 'Settings') + ['status' => $this->statuses()]); }
     $tabs = SettingsSchema::tabs();
     if (!isset($tabs[$tab])) { $this->abort(404, 'Unknown settings section.'); }
     if (isset(self::PAGES[$tab])) { return $this->redirect(self::PAGES[$tab]); }
-    $data = ['title' => $tabs[$tab][0].' · Settings', 'tab' => $tab, 'tabs' => $tabs, 'fields' => SettingsSchema::fields($tab), 'styles' => ['css/admin.css'], 'scripts' => ['js/admin.js']];
+    $data = $this->base($tab, $tabs[$tab][0].' · Settings') + ['fields' => SettingsSchema::fields($tab), 'sections' => SettingsSchema::sections($tab)];
     $data += match ($tab) {
-      'overview' => ['health' => SystemHealth::snapshot(), 'counts' => DB::pairs("SELECT status, COUNT(*) FROM users GROUP BY status"), 'modulesOn' => count(array_filter(array_keys(Modules::all()), [Modules::class, 'enabled'])), 'lastCheck' => UpdateService::lastCheck()],
-      'users' => ['roles' => DB::all("SELECT r.name, r.slug, COUNT(u.id) AS n FROM roles r LEFT JOIN users u ON u.role_id=r.id AND u.status='active' GROUP BY r.id, r.name, r.slug ORDER BY r.id"), 'permCount' => (int) DB::value('SELECT COUNT(*) FROM permissions')],
-      'modules' => ['modules' => Modules::all()],
-      'ai' => ['aiView' => is_file(NY_ROOT.'/modules/Ai/views/settings.php'), 'aiOn' => Modules::enabled('ai')],
+      'overview' => ['health' => SystemHealth::snapshot(), 'counts' => DB::pairs('SELECT status, COUNT(*) FROM users GROUP BY status'), 'modulesOn' => count(array_filter(array_keys(Modules::all()), [Modules::class, 'enabled'])), 'lastCheck' => UpdateService::lastCheck()],
+      'users' => ['roles' => DB::all("SELECT r.name, r.slug, COUNT(u.id) AS n FROM roles r LEFT JOIN users u ON u.role_id=r.id AND u.status='active' GROUP BY r.id, r.name, r.slug ORDER BY r.id"), 'permCount' => (int) DB::value('SELECT COUNT(*) FROM permissions'),
+        'sessions' => (int) DB::value("SELECT COUNT(*) FROM users WHERE status='active' AND id<>?", [$this->uid()]), 'failed' => $this->auditCount('auth.failed'), 'denied' => $this->auditCount('access.denied')],
+      'features' => ['bundles' => Features::bundles(), 'raw' => DB::pairs("SELECT `key`, enabled FROM modules WHERE `key` LIKE 'feature:%'")],
+      'email' => ['presets' => MailPresets::all()],
+      'retention' => ['last' => Settings::json('retention.last_cleanup'), 'sizes' => $this->tableSizes(['audit_logs', 'notifications', 'mail_queue', 'cron_logs', 'ai_usage', 'screenshots'])],
+      'demo' => ['demo' => DemoData::counts(), 'demoMeta' => Settings::json('demo.imported'), 'password' => Session::getFlash('demo_password')],
+      'leave' => ['ohQuota' => $this->has('leave_types') ? DB::value("SELECT annual_quota FROM leave_types WHERE code='OH'") : null, 'holidays' => $this->has('holidays') ? DB::pairs('SELECT optional, COUNT(*) FROM holidays WHERE YEAR(holiday_date)=? GROUP BY optional', [(int) date('Y')]) : []],
       'storage' => ['usage' => SystemHealth::usage(), 'health' => SystemHealth::snapshot()],
-      'security' => ['sessions' => (int) DB::value("SELECT COUNT(*) FROM users WHERE status='active' AND id<>?", [$this->uid()]), 'failed' => (int) DB::value("SELECT COUNT(*) FROM audit_logs WHERE action='auth.failed' AND created_at > ?", [date('Y-m-d H:i:s', strtotime('-7 days'))]), 'denied' => (int) DB::value("SELECT COUNT(*) FROM audit_logs WHERE action='access.denied' AND created_at > ?", [date('Y-m-d H:i:s', strtotime('-7 days'))])],
       default => [] };
     return $this->view('admin::settings/index', $data); }
+
+  private function has(string $table): bool { return (bool) DB::value('SELECT 1 FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name=?', [$table]); }
+  private function auditCount(string $action): int { return (int) DB::value('SELECT COUNT(*) FROM audit_logs WHERE action=? AND created_at > ?', [$action, date('Y-m-d H:i:s', strtotime('-7 days'))]); }
+
+  /** Row counts and data size of tables (missing tables are skipped). */
+  private function tableSizes(array $tables): array {
+    $out = [];
+    foreach (DB::all('SELECT table_name AS t, table_rows AS n, data_length+index_length AS b FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name IN '.DB::in($tables), $tables) as $r) { $out[$r['t']] = [(int) DB::value('SELECT COUNT(*) FROM '.DB::id($r['t'])), (int) $r['b']]; }
+    return $out; }
+
+  /** One-line status per tab for the settings home. [text, tone] where tone is ok|warn|off|info. */
+  private function statuses(): array {
+    $h = SystemHealth::cron();
+    $bOn = array_filter(array_keys(Features::bundles()), [Features::class, 'bundleEnabled']);
+    $prov = MailPresets::get((string) SettingsSchema::value(['key' => 'email.provider']));
+    $smtpOk = Settings::get('email.driver', 'mail') === 'mail' || (string) Settings::get('email.smtp_host', '') !== '';
+    $last = DB::first("SELECT created_at FROM backups WHERE status='success' ORDER BY id DESC LIMIT 1");
+    $demo = array_sum(DemoData::counts());
+    $clean = Settings::json('retention.last_cleanup');
+    $tz = (string) Settings::get('general.timezone', date_default_timezone_get());
+    return [
+      'general' => [$tz.' · '.Settings::get('general.currency_code', 'INR'), 'info'],
+      'appearance' => [SettingsSchema::customTheme() ? 'Custom colours' : 'Default theme', 'info'],
+      'email' => [($prov['name'] ?? 'Not set').($smtpOk ? '' : ' · incomplete'), $smtpOk ? 'ok' : 'warn'],
+      'users' => ['Min '.(int) Settings::get('security.password_min_length', 10).' chars · '.(int) Settings::get('security.session_idle_minutes', 120).' min idle', 'info'],
+      'features' => [count($bOn).' of '.count(Features::bundles()).' bundles on', count($bOn) ? 'ok' : 'off'],
+      'employees' => [rtrim(rtrim((string) Settings::get('hr.work_hours_per_day', '8'), '0'), '.').' h/day · '.count(array_filter(explode(',', (string) Settings::get('general.weekend_days', '6,7')))).' weekly offs', 'info'],
+      'leave' => [(int) Settings::get('hr.optional_holidays_default', 15).' optional holidays', 'info'],
+      'attendance' => [Settings::bool('attendance.screenshots_enabled') ? 'Screenshots on' : 'Screenshots off', 'info'],
+      'payroll' => [Settings::get('payroll.payslip_footer') ? 'Payslip note set' : 'Default payslips', 'info'],
+      'projects' => ['Reminders daily 09:00', 'info'],
+      'invoicing' => [Settings::get('crm.invoice_prefix', 'INV-').'00001 · '.Settings::get('crm.default_tax_rate', '18').'% tax', 'info'],
+      'overview' => [['healthy' => 'Scheduler healthy', 'stale' => 'Scheduler stale', 'never' => 'Scheduler never ran'][$h['state']], $h['state'] === 'healthy' ? 'ok' : 'warn'],
+      'retention' => [$clean ? 'Last cleanup '.ago($clean['at']) : 'No cleanup yet', $clean ? 'ok' : 'info'],
+      'demo' => [$demo ? number_format($demo).' demo records' : 'Not imported', $demo ? 'warn' : 'info'],
+      'backups' => [$last ? 'Last '.ago($last['created_at']) : 'No backups yet', $last && strtotime($last['created_at']) > time() - 172800 ? 'ok' : 'warn'],
+      'cron' => [$h['heartbeat'] ? 'Heartbeat '.ago($h['heartbeat']) : 'Never ran', $h['state'] === 'healthy' ? 'ok' : 'warn'],
+      'updates' => ['v'.NY_VERSION, 'info'],
+      'storage' => ['Max upload '.(int) Settings::get('storage.max_upload_mb', 10).' MB', 'info']]; }
 
   public function save(string $tab): Response {
     $fields = SettingsSchema::fields($tab);
@@ -42,15 +88,25 @@ final class SettingsController extends Controller {
       Session::flash('old', ['s' => array_diff_key($input, array_flip($secret))]);
       return $this->redirect($return); }
     $values += $files;
+    if ($tab === 'appearance') { $values['branding.primary_color'] = $values['appearance.primary_color'] ?? SettingsSchema::DEFAULTS['appearance.primary_color']; }
     $changed = [];
-    foreach ($values as $k => $v) { if ((string) Settings::get($k, '') !== (string) $v) { $changed[] = $k; } }
+    $all = Settings::all();
+    foreach ($values as $k => $v) {
+      $cur = in_array($k, Settings::SECRETS, true) ? Settings::get($k) : ($all[$k] ?? null);
+      if ($v === null ? $cur !== null : (string) ($cur ?? '') !== (string) $v) { $changed[] = $k; } }
     if ($changed) {
-      $save = array_intersect_key($values, array_flip($changed));
-      if (isset($save['appearance.primary_color'])) { $save['branding.primary_color'] = $save['appearance.primary_color']; }
-      Settings::setMany($save);
-      Audit::log('settings.update', 'settings', null, ['tab' => $tab, 'changed' => $changed]); }
+      Settings::setMany(array_intersect_key($values, array_flip($changed)));
+      if ($tab === 'leave' && in_array('hr.optional_holidays_default', $changed, true) && $this->has('leave_types')) { DB::query("UPDATE leave_types SET annual_quota=? WHERE code='OH'", [(int) $values['hr.optional_holidays_default']]); }
+      Audit::log('settings.update', 'settings', null, ['tab' => $tab, 'changed' => array_values(array_diff($changed, Settings::SECRETS)), 'secrets_changed' => count(array_intersect($changed, Settings::SECRETS))]); }
     $this->flash($changed ? 'Settings saved.' : 'No changes to save.');
     return $this->redirect($return); }
+
+  /** Remove every colour/size/radius override so the built-in stylesheet palette applies again. */
+  public function resetTheme(): Response {
+    Settings::setMany(array_fill_keys([...SettingsSchema::THEME_KEYS, 'branding.primary_color'], null));
+    Audit::log('settings.theme_reset', 'settings', null);
+    $this->flash('Theme reset to the default palette.');
+    return $this->redirect('/admin/settings/appearance'); }
 
   /** Validate and store logo/favicon uploads (random names in assets/uploads/branding). Returns settings to save. */
   private function brandUploads(): array {
@@ -86,18 +142,29 @@ final class SettingsController extends Controller {
   public function testEmail(): Response {
     $u = $this->user();
     $app = (string) setting('branding.app_name', 'Niyanta');
+    $meta = ['driver' => Settings::get('email.driver', 'mail'), 'provider' => Settings::get('email.provider')];
     try {
-      Mailer::send($u['email'], "Test email from $app", Mailer::template('It works! 🎉', '<p>Hi '.e($u['name']).',</p><p>This test message confirms that '.e($app).' can send email using the <b>'.e((string) Settings::get('email.driver', 'mail')).'</b> driver.</p><p style="color:#888;font-size:12px">Sent '.e(date('c')).'</p>'), $u['name']);
-      Audit::log('settings.email_test', 'settings', null, ['ok' => true, 'driver' => Settings::get('email.driver', 'mail')]);
+      Mailer::send($u['email'], "Test email from $app", Mailer::template('It works!', '<p>Hi '.e($u['name']).',</p><p>This test message confirms that '.e($app).' can send email using <b>'.e(MailPresets::get((string) SettingsSchema::value(['key' => 'email.provider']))['name'] ?? 'PHP mail()').'</b>.</p><p style="color:#888;font-size:12px">Sent '.e(date('c')).'</p>'), $u['name']);
+      Audit::log('settings.email_test', 'settings', null, ['ok' => true] + $meta);
       $this->flash('Test email sent to '.$u['email'].'. Check your inbox (and spam folder).'); }
     catch (\Throwable $e) {
-      Audit::log('settings.email_test', 'settings', null, ['ok' => false, 'driver' => Settings::get('email.driver', 'mail')]);
-      $this->flash('Test email failed: '.mb_substr($e->getMessage(), 0, 300), 'error'); }
+      Audit::log('settings.email_test', 'settings', null, ['ok' => false] + $meta);
+      Session::flash('mail_error', mb_substr($e->getMessage(), 0, 500));
+      $this->flash('Test email failed — see the error below the form.', 'error'); }
     return $this->redirect('/admin/settings/email'); }
+
+  /** Run the retention cleanup now (same job and lock as the nightly cron). */
+  public function runCleanup(): Response {
+    $res = Cron::run(true, 'core.cleanup');
+    $out = (string) DB::value("SELECT last_output FROM cron_jobs WHERE name='core.cleanup'");
+    Audit::log('retention.cleanup', 'settings', null, ['result' => $res['core.cleanup'] ?? ($res['skipped'] ?? 'unknown')]);
+    if (isset($res['skipped'])) { $this->flash($res['skipped'], 'error'); }
+    else { $this->flash(($res['core.cleanup'] ?? '') === 'success' ? 'Cleanup finished: '.$out.'.' : 'Cleanup failed: '.$out, ($res['core.cleanup'] ?? '') === 'success' ? 'success' : 'error'); }
+    return $this->redirect('/admin/settings/retention'); }
 
   /** Emergency: sign out every other user by bumping their session version. */
   public function logoutAll(): Response {
     $n = DB::query('UPDATE users SET session_version=session_version+1 WHERE id<>?', [$this->uid()])->rowCount();
     Audit::log('security.logout_all', 'user', null, ['users' => $n]);
     $this->flash("Signed out $n other user(s) on every device. You stay signed in.");
-    return $this->redirect('/admin/settings/security'); } }
+    return $this->redirect('/admin/settings/users'); } }

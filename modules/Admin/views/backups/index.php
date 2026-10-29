@@ -5,12 +5,11 @@ $last = $ok[0] ?? null;
 $enabled = setting('backups.enabled', '1') === '1';
 $db = (array) \Core\App::config('db', []);
 ?>
-<?= partial('partials/page_head', ['title' => 'Backups', 'subtitle' => 'Pure-PHP database dumps and full archives, stored privately in storage/backups.', 'crumbs' => [['System'], ['Settings', '/admin/settings'], ['Backups']],
-  'actions' => '<button class="btn primary" data-modal="new-backup">'.icon('plus', 'sm').' Create backup</button>']) ?>
 <div class="set-shell">
 <?= partial('admin::settings/_nav', ['tabs' => $tabs, 'tab' => 'backups']) ?>
 <div class="set-main">
-  <div class="grid g4">
+<?= partial('admin::settings/_head', ['tabs' => $tabs, 'tab' => 'backups', 'actions' => '<button class="btn primary" data-modal="new-backup">'.icon('plus', 'sm').' Create backup</button>']) ?>
+  <div class="grid g4 mini-stats">
     <div class="tile dark"><span class="tile-ic"><?= icon('cloud') ?></span><div><div class="num"><?= count($ok) ?></div><div class="lbl">Stored backups (keep <?= (int) setting('backups.keep', 7) ?>)</div></div></div>
     <div class="tile bg-mint"><span class="tile-ic"><?= icon('clock') ?></span><div><div class="num" style="font-size:1.6rem"><?= $last ? e(ago($last['created_at'])) : 'Never' ?></div><div class="lbl">Last successful backup</div></div></div>
     <div class="tile bg-lav"><span class="tile-ic"><?= icon('calendar') ?></span><div><div class="num" style="font-size:1.6rem"><?= $enabled ? e(setting('backups.time', '02:30')) : 'Off' ?></div><div class="lbl"><?= $enabled ? 'Daily · '.(setting('backups.include_uploads') === '1' ? 'full archive' : 'database only') : 'Automatic backups disabled' ?></div></div></div>
@@ -35,7 +34,7 @@ $db = (array) \Core\App::config('db', []);
     </table></div><?php endif ?>
   </div>
   <div class="grid g2" style="align-items:start">
-    <?= partial('admin::settings/_form', ['tab' => 'backups', 'fields' => $fields, 'title' => 'Schedule & retention']) ?>
+    <?= partial('admin::settings/_form', ['tab' => 'backups', 'fields' => $fields, 'title' => 'Schedule & retention', 'bar' => false]) ?>
     <div class="card"><div class="card-head"><h3><?= icon('info') ?> How to restore manually</h3></div>
       <ol class="steps-list prose">
         <li>Download the backup. For a <b>full</b> backup, unzip it — the dump is <code>database.sql.gz</code>.</li>

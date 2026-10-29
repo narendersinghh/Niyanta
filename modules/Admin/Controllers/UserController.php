@@ -12,15 +12,15 @@ final class UserController extends Controller {
     if ($role) { $sql .= ' AND u.role_id=?'; $p[] = $role; }
     if (in_array($status, ['active', 'inactive', 'invited'], true)) { $sql .= ' AND u.status=?'; $p[] = $status; }
     $page = DB::paginate($sql.' ORDER BY u.status=\'active\' DESC, u.name', $p, 20);
-    $stats = DB::pairs('SELECT r.slug, COUNT(u.id) FROM roles r LEFT JOIN users u ON u.role_id=r.id AND u.status=\'active\' GROUP BY r.slug');
-    return $this->view('admin::users/index', ['title' => 'Users', 'p' => $page, 'roles' => DB::pairs('SELECT id, name FROM roles ORDER BY id'), 'stats' => $stats]); }
+    $roleStats = DB::all("SELECT r.id, r.name, r.slug, COUNT(u.id) AS n FROM roles r LEFT JOIN users u ON u.role_id=r.id AND u.status<>'inactive' GROUP BY r.id, r.name, r.slug ORDER BY r.id");
+    return $this->view('admin::users/index', ['title' => 'Users', 'p' => $page, 'roles' => array_column($roleStats, 'name', 'id'), 'roleStats' => $roleStats, 'f' => ['q' => $q, 'role' => $role, 'status' => $status], 'styles' => ['css/admin.css']]); }
 
-  public function create(): Response { return $this->view('admin::users/form', ['title' => 'Add user', 'u' => ['id' => null, 'status' => 'active', 'role_id' => null, 'manager_id' => null]] + $this->lookups()); }
+  public function create(): Response { return $this->view('admin::users/form', ['title' => 'Add user', 'u' => ['id' => null, 'status' => 'active', 'role_id' => null, 'manager_id' => null], 'styles' => ['css/admin.css']] + $this->lookups()); }
 
   public function edit(int $id): Response {
     $u = $this->findOr404('users', $id);
     $this->guardTarget($u);
-    return $this->view('admin::users/form', ['title' => 'Edit '.$u['name'], 'u' => $u] + $this->lookups()); }
+    return $this->view('admin::users/form', ['title' => 'Edit '.$u['name'], 'u' => $u, 'styles' => ['css/admin.css']] + $this->lookups()); }
 
   private function lookups(): array {
     $roles = Auth::isSuperAdmin() ? DB::pairs('SELECT id, name FROM roles ORDER BY id') : DB::pairs("SELECT id, name FROM roles WHERE slug<>'super_admin' ORDER BY id");

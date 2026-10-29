@@ -3,10 +3,10 @@ use Modules\Admin\Services\BackupService;
 $c = $check; $avail = !empty($c['available']) && empty($c['error']);
 $channelLabel = ['release' => 'Stable releases', 'commit' => 'Latest commit'][setting('updates.channel', 'release')] ?? 'Stable releases';
 ?>
-<?= partial('partials/page_head', ['title' => 'Updates', 'subtitle' => 'One-click updates from GitHub with automatic backup and rollback.', 'crumbs' => [['System'], ['Settings', '/admin/settings'], ['Updates']]]) ?>
 <div class="set-shell">
 <?= partial('admin::settings/_nav', ['tabs' => $tabs, 'tab' => 'updates']) ?>
 <div class="set-main">
+<?= partial('admin::settings/_head', ['tabs' => $tabs, 'tab' => 'updates']) ?>
   <div class="card hero-mini">
     <div><span class="pill pill-<?= $avail ? 'peach' : 'mint' ?>"><?= $avail ? 'Update available' : (!empty($c['checked_at']) && empty($c['error']) ? 'Up to date' : 'Not checked yet') ?></span>
       <h2>Niyanta v<?= e(NY_VERSION) ?><?= setting('updates.current_commit') ? ' <span class="pill pill-gray mono">'.e(substr((string) setting('updates.current_commit'), 0, 7)).'</span>' : '' ?></h2>
@@ -26,7 +26,7 @@ $channelLabel = ['release' => 'Stable releases', 'commit' => 'Latest commit'][se
     <p class="xs muted mt mb0"><?= icon('shield', 'sm') ?> Integrity: <?= !empty($c['digest']) ? 'published SHA-256 digest' : (!empty($c['checksum_url']) ? 'checksums file in the release' : (!empty($c['size']) ? 'GitHub-reported size + package structure' : 'package structure (niyanta.json, core/version.php)')) ?>.</p></div>
   <?php endif ?>
   <div class="grid g2" style="align-items:start">
-    <?= partial('admin::settings/_form', ['tab' => 'updates', 'fields' => $fields, 'title' => 'Update source']) ?>
+    <?= partial('admin::settings/_form', ['tab' => 'updates', 'fields' => $fields, 'title' => 'Update source', 'bar' => false]) ?>
     <div class="card"><div class="card-head"><h3>Database migrations</h3><?= $pending ? badge('pending', count($pending).' pending') : badge('success', 'Up to date') ?></div>
       <?php if ($pending): ?><div class="list"><?php foreach (array_slice($pending, 0, 12) as $m): ?><div class="list-item"><span class="pill pill-lav"><?= e($m['module']) ?></span><span class="mono xs grow truncate"><?= e($m['name']) ?></span></div><?php endforeach ?></div>
         <?php if (count($pending) > 12): ?><p class="xs muted">…and <?= count($pending) - 12 ?> more</p><?php endif ?>
