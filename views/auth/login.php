@@ -1,7 +1,7 @@
 <?php $app = setting('branding.app_name', 'Niyanta'); ?>
-<div class="auth">
+<div class="auth"><?= partial('partials/auth_tools') ?>
   <div class="auth-art">
-    <div class="flex"><span class="brand-logo"><?php if ($l = setting('branding.logo')): ?><img src="<?= e(url('assets/uploads/branding/'.basename((string) $l))) ?>" alt=""><?php else: ?><?= e(mb_substr($app, 0, 1)) ?><?php endif ?></span><b style="font-size:1.2rem"><?= e($app) ?></b></div>
+    <div class="flex"><span class="brand-logo"><?php if ($l = setting('branding.logo')): ?><img src="<?= e(url('assets/uploads/branding/'.basename((string) $l))) ?>" alt=""><?php elseif (is_file(NY_ROOT.'/assets/img/logo.svg')): ?><img src="<?= e(asset('img/logo.svg')) ?>" alt=""><?php else: ?><?= e(mb_substr($app, 0, 1)) ?><?php endif ?></span><b style="font-size:1.2rem"><?= e($app) ?></b></div>
     <?= illus('login-hero') ?>
     <div>
       <h2><?= e(setting('branding.login_headline', 'Clients, projects, people & payroll — beautifully in one place.')) ?></h2>

@@ -11,15 +11,17 @@ return [
     'crm.clients.manage' => ['label' => 'Create & edit clients, contacts, journey', 'roles' => ['manager']],
     'crm.clients.delete' => ['label' => 'Delete clients', 'roles' => []],
     'crm.documents.manage' => ['label' => 'Upload & delete client documents', 'roles' => ['manager']],
-    'crm.finance.view' => ['label' => 'View quotations, invoices & payments', 'roles' => ['manager']],
-    'crm.finance.manage' => ['label' => 'Create quotations, invoices & record payments', 'roles' => ['manager']],
+    'crm.quotations.view' => ['label' => 'View quotations', 'roles' => ['manager']],
+    'crm.quotations.manage' => ['label' => 'Create & edit quotations', 'roles' => ['manager']],
+    'crm.finance.view' => ['label' => 'View invoices & payments', 'roles' => ['manager']],
+    'crm.finance.manage' => ['label' => 'Create invoices & record payments', 'roles' => ['manager']],
     'crm.reports.view' => ['label' => 'View client & project financial reports', 'roles' => ['manager']],
   ],
   'nav' => [
-    ['label' => 'Clients', 'icon' => 'briefcase', 'url' => '/clients', 'perm' => 'crm.clients.view', 'group' => 'Clients', 'order' => 1],
-    ['label' => 'Quotations', 'icon' => 'file-text', 'url' => '/quotations', 'perm' => 'crm.finance.view', 'group' => 'Finance', 'order' => 1],
-    ['label' => 'Invoices', 'icon' => 'receipt', 'url' => '/invoices', 'perm' => 'crm.finance.view', 'group' => 'Finance', 'order' => 2],
-    ['label' => 'Financial Reports', 'icon' => 'chart', 'url' => '/crm/reports', 'perm' => 'crm.reports.view', 'group' => 'Finance', 'order' => 4],
+    ['label' => 'Clients', 'icon' => 'briefcase', 'color' => '#FF6F59', 'url' => '/clients', 'perm' => 'crm.clients.view', 'section' => 'clients', 'order' => 1],
+    ['label' => 'Quotations', 'icon' => 'file-text', 'color' => '#F5A524', 'url' => '/quotations', 'perm' => 'crm.quotations.view', 'section' => 'clients', 'order' => 2],
+    ['label' => 'Invoices', 'icon' => 'receipt', 'color' => '#12B5A0', 'url' => '/invoices', 'perm' => 'crm.finance.view', 'section' => 'clients', 'order' => 3],
+    ['label' => 'Financial Reports', 'icon' => 'chart', 'color' => '#2E9BF6', 'url' => '/crm/reports', 'perm' => 'crm.reports.view', 'section' => 'clients', 'order' => 4],
   ],
   'routes' => function (Core\Router $r): void {
     $v = 'crm.clients.view'; $m = 'crm.clients.manage'; $fv = 'crm.finance.view'; $fm = 'crm.finance.manage';
@@ -38,16 +40,16 @@ return [
     $r->post('/clients/{id}/activities/{activity_id}/delete', [JourneyController::class, 'deleteActivity'], $m);
     $r->post('/clients/{id}/activities/{activity_id}/done', [JourneyController::class, 'followUpDone'], $m);
     $r->post('/clients/{id}/documents', [JourneyController::class, 'upload'], 'crm.documents.manage');
-    $r->get('/quotations', [QuotationController::class, 'index'], $fv);
-    $r->get('/quotations/create', [QuotationController::class, 'create'], $fm);
-    $r->post('/quotations', [QuotationController::class, 'store'], $fm);
-    $r->get('/quotations/{id}', [QuotationController::class, 'show'], $fv);
-    $r->get('/quotations/{id}/edit', [QuotationController::class, 'edit'], $fm);
-    $r->get('/quotations/{id}/pdf', [QuotationController::class, 'pdf'], $fv);
-    $r->post('/quotations/{id}', [QuotationController::class, 'update'], $fm);
-    $r->post('/quotations/{id}/status', [QuotationController::class, 'status'], $fm);
-    $r->post('/quotations/{id}/convert', [QuotationController::class, 'convert'], $fm);
-    $r->post('/quotations/{id}/delete', [QuotationController::class, 'destroy'], $fm);
+    $r->get('/quotations', [QuotationController::class, 'index'], 'crm.quotations.view');
+    $r->get('/quotations/create', [QuotationController::class, 'create'], 'crm.quotations.manage');
+    $r->post('/quotations', [QuotationController::class, 'store'], 'crm.quotations.manage');
+    $r->get('/quotations/{id}', [QuotationController::class, 'show'], 'crm.quotations.view');
+    $r->get('/quotations/{id}/edit', [QuotationController::class, 'edit'], 'crm.quotations.manage');
+    $r->get('/quotations/{id}/pdf', [QuotationController::class, 'pdf'], 'crm.quotations.view');
+    $r->post('/quotations/{id}', [QuotationController::class, 'update'], 'crm.quotations.manage');
+    $r->post('/quotations/{id}/status', [QuotationController::class, 'status'], 'crm.quotations.manage');
+    $r->post('/quotations/{id}/convert', [QuotationController::class, 'convert'], 'crm.quotations.manage');
+    $r->post('/quotations/{id}/delete', [QuotationController::class, 'destroy'], 'crm.quotations.manage');
     $r->get('/invoices', [InvoiceController::class, 'index'], $fv);
     $r->get('/invoices/create', [InvoiceController::class, 'create'], $fm);
     $r->post('/invoices', [InvoiceController::class, 'store'], $fm);

@@ -2,7 +2,7 @@
 use Modules\Ai\Controllers\{ActionController, AssistantController, SearchController, SettingsController, UsageController};
 
 return [
-  'key' => 'ai', 'name' => 'AI Assistant', 'icon' => 'sparkles', 'order' => 60, 'version' => '1.0.0',
+  'key' => 'ai', 'labs' => true, 'name' => 'AI Assistant', 'icon' => 'sparkles', 'order' => 60, 'version' => '1.0.0',
   'description' => 'OpenAI, Anthropic Claude & OpenRouter powered summaries, drafts, suggestions, reports and natural-language search with human approval.',
   'permissions' => [
     'ai.use' => ['label' => 'Use AI assistant tools', 'roles' => ['manager', 'hr']],
@@ -10,8 +10,6 @@ return [
     'ai.usage.view' => ['label' => 'View AI usage & costs', 'roles' => []],
   ],
   'nav' => [
-    ['label' => 'AI Assistant', 'icon' => 'sparkles', 'url' => '/ai', 'perm' => ['ai.use', 'ai.search'], 'group' => 'Intelligence', 'order' => 1],
-    ['label' => 'AI Usage', 'icon' => 'activity', 'url' => '/ai/usage', 'perm' => 'ai.usage.view', 'group' => 'Intelligence', 'order' => 2],
   ],
   'settings_view' => 'ai::settings',
   'routes' => function (Core\Router $r): void {

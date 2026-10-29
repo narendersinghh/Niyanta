@@ -16,14 +16,17 @@ echo partial('partials/head', get_defined_vars());
 <div class="app" id="app">
 <aside class="sidebar" aria-label="Main navigation">
   <a class="brand" href="<?= e(url('/')) ?>">
-    <span class="brand-logo"><?php if ($logo): ?><img src="<?= e(url('assets/uploads/branding/'.basename((string) $logo))) ?>" alt=""><?php else: ?><?= e(mb_substr($appName, 0, 1)) ?><?php endif ?></span>
+    <span class="brand-logo"><?php if ($logo): ?><img src="<?= e(url('assets/uploads/branding/'.basename((string) $logo))) ?>" alt=""><?php elseif (is_file(NY_ROOT.'/assets/img/logo.svg')): ?><img src="<?= e(asset('img/logo.svg')) ?>" alt=""><?php else: ?><?= e(mb_substr($appName, 0, 1)) ?><?php endif ?></span>
     <span><b><?= e($appName) ?></b><small><?= e(setting('branding.tagline', 'Run your agency with ease')) ?></small></span>
   </a>
-  <nav class="nav">
-    <a href="<?= e(url('/')) ?>" class="<?= $path === '/' ? 'active' : '' ?>"><?= icon('home') ?> Dashboard</a>
-    <?php foreach ($nav as $group => $items): ?>
-      <div class="nav-group"><?= e($group) ?></div>
-      <?php foreach ($items as $n): ?><a href="<?= e(url($n['url'])) ?>" class="<?= $isActive($n['url']) ? 'active' : '' ?>"><?= icon($n['icon'] ?? 'grid') ?> <?= e($n['label']) ?></a><?php endforeach ?>
+  <nav class="nav" data-nav>
+    <a href="<?= e(url('/')) ?>" class="<?= $path === '/' ? 'active' : '' ?>"><span class="ni" style="--c:#7C5CFF"><?= icon('home') ?></span> Dashboard</a>
+    <?php foreach ($nav as $sec => $items): [$label, $collapsible] = Modules::SECTIONS[$sec];
+      $hasActive = (bool) array_filter($items, static fn ($n) => $isActive($n['url']));
+      $links = '';
+      foreach ($items as $n) { $links .= '<a href="'.e(url($n['url'])).'" class="'.($isActive($n['url']) ? 'active' : '').'"><span class="ni" style="--c:'.e($n['color']).'">'.icon($n['icon'] ?? 'grid').'</span> '.e($n['label']).'</a>'; } ?>
+      <?php if ($collapsible): ?><details class="nav-sec" data-sec="<?= e($sec) ?>"<?= $hasActive ? ' open data-active' : '' ?>><summary><?= e($label) ?><span class="sec-count"><?= count($items) ?></span><?= icon('chevron-down') ?></summary><?= $links ?></details>
+      <?php else: ?><?php if ($label): ?><div class="nav-group"><?= e($label) ?></div><?php endif ?><?= $links ?><?php endif ?>
     <?php endforeach ?>
   </nav>
   <div class="side-card mt2">

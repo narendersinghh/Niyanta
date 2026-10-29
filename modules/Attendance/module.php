@@ -13,9 +13,10 @@ return [
     'attendance.screenshots.view' => ['label' => 'View monitoring screenshots of team', 'roles' => []],
   ],
   'nav' => [
-    ['label' => 'Time Tracker', 'icon' => 'timer', 'url' => '/time', 'perm' => 'attendance.track', 'group' => 'Work', 'order' => 3],
-    ['label' => 'Attendance', 'icon' => 'clock', 'url' => '/attendance', 'perm' => ['attendance.track', 'attendance.view_all'], 'group' => 'People', 'order' => 2],
-    ['label' => 'Timesheets', 'icon' => 'calendar', 'url' => '/timesheets', 'perm' => ['attendance.track', 'attendance.timesheets.approve'], 'group' => 'Work', 'order' => 5],
+    ['label' => 'Time Tracker', 'icon' => 'timer', 'color' => '#F5A524', 'url' => '/time', 'perm' => 'attendance.track', 'section' => 'main', 'order' => 3],
+    ['label' => 'Timesheets', 'icon' => 'calendar', 'color' => '#2E9BF6', 'url' => '/timesheets', 'perm' => ['attendance.track', 'attendance.timesheets.approve'], 'section' => 'work', 'order' => 3],
+    ['label' => 'My Attendance', 'icon' => 'clock', 'color' => '#FF6F59', 'url' => '/attendance', 'perm' => 'attendance.track', 'section' => 'me', 'order' => 2],
+    ['label' => 'Team Attendance', 'icon' => 'activity', 'color' => '#2E9BF6', 'url' => '/attendance/team', 'perm' => 'attendance.view_all', 'section' => 'hr', 'order' => 2],
   ],
   'global_scripts' => ['js/attendance-bg.js' => 'attendance.track'],
   'settings_view' => 'attendance::settings',

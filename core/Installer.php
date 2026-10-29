@@ -90,7 +90,7 @@ final class Installer {
     foreach ([['super_admin', 'Super Admin', 'Complete control of the system'], ['manager', 'Manager', 'Manages clients, projects, teams and approvals'], ['hr', 'HR', 'Manages employees, attendance, leave and payroll'], ['employee', 'Employee', 'Works on assigned projects and tasks']] as [$slug, $name, $desc]) {
       DB::query('INSERT IGNORE INTO roles (slug, name, description, is_system, created_at) VALUES (?,?,?,1,?)', [$slug, $name, $desc, $now]); }
     Modules::load();
-    foreach (Modules::discover() as $k => $m) { DB::query('INSERT IGNORE INTO modules (`key`, enabled, updated_at) VALUES (?,1,?)', [$k, $now]); }
+    foreach (Modules::discover() as $k => $m) { DB::query('INSERT IGNORE INTO modules (`key`, enabled, updated_at) VALUES (?,?,?)', [$k, empty($m['labs']) ? 1 : 0, $now]); }
     Modules::syncPermissions();
     Settings::setMany(['branding.app_name' => $d['app_name'], 'branding.tagline' => 'Run your agency with ease', 'general.timezone' => $d['timezone'], 'general.currency_symbol' => $d['currency_symbol'], 'general.currency_code' => 'INR', 'general.date_format' => 'd M Y', 'general.time_format' => 'h:i A', 'general.week_start' => '1', 'general.weekend_days' => '6,7',
       'appearance.default_theme' => 'system', 'appearance.font_family' => 'Plus Jakarta Sans', 'security.session_idle_minutes' => '120', 'security.password_min_length' => '10', 'security.login_max_attempts' => '5', 'security.audit_retention_days' => '365',

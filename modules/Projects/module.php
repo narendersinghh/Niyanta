@@ -17,9 +17,9 @@ return [
     'projects.reports.approve' => ['label' => 'Review & approve work reports', 'roles' => ['manager']],
   ],
   'nav' => [
-    ['label' => 'Projects', 'icon' => 'folder', 'url' => '/projects', 'perm' => 'projects.view', 'group' => 'Work', 'order' => 1],
-    ['label' => 'My Tasks', 'icon' => 'check-square', 'url' => '/tasks', 'perm' => ['projects.view'], 'group' => 'Work', 'order' => 2],
-    ['label' => 'Work Reports', 'icon' => 'clipboard', 'url' => '/work-reports', 'perm' => ['projects.reports.submit', 'projects.reports.approve'], 'group' => 'Work', 'order' => 4],
+    ['label' => 'My Tasks', 'icon' => 'check-square', 'color' => '#12B5A0', 'url' => '/tasks', 'perm' => 'projects.view', 'section' => 'main', 'order' => 2],
+    ['label' => 'Projects', 'icon' => 'folder', 'color' => '#7C5CFF', 'url' => '/projects', 'perm' => 'projects.view', 'section' => 'work', 'order' => 1],
+    ['label' => 'Work Reports', 'icon' => 'clipboard', 'color' => '#F0508A', 'url' => '/work-reports', 'perm' => ['projects.reports.submit', 'projects.reports.approve'], 'section' => 'work', 'order' => 4],
   ],
   'routes' => function (Core\Router $r): void {
     $view = ['projects.view', 'projects.view_all'];

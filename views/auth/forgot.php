@@ -1,4 +1,4 @@
-<div class="auth"><div class="auth-art"><span></span><?= illus('mail-envelope') ?><h2>We'll send you a secure reset link.</h2></div>
+<div class="auth"><?= partial('partials/auth_tools') ?><div class="auth-art"><span></span><?= illus('mail-envelope') ?><h2>We'll send you a secure reset link.</h2></div>
 <div class="auth-form"><form class="auth-box form" method="post" action="<?= e(url('/forgot-password')) ?>"><?= csrf_field() ?>
 <div><h1>Forgot password</h1><p class="muted">Enter your account email.</p></div>
 <div class="field"><label>Email</label><input type="email" name="email" required autofocus></div>

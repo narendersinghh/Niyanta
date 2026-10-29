@@ -1,5 +1,5 @@
 <?php
-$m = can('crm.finance.manage');
+$m = can('crm.quotations.manage');
 $n = static fn ($s) => (int) ($stats[$s]['n'] ?? 0);
 $val = static fn ($s) => (float) ($stats[$s]['v'] ?? 0);
 $open = $val('draft') + $val('sent');

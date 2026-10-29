@@ -30,12 +30,17 @@ final class Modules {
   public static function all(): array { return self::$manifests; }
   public static function get(string $k): ?array { return self::$manifests[$k] ?? null; }
   public static function exists(string $k): bool { return isset(self::$manifests[$k]); }
-  public static function enabled(string $k): bool { return isset(self::$manifests[$k]) && (!empty(self::$manifests[$k]['core']) || !empty(self::$state[$k])); }
+  public static function enabled(string $k): bool {
+    if (!isset(self::$manifests[$k])) { return false; }
+    if (!empty(self::$manifests[$k]['core'])) { return true; }
+    if ($fs = Features::moduleFeatures($k)) { foreach ($fs as $f) { if (Features::enabled($f)) { return true; } } return false; }
+    return !empty(self::$state[$k]); }
   public static function path(string $k): string {
     if (!isset(self::$manifests[$k])) { throw new \RuntimeException("Unknown module $k"); }
     return self::$manifests[$k]['dir']; }
 
   public static function setEnabled(string $k, bool $on): void {
+    foreach (Features::moduleFeatures($k) as $f) { Features::set('feature:'.$f, $on); }
     DB::query('INSERT INTO modules (`key`, enabled, updated_at) VALUES (?,?,NOW()) ON DUPLICATE KEY UPDATE enabled=VALUES(enabled), updated_at=NOW()', [$k, (int) $on]);
     Cache::forget('modules_state');
     self::$state[$k] = (int) $on; }
@@ -43,18 +48,23 @@ final class Modules {
   public static function registerRoutes(Router $r): void {
     foreach (self::$manifests as $k => $m) { if (isset($m['routes'])) { $r->group(['module' => empty($m['core']) ? $k : null], $m['routes']); } } }
 
+  /** Sidebar sections (label null = no header; collapsible sections start closed unless they hold the active page). */
+  public const SECTIONS = ['main' => [null, false], 'work' => ['Work', false], 'clients' => ['Clients', false], 'me' => ['My HR', true], 'hr' => ['HR Admin', true], 'system' => ['System', true]];
+
   /** Navigation entries visible to the current user grouped by section. */
   public static function nav(): array {
-    $groups = [];
+    $legacy = ['Main' => 'main', 'Work' => 'work', 'Clients' => 'clients', 'Finance' => 'clients', 'People' => 'me', 'System' => 'system'];
+    $out = array_fill_keys(array_keys(self::SECTIONS), []);
     foreach (self::$manifests as $k => $m) {
       if (!self::enabled($k)) { continue; }
       foreach ($m['nav'] as $n) {
         if (!empty($n['perm']) && !Gate::any((array) $n['perm'])) { continue; }
-        $groups[$n['group'] ?? 'Main'][] = $n + ['order' => 50, 'module' => $k]; } }
-    $order = ['Main' => 0, 'Work' => 1, 'Clients' => 2, 'People' => 3, 'Finance' => 4, 'Intelligence' => 5, 'System' => 9];
-    uksort($groups, static fn ($a, $b) => ($order[$a] ?? 6) <=> ($order[$b] ?? 6));
-    foreach ($groups as &$g) { usort($g, static fn ($a, $b) => $a['order'] <=> $b['order']); }
-    return $groups; }
+        if (!empty($n['hide_if']) && Gate::any((array) $n['hide_if']) && !Auth::isSuperAdmin()) { continue; }
+        if (!empty($n['hide_if']) && Auth::isSuperAdmin()) { continue; }
+        $sec = $n['section'] ?? ($legacy[$n['group'] ?? 'Main'] ?? 'work');
+        $out[$sec][] = $n + ['order' => 50, 'module' => $k, 'color' => '#8B85C9']; } }
+    foreach ($out as &$g) { usort($g, static fn ($a, $b) => $a['order'] <=> $b['order']); }
+    return array_filter($out); }
 
   /** Collect a hook (widgets, search ...) from enabled modules. */
   public static function hooks(string $name): array {

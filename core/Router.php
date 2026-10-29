@@ -36,6 +36,7 @@ final class Router {
       if ($o['auth']) {
         if (!Auth::check()) { return $req->wantsJson() ? Response::json(['error' => 'Unauthenticated'], 401) : Response::redirect(url('/login').'?next='.rawurlencode($req->uri())); }
         if (!empty($o['module']) && !Modules::enabled($o['module'])) { return Response::error(403, 'This module has been disabled by the administrator.', $req, 'module'); }
+        if (!empty($o['perm']) && !array_filter((array) $o['perm'], [Features::class, 'permEnabled'])) { return Response::error(403, 'This feature has been turned off by the administrator.', $req, 'module'); }
         if (!empty($o['perm']) && !Gate::any((array) $o['perm'])) { Audit::log('access.denied', null, null, ['path' => $path]); return Response::error(403, 'You do not have permission to access this page.', $req); } }
       try { $res = is_array($h) ? (new $h[0]($req))->{$h[1]}(...array_values($params)) : $h($req, ...array_values($params)); }
       catch (HttpException $e) { return Response::error($e->status, $e->getMessage() ?: 'Request failed.', $req); }

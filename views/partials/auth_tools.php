@@ -1,0 +1,1 @@
+<div class="auth-tools"><div class="theme-switch" role="group" aria-label="Theme"><button type="button" data-theme-set="light" title="Light"><?= icon('sun', 'sm') ?></button><button type="button" data-theme-set="system" title="System"><?= icon('monitor', 'sm') ?></button><button type="button" data-theme-set="dark" title="Dark"><?= icon('moon', 'sm') ?></button></div></div>

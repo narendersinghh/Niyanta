@@ -90,5 +90,15 @@ return [
     assert_throws(ValidationException::class, fn () => Storage::store(['name' => 'x.pdf', 'tmp_name' => $tmp, 'error' => 0, 'size' => 13], 'test'), 'spoofed pdf');
     file_put_contents($tmp, "hello,world\n"); $s = Storage::store(['name' => 'ok.csv', 'tmp_name' => $tmp, 'error' => 0, 'size' => 12], 'test');
     assert_true(is_file(Storage::path($s['path']))); @unlink(Storage::path($s['path'])); },
+  'features: disabling a feature or bundle blocks only its permissions and routes' => function () {
+    act_as($GLOBALS['ADMIN_ID']);
+    \Core\Features::set('feature:quotations', false);
+    assert_true(!Gate::allows('crm.quotations.view') && Gate::allows('crm.finance.view'), 'only quotations off');
+    assert_eq(403, http('GET', '/quotations')->status());
+    \Core\Features::set('feature:quotations', true);
+    \Core\Features::set('bundle:clients', false);
+    assert_true(!Gate::allows('crm.finance.view') && !Modules::enabled('crm') && Gate::allows('projects.view'), 'bundle off');
+    \Core\Features::set('bundle:clients', true);
+    assert_true(Modules::enabled('crm')); },
   'audit log records actions' => function () { act_as($GLOBALS['ADMIN_ID']); \Core\Audit::log('test.action', 'thing', 7, ['a' => 1]); assert_eq(1, (int) DB::value("SELECT COUNT(*) FROM audit_logs WHERE action='test.action' AND entity_id=7")); },
 ];

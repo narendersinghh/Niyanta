@@ -11,6 +11,7 @@ final class Gate {
   public static function allows(string $perm, ?array $user = null): bool {
     $user ??= Auth::user();
     if (!$user) { return false; }
+    if (!Features::permEnabled($perm)) { return false; }
     if ($user['role_slug'] === 'super_admin') { return true; }
     $mod = strstr($perm, '.', true);
     if ($mod && Modules::exists($mod) && !Modules::enabled($mod)) { return false; }

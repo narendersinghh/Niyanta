@@ -1,6 +1,6 @@
 <?php
 $id = (int) $doc['id'];
-$m = can('crm.finance.manage');
+$m = can('crm.quotations.manage');
 $st = $doc['status'];
 $locked = (bool) $doc['invoice_id'];
 $actions = '<a class="btn ghost" href="'.e(url('/quotations/'.$id.'/pdf')).'">'.icon('download', 'sm').' PDF</a>';

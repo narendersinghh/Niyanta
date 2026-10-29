@@ -13,12 +13,18 @@ return [
     'hr.documents.manage' => ['label' => 'Upload & view ID proofs and agreements', 'roles' => ['hr']],
     'hr.leave.request' => ['label' => 'Request leave', 'roles' => ['manager', 'hr', 'employee']],
     'hr.leave.approve' => ['label' => 'Approve leave (HR: all, Manager: direct reports)', 'roles' => ['manager', 'hr']],
+    'hr.company_docs.view' => ['label' => 'View company documents', 'roles' => ['manager', 'hr', 'employee']],
+    'hr.company_docs.manage' => ['label' => 'Publish & manage company documents', 'roles' => ['hr']],
     'hr.leave.manage' => ['label' => 'Manage leave types, balances & holidays', 'roles' => ['hr']],
   ],
   'nav' => [
-    ['label' => 'Employees', 'icon' => 'id-card', 'url' => '/hr/employees', 'perm' => ['hr.employees.view', 'hr.directory.view'], 'group' => 'People', 'order' => 1],
-    ['label' => 'Leave', 'icon' => 'plane', 'url' => '/hr/leave', 'perm' => ['hr.leave.request', 'hr.leave.approve'], 'group' => 'People', 'order' => 3],
-    ['label' => 'Holidays', 'icon' => 'calendar', 'url' => '/hr/holidays', 'perm' => ['hr.directory.view', 'hr.leave.manage'], 'group' => 'People', 'order' => 4],
+    ['label' => 'My Profile', 'icon' => 'user', 'color' => '#7C5CFF', 'url' => '/hr/me', 'perm' => 'hr.directory.view', 'section' => 'me', 'order' => 1],
+    ['label' => 'Leave', 'icon' => 'umbrella', 'color' => '#12B5A0', 'url' => '/hr/leave', 'perm' => 'hr.leave.request', 'section' => 'me', 'order' => 3],
+    ['label' => 'Holidays', 'icon' => 'calendar', 'color' => '#FF6F59', 'url' => '/hr/holidays', 'perm' => ['hr.leave.request', 'hr.leave.manage'], 'section' => 'me', 'order' => 4],
+    ['label' => 'Company Docs', 'icon' => 'book', 'color' => '#2E9BF6', 'url' => '/hr/documents', 'perm' => 'hr.company_docs.view', 'section' => 'me', 'order' => 7],
+    ['label' => 'Team Directory', 'icon' => 'users', 'color' => '#F5A524', 'url' => '/hr/employees', 'perm' => 'hr.directory.view', 'hide_if' => 'hr.employees.view', 'section' => 'me', 'order' => 8],
+    ['label' => 'Employees', 'icon' => 'id-card', 'color' => '#12B5A0', 'url' => '/hr/employees', 'perm' => 'hr.employees.view', 'section' => 'hr', 'order' => 1],
+    ['label' => 'Leave Approvals', 'icon' => 'check-circle', 'color' => '#F0508A', 'url' => '/hr/leave/approvals', 'perm' => 'hr.leave.approve', 'section' => 'hr', 'order' => 3],
   ],
   'routes' => function (Core\Router $r): void {
     $self = ['hr.employees.view', 'hr.directory.view', 'hr.leave.request'];

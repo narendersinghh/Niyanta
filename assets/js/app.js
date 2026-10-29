@@ -10,17 +10,22 @@ if(!r.ok){throw Object.assign(new Error(j.error||"Request failed ("+r.status+")"
 toast(m,t="ok"){const w=$("[data-toasts]");if(!w)return;const el=d.createElement("div");el.className="toast"+(t==="error"?" error":"");el.innerHTML='<span class="t-ic">'+(t==="error"?"!":"✓")+"</span>";el.append(m);w.append(el);setTimeout(()=>el.remove(),4500)},
 esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))},
 fmtMoney(v){return(Number(v)||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}};
-/* theme */
-const html=d.documentElement,applyTheme=p=>{html.dataset.pref=p;html.dataset.theme=p==="system"?(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light"):p;$$("[data-theme-set]").forEach(b=>b.classList.toggle("on",b.dataset.themeSet===p))};
+/* theme (guests keep their choice in localStorage) */
+const html=d.documentElement,guest=html.dataset.guest==="1",applyTheme=p=>{html.dataset.pref=p;html.dataset.theme=p==="system"?(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light"):p;$$("[data-theme-set]").forEach(b=>b.classList.toggle("on",b.dataset.themeSet===p))};
 applyTheme(html.dataset.pref||"system");
 matchMedia("(prefers-color-scheme: dark)").addEventListener("change",()=>{if(html.dataset.pref==="system")applyTheme("system")});
-d.addEventListener("click",e=>{const t=e.target.closest("[data-theme-set]");if(!t)return;applyTheme(t.dataset.themeSet);N.req("account/theme",{body:{theme:t.dataset.themeSet}}).catch(()=>{})});
+d.addEventListener("click",e=>{const t=e.target.closest("[data-theme-set]");if(!t)return;applyTheme(t.dataset.themeSet);try{localStorage.setItem("ny-theme",t.dataset.themeSet)}catch(x){}if(!guest)N.req("account/theme",{body:{theme:t.dataset.themeSet}}).catch(()=>{})});
+/* password show/hide */
+const sprite=meta("icons");
+$$('input[type=password]').forEach(i=>{if(i.closest(".pw-wrap"))return;const w=d.createElement("span");w.className="pw-wrap";i.parentNode.insertBefore(w,i);w.append(i);const b=d.createElement("button");b.type="button";b.className="pw-toggle";b.setAttribute("aria-label","Show password");const ic=n=>`<svg class="ic"><use href="${sprite}#${n}"/></svg>`;b.innerHTML=ic("eye");b.addEventListener("click",()=>{const s=i.type==="password";i.type=s?"text":"password";b.innerHTML=ic(s?"eye-off":"eye");b.setAttribute("aria-label",s?"Hide password":"Show password");i.focus()});w.append(b)});
 /* mobile nav */
 d.addEventListener("click",e=>{if(e.target.closest("[data-nav-toggle]"))$("#app")?.classList.toggle("nav-open");else if(e.target.closest("[data-nav-close]"))$("#app")?.classList.remove("nav-open")});
 /* close dropdowns on outside click / escape */
 d.addEventListener("click",e=>{$$("details.dd[open]").forEach(x=>{if(!x.contains(e.target))x.removeAttribute("open")})});
 d.addEventListener("keydown",e=>{if(e.key==="Escape")$$("details.dd[open]").forEach(x=>x.removeAttribute("open"));
 if(e.key==="/"&&!/INPUT|TEXTAREA|SELECT/.test(d.activeElement?.tagName||"")&&!d.activeElement?.isContentEditable){const s=$("[data-search]");if(s){e.preventDefault();s.focus()}}});
+/* sidebar sections remember open/closed (active section always opens) */
+$$("details.nav-sec").forEach(x=>{const k="ny-sec-"+x.dataset.sec;try{const v=localStorage.getItem(k);if(v==="1"&&!x.open)x.open=true;if(v==="0"&&!x.hasAttribute("data-active"))x.open=false}catch(e){}x.addEventListener("toggle",()=>{try{localStorage.setItem(k,x.open?"1":"0")}catch(e){}})});
 /* toasts auto-hide */
 $$(".toast").forEach(t=>setTimeout(()=>t.remove(),5000));
 /* confirm forms & buttons */
