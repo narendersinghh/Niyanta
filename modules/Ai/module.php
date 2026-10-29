@@ -1,34 +1,35 @@
 <?php
-use Modules\Ai\Controllers\{ActionController, AssistantController, SearchController, SettingsController, UsageController};
+use Modules\Ai\Controllers\{ChatController, SettingsController, UsageController};
 
 return [
-  'key' => 'ai', 'labs' => true, 'name' => 'AI Assistant', 'icon' => 'sparkles', 'order' => 60, 'version' => '1.0.0',
-  'description' => 'OpenAI, Anthropic Claude & OpenRouter powered summaries, drafts, suggestions, reports and natural-language search with human approval.',
+  'key' => 'ai', 'name' => 'AI Assistant', 'icon' => 'sparkles', 'order' => 60, 'version' => '2.0.0',
+  'description' => 'Niyu, a chat assistant in a right-hand drawer that answers from your workspace data with role-based access. Works with OpenAI, Claude, OpenRouter, Gemini, Groq, Mistral, DeepSeek, Ollama or any OpenAI-compatible model.',
   'permissions' => [
-    'ai.use' => ['label' => 'Use AI assistant tools', 'roles' => ['manager', 'hr']],
-    'ai.search' => ['label' => 'Natural-language search', 'roles' => ['manager', 'hr', 'employee']],
+    'ai.use' => ['label' => 'Chat with the AI assistant (answers stay within the user\'s own access)', 'roles' => ['manager', 'hr', 'employee']],
     'ai.usage.view' => ['label' => 'View AI usage & costs', 'roles' => []],
   ],
   'nav' => [
+    ['label' => 'AI Usage', 'icon' => 'cpu', 'color' => '#F0508A', 'url' => '/ai/usage', 'perm' => 'ai.usage.view', 'section' => 'system', 'order' => 6],
   ],
-  'settings_view' => 'ai::settings',
   'routes' => function (Core\Router $r): void {
     $sa = ['perm' => '__super_admin'];
-    $r->get('/ai', [AssistantController::class, 'index'], ['ai.use', 'ai.search']);
-    $r->post('/ai/run/{tool}', [AssistantController::class, 'run'], ['perm' => 'ai.use', 'throttle' => [30, 60]]);
-    $r->post('/ai/meeting/save', [AssistantController::class, 'saveMeeting'], 'ai.use');
-    $r->post('/ai/reminder/queue', [AssistantController::class, 'queueReminder'], 'ai.use');
-    $r->get('/ai/search', [SearchController::class, 'index'], ['perm' => 'ai.search', 'throttle' => [30, 60]]);
-    $r->get('/ai/actions', [ActionController::class, 'index'], 'ai.use');
-    $r->get('/ai/actions/{id}', [ActionController::class, 'show'], 'ai.use');
-    $r->post('/ai/actions/{id}/approve', [ActionController::class, 'approve'], 'ai.use');
-    $r->post('/ai/actions/{id}/reject', [ActionController::class, 'reject'], 'ai.use');
+    $r->get('/ai', [ChatController::class, 'index'], 'ai.use');
+    $r->post('/ai/chat', [ChatController::class, 'chat'], ['perm' => 'ai.use', 'throttle' => [20, 60]]);
+    $r->get('/ai/conversations', [ChatController::class, 'conversations'], 'ai.use');
+    $r->get('/ai/conversations/{id}', [ChatController::class, 'show'], 'ai.use');
+    $r->post('/ai/conversations/{id}/delete', [ChatController::class, 'destroy'], 'ai.use');
     $r->get('/ai/usage', [UsageController::class, 'index'], 'ai.usage.view');
     $r->get('/ai/settings', [SettingsController::class, 'index'], $sa);
     $r->post('/ai/settings', [SettingsController::class, 'save'], $sa);
-    $r->post('/ai/settings/test', [SettingsController::class, 'test'], $sa + ['throttle' => [10, 60]]);
+    $r->post('/ai/settings/toggle', [SettingsController::class, 'toggle'], $sa);
+    $r->post('/ai/models', [SettingsController::class, 'store'], $sa);
+    $r->post('/ai/models/{id}', [SettingsController::class, 'update'], $sa);
+    $r->post('/ai/models/{id}/default', [SettingsController::class, 'makeDefault'], $sa);
+    $r->post('/ai/models/{id}/delete', [SettingsController::class, 'destroy'], $sa);
+    $r->post('/ai/models/{id}/test', [SettingsController::class, 'test'], $sa + ['throttle' => [10, 60]]);
   },
-  'widgets' => [
-    ['zone' => 'side', 'order' => 40, 'perm' => 'ai.use', 'render' => static fn (array $user): string => Modules\Ai\Services\AiClient::enabled() ? Core\View::partial('ai::partials/widget', ['u' => $user]) : ''],
-  ],
+  'global_scripts' => ['js/ai.js' => 'ai.use'],
+  'global_styles' => ['css/ai.css' => 'ai.use'],
+  'topbar' => static fn (array $user): string => Modules\Ai\Services\Usage::enabled() && Core\Gate::allows('ai.use', $user) ? Core\View::partial('ai::topbar', ['u' => $user]) : '',
+  'body_end' => static fn (array $user): string => Modules\Ai\Services\Usage::enabled() && Core\Gate::allows('ai.use', $user) ? Core\View::partial('ai::drawer', ['u' => $user]) : '',
 ];

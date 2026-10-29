@@ -21,9 +21,9 @@ return [
     $b = base64_decode(substr($c, 4)); $b[strlen($b) - 1] = chr(ord($b[strlen($b) - 1]) ^ 1);
     assert_eq(null, Crypto::decrypt('enc:'.base64_encode($b))); },
   'secret settings are encrypted at rest' => function () {
-    Settings::set('ai.openai_key', 'sk-test-123');
-    assert_true(!str_contains((string) DB::value("SELECT `value` FROM settings WHERE `key`='ai.openai_key'"), 'sk-test'), 'stored encrypted');
-    assert_eq('sk-test-123', Settings::get('ai.openai_key')); },
+    Settings::set('email.smtp_password', 'sk-test-123');
+    assert_true(!str_contains((string) DB::value("SELECT `value` FROM settings WHERE `key`='email.smtp_password'"), 'sk-test'), 'stored encrypted');
+    assert_eq('sk-test-123', Settings::get('email.smtp_password')); },
   'login succeeds, wrong password fails, account locks after repeated failures' => function () {
     $id = make_user('employee', 'login@unit.test');
     assert_eq('Invalid email or password.', Auth::attempt('login@unit.test', 'wrong'));

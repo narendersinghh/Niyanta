@@ -6,7 +6,7 @@ use Modules\Admin\Services\{BackupService, DemoData, MailPresets, SettingsSchema
 /** Settings (Super Admin only): category home, schema-driven tabs, branding uploads, theme reset, test email, retention cleanup and emergency sign-out. */
 final class SettingsController extends Controller {
   /** Tabs managed on their own pages: settings GET redirects there and saving returns there. */
-  public const PAGES = ['backups' => '/admin/backups', 'cron' => '/admin/cron', 'updates' => '/admin/updates'];
+  public const PAGES = ['ai' => '/ai/settings', 'backups' => '/admin/backups', 'cron' => '/admin/cron', 'updates' => '/admin/updates'];
   private const BRAND = ['logo' => [['png', 'jpg', 'jpeg', 'webp'], 1048576, ['image/png', 'image/jpeg', 'image/webp']], 'favicon' => [['png', 'ico'], 262144, ['image/png', 'image/x-icon', 'image/vnd.microsoft.icon']]];
 
   public function __construct(Request $request) {
@@ -60,6 +60,7 @@ final class SettingsController extends Controller {
       'email' => [($prov['name'] ?? 'Not set').($smtpOk ? '' : ' · incomplete'), $smtpOk ? 'ok' : 'warn'],
       'users' => ['Min '.(int) Settings::get('security.password_min_length', 10).' chars · '.(int) Settings::get('security.session_idle_minutes', 120).' min idle', 'info'],
       'features' => [count($bOn).' of '.count(Features::bundles()).' bundles on', count($bOn) ? 'ok' : 'off'],
+      'ai' => self::aiStatus(),
       'employees' => [rtrim(rtrim((string) Settings::get('hr.work_hours_per_day', '8'), '0'), '.').' h/day · '.count(array_filter(explode(',', (string) Settings::get('general.weekend_days', '6,7')))).' weekly offs', 'info'],
       'leave' => [(int) Settings::get('hr.optional_holidays_default', 15).' optional holidays', 'info'],
       'attendance' => [Settings::bool('attendance.screenshots_enabled') ? 'Screenshots on' : 'Screenshots off', 'info'],
@@ -72,6 +73,11 @@ final class SettingsController extends Controller {
       'backups' => [$last ? 'Last '.ago($last['created_at']) : 'No backups yet', $last && strtotime($last['created_at']) > time() - 172800 ? 'ok' : 'warn'],
       'cron' => [$h['heartbeat'] ? 'Heartbeat '.ago($h['heartbeat']) : 'Never ran', $h['state'] === 'healthy' ? 'ok' : 'warn'],
       'updates' => ['v'.NY_VERSION, 'info']]; }
+
+  private static function aiStatus(): array {
+    if (!class_exists(\Modules\Ai\Services\Assistant::class) || !Modules::enabled('ai')) { return ['Not installed', 'off']; }
+    [$ok, $why] = \Modules\Ai\Services\Assistant::status();
+    return $ok ? ['On · '.(\Modules\Ai\Services\ModelRegistry::current()['label'] ?? ''), 'ok'] : ($why === 'off' ? ['Off', 'off'] : ['On · no model yet', 'warn']); }
 
   public function save(string $tab): Response {
     $fields = SettingsSchema::fields($tab);

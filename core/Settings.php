@@ -4,7 +4,7 @@ namespace Core;
 /** Key/value settings (dot keys like "branding.app_name"). Secret values are stored encrypted. */
 final class Settings {
   private static ?array $all = null;
-  public const SECRETS = ['email.smtp_password', 'ai.openai_key', 'ai.anthropic_key', 'ai.openrouter_key', 'updates.github_token', 'cron.web_token'];
+  public const SECRETS = ['email.smtp_password', 'updates.github_token', 'cron.web_token'];
 
   public static function all(): array {
     return self::$all ??= Cache::remember('settings', 0, static fn () => DB::pairs('SELECT `key`, `value` FROM settings')); }
