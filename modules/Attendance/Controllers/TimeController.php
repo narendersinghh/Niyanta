@@ -23,13 +23,14 @@ final class TimeController extends BaseController {
   /** Live status for the page and the dashboard card (polled about every 30 s). */
   public function status(): Response { return $this->json(['ok' => true, 'projects' => feature_on('projects')] + Tracker::state($this->uid())); }
 
-  /** Uploaded installer, served privately to people who track time. */
-  public function download(): Response {
-    $f = DesktopApp::find($this->request->str('f')) ?? $this->abort(404, 'That installer is no longer available.');
-    $path = DesktopApp::filePath($f);
-    if (!is_file($path)) { $this->abort(404, 'That installer file is missing on the server.'); }
-    Audit::log('tracker.download', 'settings', null, ['version' => $f['version'], 'file' => $f['name']]);
-    return Response::file($path, $f['name'], 'application/octet-stream'); }
+  /** Installer from the server's mirror of the newest release (signed in, attendance.track), streamed as an attachment. */
+  public function download(string $file): Response {
+    $file = rawurldecode($file);
+    $path = DesktopApp::path($file);
+    $c = DesktopApp::classify($file);
+    if (!$path || !$c) { $this->abort(404, 'That installer is no longer available. Reload the page to get the newest version.'); }
+    Audit::log('tracker.download', 'settings', null, ['version' => $c['version'], 'file' => $file]);
+    return Response::file($path, $file, 'application/octet-stream'); }
 
   public function tasks(): Response { return $this->json(['tasks' => T::tasks($this->user(), $this->request->int('project_id'))]); }
   private function entryRules(): array { return ['date' => 'required|date', 'start_time' => 'required|time', 'end_time' => 'nullable|time', 'duration' => 'nullable|max:10', 'project_id' => 'nullable|integer', 'task_id' => 'nullable|integer', 'description' => 'nullable|max:500', 'billable' => 'boolean']; }

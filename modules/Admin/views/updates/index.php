@@ -33,6 +33,7 @@ $channelLabel = ['release' => 'Stable releases', 'commit' => 'Latest commit'][se
         <form method="post" action="<?= e(url('/admin/updates/migrate')) ?>" data-confirm="Run <?= count($pending) ?> pending migration(s) now? Take a backup first if unsure." class="mt"><?= csrf_field() ?><button class="btn primary"><?= icon('play', 'sm') ?> Run pending migrations</button></form>
       <?php else: ?><p class="small muted mb0">The database schema matches the installed code. Migrations run automatically after each update; you can also run them from the CLI with <code class="mono">php cron.php --migrate</code>.</p><?php endif ?></div>
   </div>
+  <?= $desktop ? partial('attendance::partials/desktop_mirror', $desktop) : '' ?>
   <div class="card"><div class="card-head"><h3>Update history</h3></div>
     <?php if (!$history): ?><?= empty_state('No updates yet', 'Installed updates and their step-by-step logs appear here.', 'rocket') ?><?php else: ?>
     <div class="table-wrap"><table class="table"><thead><tr><th>#</th><th>Version</th><th>Channel</th><th>Started</th><th>By</th><th>Status</th><th></th></tr></thead><tbody>

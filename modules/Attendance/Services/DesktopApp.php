@@ -1,11 +1,14 @@
 <?php
 namespace Modules\Attendance\Services;
-use Core\{Audit, Cache, ErrorLog, Settings};
+use Core\{App, Audit, Cache, ErrorLog, Settings};
 
 /**
- * Niyanta Tracker downloads. Two sources, merged per platform (the newer version wins):
- * (a) installers uploaded by a Super Admin, kept privately in storage/desktop/<version>/ and served only to signed-in
- *     people who track time; (b) the latest GitHub release tagged tracker-v* of the configured repository (cached 30 min).
+ * Niyanta Tracker downloads, built in and private. The desktop app is released in the (private) official repository
+ * (niyanta.json "repository", updates.repo overrides it for forks) as GitHub releases tagged tracker-v<version>
+ * (.github/workflows/desktop.yml). The server reads them with the existing encrypted token updates.github_token and mirrors
+ * the newest one into storage/desktop/<version>/ from the scheduler (never during a normal page view). People download the
+ * installers from the server (signed in, attendance.track); the app's auto-updater reads latest*.yml and the binaries from
+ * /api/agent/updates/{file} with its device token. Release metadata is cached 30 minutes; the newest 2 versions are kept.
  */
 final class DesktopApp {
   /** platform => [label, hint, extensions, icon] */
@@ -15,127 +18,240 @@ final class DesktopApp {
     'linux' => ['Linux AppImage', 'Any modern distribution, no install needed', ['appimage'], 'monitor'],
     'deb' => ['Linux .deb', 'Debian, Ubuntu, Mint and derivatives', ['deb'], 'monitor']];
   public const ARCHES = ['x64' => 'Intel / AMD 64-bit', 'arm64' => 'ARM 64-bit (Apple silicon)', 'universal' => 'Universal'];
-  public const TAG_PREFIX = 'tracker-v';
-  private const MAX_BYTES = 400 * 1048576;
+  /** Update-info files electron-builder writes and electron-updater asks for (Windows, macOS, Linux x64 / ARM). */
+  public const UPDATE_FILES = ['latest.yml', 'latest-mac.yml', 'latest-linux.yml', 'latest-linux-arm64.yml', 'latest-linux-armv7l.yml'];
+  private const TTL = 1800;
+  private const FAIL_TTL = 300;
+  private const KEEP = 2;
+  private const MAX_ASSET = 629145600;
+
+  /** Test hooks: another storage folder, and a fetcher fn(array $asset): string used instead of the GitHub API. */
+  public static ?string $root = null;
+  public static ?\Closure $fetcher = null;
+  private static ?array $local = null;
+
+  public static function repo(): string {
+    $r = trim((string) Settings::get('updates.repo', ''));
+    return preg_match('#^[A-Za-z0-9_.\-]+/[A-Za-z0-9_.\-]+$#', $r) ? $r : App::repository(); }
+  public static function connected(): bool { return (string) Settings::get('updates.github_token', '') !== '' || self::$fetcher !== null; }
+  public static function tagPrefix(): string { return App::trackerTagPrefix(); }
+  public static function cacheKey(): string { return 'tracker_release_'.md5(self::repo()); }
+  public static function validVersion(string $v): bool { return (bool) preg_match('/^\d{1,4}\.\d{1,4}\.\d{1,5}(-[0-9A-Za-z.]{1,20})?$/', $v); }
 
   public static function dir(): string {
-    $d = NY_ROOT.'/storage/desktop';
+    $d = self::$root ?? NY_ROOT.'/storage/desktop';
     if (!is_dir($d)) { @mkdir($d, 0775, true); }
     if (!is_file($d.'/.htaccess')) { @file_put_contents($d.'/.htaccess', "Require all denied\nDeny from all\n"); }
     return $d; }
 
-  /** GitHub repository (owner/name): the tracker setting, else the update repository. */
-  public static function repo(): ?string {
-    $r = trim((string) Settings::get('tracker.github_repo', '')) ?: trim((string) Settings::get('updates.repo', ''));
-    return preg_match('#^[A-Za-z0-9_.\-]+/[A-Za-z0-9_.\-]+$#', $r) ? $r : null; }
-
-  public static function validVersion(string $v): bool { return (bool) preg_match('/^\d{1,4}\.\d{1,4}\.\d{1,5}(-[0-9A-Za-z.]{1,20})?$/', $v); }
-
-  /** Platform and architecture from an installer file name (electron-builder artifact names). */
+  /** Platform, architecture and version from an official asset name: niyanta-tracker-<version>-<os>-<arch>.<ext>. */
   public static function classify(string $name): ?array {
-    $n = strtolower($name);
-    $ext = str_ends_with($n, '.appimage') ? 'appimage' : pathinfo($n, PATHINFO_EXTENSION);
-    $platform = match ($ext) { 'exe' => 'windows', 'dmg' => 'mac', 'appimage' => 'linux', 'deb' => 'deb', 'zip' => str_contains($n, 'mac') || str_contains($n, 'darwin') ? 'mac' : null, default => null };
-    if (!$platform || str_ends_with($n, '.blockmap')) { return null; }
-    $arch = str_contains($n, 'arm64') || str_contains($n, 'aarch64') ? 'arm64' : (str_contains($n, 'universal') ? 'universal' : 'x64');
-    return ['platform' => $platform, 'arch' => $arch, 'ext' => $ext]; }
+    if (!preg_match('/^niyanta-tracker-(\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?)-(win|mac|linux)-([a-z0-9_]+)\.(exe|dmg|zip|appimage|deb)$/i', $name, $m)) { return null; }
+    [$os, $ext] = [strtolower($m[2]), strtolower($m[4])];
+    $platform = match (true) { $os === 'win' && $ext === 'exe' => 'windows', $os === 'mac' && ($ext === 'dmg' || $ext === 'zip') => 'mac', $os === 'linux' && $ext === 'appimage' => 'linux', $os === 'linux' && $ext === 'deb' => 'deb', default => null };
+    if (!$platform) { return null; }
+    $a = strtolower($m[3]);
+    $arch = match ($a) { 'x64', 'x86_64', 'amd64' => 'x64', 'arm64', 'aarch64' => 'arm64', default => $a };
+    return ['platform' => $platform, 'arch' => $arch, 'ext' => $ext, 'version' => $m[1]]; }
 
-  /** Uploaded installers: list of [id, platform, arch, ext, version, path, name, size, uploaded_at, by]. */
-  public static function uploads(): array { return array_values(array_filter(Settings::json('tracker.uploads'), static fn ($u) => is_array($u) && isset($u['id'], $u['path']))); }
+  /* ---------- GitHub (metadata cached 30 min, assets mirrored by the scheduler) ---------- */
 
-  public static function upload(array $file, string $version, int $by): array {
-    if (!self::validVersion($version)) { throw new \DomainException('Version must look like 1.4.0.'); }
-    if (($file['error'] ?? 1) !== UPLOAD_ERR_OK || (!is_uploaded_file($file['tmp_name']) && PHP_SAPI !== 'cli')) { throw new \DomainException('Upload failed. Check the server upload limit (upload_max_filesize / post_max_size).'); }
-    if ((int) $file['size'] > self::MAX_BYTES) { throw new \DomainException('Installer is too large (max 400 MB).'); }
-    $name = preg_replace('/[^A-Za-z0-9._-]+/', '-', basename((string) $file['name']));
-    $c = self::classify($name) ?? throw new \DomainException('Unrecognised installer. Upload a .exe, .dmg, mac .zip, .AppImage or .deb file.');
-    $head = (string) file_get_contents($file['tmp_name'], false, null, 0, 8);
-    $magic = ['exe' => str_starts_with($head, 'MZ'), 'deb' => str_starts_with($head, '!<arch>'), 'zip' => str_starts_with($head, "PK\x03\x04"), 'appimage' => str_starts_with($head, "\x7fELF"), 'dmg' => true];
-    if (!($magic[$c['ext']] ?? false)) { throw new \DomainException('The file content does not match a '.strtoupper($c['ext']).' installer.'); }
-    $dir = self::dir().'/'.$version;
-    if (!is_dir($dir) && !mkdir($dir, 0775, true) && !is_dir($dir)) { throw new \RuntimeException('Cannot create storage/desktop/'.$version); }
-    $ok = PHP_SAPI === 'cli' ? rename($file['tmp_name'], "$dir/$name") : move_uploaded_file($file['tmp_name'], "$dir/$name");
-    if (!$ok) { throw new \RuntimeException('Could not save the installer. Check that storage/desktop is writable.'); }
-    $row = ['id' => bin2hex(random_bytes(8)), 'version' => $version, 'path' => "$version/$name", 'name' => $name, 'size' => (int) filesize("$dir/$name"), 'uploaded_at' => date('Y-m-d H:i:s'), 'by' => $by] + $c;
-    $list = array_values(array_filter(self::uploads(), static fn ($u) => $u['path'] !== $row['path']));
-    $list[] = $row;
-    Settings::set('tracker.uploads', $list);
-    Audit::log('tracker.installer_upload', 'settings', null, ['version' => $version, 'file' => $name, 'platform' => $c['platform']], $by);
-    return $row; }
-
-  public static function remove(string $id, int $by): bool {
-    $list = self::uploads(); $keep = []; $gone = null;
-    foreach ($list as $u) { if ($u['id'] === $id) { $gone = $u; } else { $keep[] = $u; } }
-    if (!$gone) { return false; }
-    @unlink(self::dir().'/'.str_replace('..', '', $gone['path']));
-    @rmdir(self::dir().'/'.$gone['version']);
-    Settings::set('tracker.uploads', $keep);
-    Audit::log('tracker.installer_delete', 'settings', null, ['version' => $gone['version'], 'file' => $gone['name']], $by);
-    return true; }
-
-  public static function find(string $id): ?array { foreach (self::uploads() as $u) { if ($u['id'] === $id) { return $u; } } return null; }
-  public static function filePath(array $u): string { return self::dir().'/'.str_replace('..', '', $u['path']); }
-
-  /** Latest tracker-v* release of the repository (cached 30 minutes; failures cached 5 minutes and logged). */
-  public static function github(bool $refresh = false): ?array {
-    $repo = self::repo();
-    if (!$repo || (defined('NY_TESTING') && !Settings::bool('tracker.github_in_tests'))) { return null; }
-    $key = 'tracker_release_'.md5($repo);
+  /**
+   * Newest tracker release on GitHub: ['ok' => bool, 'release' => ?array, 'checked_at', 'error'?]. ok=false: no token or
+   * GitHub could not be asked (cached 5 min); ok=true with release=null: nothing published yet.
+   */
+  public static function release(bool $refresh = false): array {
+    if (!self::connected()) { return ['ok' => false, 'release' => null, 'checked_at' => date('c'), 'error' => 'No GitHub access token in Settings › Updates.']; }
+    $key = self::cacheKey();
     if ($refresh) { Cache::forget($key); }
     $hit = Cache::get($key);
-    if (is_array($hit)) { return $hit['release'] ?? null; }
-    $release = null; $ttl = 1800;
-    try { $release = self::fetchGithub($repo); }
-    catch (\Throwable $e) { $ttl = 300; ErrorLog::record('server', 'warning', 'Desktop app release lookup failed for '.$repo.': '.$e->getMessage(), __FILE__, __LINE__); }
-    Cache::put($key, ['release' => $release, 'checked_at' => date('c')], $ttl);
-    return $release; }
+    if (is_array($hit) && array_key_exists('ok', $hit)) { return $hit; }
+    if (defined('NY_TESTING') && self::$fetcher === null) { return ['ok' => false, 'release' => null, 'checked_at' => date('c'), 'error' => 'GitHub is not contacted in tests']; }
+    try {
+      [$code, $body] = self::http('https://api.github.com/repos/'.self::repo().'/releases?per_page=50', 'application/vnd.github+json');
+      if ($code !== 200) { throw new \RuntimeException('GitHub answered HTTP '.$code.($code === 401 || $code === 404 ? ' (check the token in Settings › Updates: it needs read access to Contents of '.self::repo().')' : '')); }
+      $list = json_decode($body, true);
+      if (!is_array($list) || !array_is_list($list)) { throw new \RuntimeException('unexpected GitHub response'); }
+      $res = ['ok' => true, 'release' => self::pickRelease($list), 'checked_at' => date('c')]; }
+    catch (\Throwable $e) {
+      $res = ['ok' => false, 'release' => null, 'checked_at' => date('c'), 'error' => $e->getMessage()];
+      ErrorLog::record('server', 'warning', 'Desktop app release lookup failed for '.self::repo().': '.$e->getMessage(), __FILE__, __LINE__); }
+    Cache::put($key, $res, $res['ok'] ? self::TTL : self::FAIL_TTL);
+    return $res; }
 
-  private static function fetchGithub(string $repo): ?array {
+  /**
+   * HTTPS GET with the token (api.github.com only; curl drops the header on the redirect to the storage host).
+   * With $saveTo the body streams to that file. @return array{0:int,1:string}
+   */
+  private static function http(string $url, string $accept, ?string $saveTo = null): array {
     if (!function_exists('curl_init')) { throw new \RuntimeException('PHP cURL extension missing'); }
-    $h = ['User-Agent: Niyanta/'.NY_VERSION, 'Accept: application/vnd.github+json', 'X-GitHub-Api-Version: 2022-11-28'];
+    $h = ['User-Agent: Niyanta/'.NY_VERSION, 'Accept: '.$accept, 'X-GitHub-Api-Version: 2022-11-28'];
     if ($t = (string) Settings::get('updates.github_token', '')) { $h[] = 'Authorization: Bearer '.$t; }
-    $c = curl_init('https://api.github.com/repos/'.$repo.'/releases?per_page=30');
-    curl_setopt_array($c, [CURLOPT_HTTPHEADER => $h, CURLOPT_RETURNTRANSFER => true, CURLOPT_FOLLOWLOCATION => true, CURLOPT_CONNECTTIMEOUT => 8, CURLOPT_TIMEOUT => 15, CURLOPT_SSL_VERIFYPEER => true]);
+    $c = curl_init($url); $fp = null;
+    $opts = [CURLOPT_HTTPHEADER => $h, CURLOPT_FOLLOWLOCATION => true, CURLOPT_MAXREDIRS => 5, CURLOPT_UNRESTRICTED_AUTH => false, CURLOPT_CONNECTTIMEOUT => 10, CURLOPT_TIMEOUT => $saveTo ? 1800 : 20, CURLOPT_SSL_VERIFYPEER => true, CURLOPT_SSL_VERIFYHOST => 2,
+      CURLOPT_NOPROGRESS => false, CURLOPT_XFERINFOFUNCTION => static fn ($ch, $total, $now) => $now > self::MAX_ASSET ? 1 : 0];
+    if (defined('CURLOPT_PROTOCOLS_STR')) { $opts[CURLOPT_PROTOCOLS_STR] = 'https'; $opts[CURLOPT_REDIR_PROTOCOLS_STR] = 'https'; }
+    if ($saveTo) { $fp = fopen($saveTo, 'wb'); if (!$fp) { throw new \RuntimeException('Cannot write '.basename($saveTo)); } $opts[CURLOPT_FILE] = $fp; }
+    else { $opts[CURLOPT_RETURNTRANSFER] = true; }
+    curl_setopt_array($c, $opts);
     $body = curl_exec($c); $code = (int) curl_getinfo($c, CURLINFO_RESPONSE_CODE); $err = curl_error($c); curl_close($c);
+    if ($fp) { fclose($fp); }
     if ($body === false) { throw new \RuntimeException('network error: '.$err); }
-    if ($code !== 200) { throw new \RuntimeException('GitHub answered HTTP '.$code); }
-    $list = json_decode((string) $body, true);
-    if (!is_array($list)) { throw new \RuntimeException('unexpected GitHub response'); }
-    return self::pickRelease($list); }
+    return [$code, $saveTo ? '' : (string) $body]; }
 
-  /** The newest published (non-draft, non-prerelease) tracker-v* release from a GitHub releases list, with assets grouped by platform. */
+  /**
+   * The newest published tracker release (tag tracker-v<semver>, not a draft, not a prerelease) from a GitHub releases
+   * list: version, tag, dates, and its assets (name => id, size, API url) that belong to the app.
+   */
   public static function pickRelease(array $list): ?array {
-    $best = null;
+    $best = null; $prefix = self::tagPrefix();
     foreach ($list as $r) {
-      $tag = (string) ($r['tag_name'] ?? '');
-      if (!empty($r['draft']) || !empty($r['prerelease']) || !str_starts_with($tag, self::TAG_PREFIX)) { continue; }
-      $v = substr($tag, strlen(self::TAG_PREFIX));
+      $tag = is_array($r) ? (string) ($r['tag_name'] ?? '') : '';
+      if ($tag === '' || !empty($r['draft']) || !empty($r['prerelease']) || !str_starts_with($tag, $prefix)) { continue; }
+      $v = substr($tag, strlen($prefix));
       if (!self::validVersion($v) || ($best && version_compare($v, $best['version'], '<='))) { continue; }
       $assets = [];
       foreach ($r['assets'] ?? [] as $a) {
-        $c = self::classify((string) ($a['name'] ?? ''));
-        if ($c) { $assets[] = $c + ['name' => (string) $a['name'], 'size' => (int) ($a['size'] ?? 0), 'url' => (string) ($a['browser_download_url'] ?? ''), 'version' => $v, 'date' => (string) ($r['published_at'] ?? ''), 'source' => 'github']; } }
-      $best = ['version' => $v, 'tag' => $tag, 'published_at' => (string) ($r['published_at'] ?? ''), 'html_url' => (string) ($r['html_url'] ?? ''), 'notes' => mb_substr((string) ($r['body'] ?? ''), 0, 4000), 'assets' => $assets]; }
+        $name = (string) ($a['name'] ?? '');
+        $c = self::classify(preg_replace('/\.blockmap$/', '', $name));
+        if (!in_array($name, self::UPDATE_FILES, true) && !($c && $c['version'] === $v)) { continue; }
+        $assets[$name] = ['id' => (int) ($a['id'] ?? 0), 'size' => (int) ($a['size'] ?? 0), 'url' => (string) ($a['url'] ?? '')]; }
+      $best = ['version' => $v, 'tag' => $tag, 'name' => (string) ($r['name'] ?? $tag), 'published_at' => (string) ($r['published_at'] ?? ''), 'html_url' => (string) ($r['html_url'] ?? ''), 'assets' => $assets]; }
     return $best; }
 
+  /** Scheduler job (every 30 min): uses the cached metadata and downloads only when a newer release is not mirrored yet. */
+  public static function cron(): string {
+    if (!self::connected()) { return 'skipped: no GitHub token'; }
+    $s = self::sync();
+    return $s['ok'] ? ($s['downloaded'] ? 'mirrored '.$s['version'].' ('.$s['downloaded'].' files)' : 'up to date '.($s['version'] ?? '-')) : 'failed: '.$s['error']; }
+
   /**
-   * Latest downloads per platform: ['version', 'date', 'platforms' => [platform => [files...]]] where each file has
-   * name, arch, ext, size, version, date, source (upload|github) and url (download route or GitHub URL).
+   * Mirror the newest release into storage/desktop/<version>/: each asset once via the API asset endpoint, streamed to a
+   * .part file, size checked against GitHub and sha512 against latest*.yml, then renamed. Keeps the newest 2 versions.
+   * Returns and stores (tracker.sync) ['ok', 'version', 'downloaded', 'error', 'at'].
+   */
+  public static function sync(bool $refresh = false): array {
+    $res = ['ok' => false, 'version' => null, 'downloaded' => 0, 'error' => null, 'at' => date('Y-m-d H:i:s')];
+    try {
+      $r = self::release($refresh);
+      if (!$r['ok']) { throw new \RuntimeException((string) ($r['error'] ?? 'GitHub could not be reached')); }
+      $rel = $r['release'];
+      if (!$rel) { $res['ok'] = true; $res['error'] = 'No tracker release ('.self::tagPrefix().'X.Y.Z) has been published yet.'; return self::remember($res); }
+      $res['version'] = $rel['version'];
+      $dir = self::dir().'/'.$rel['version'];
+      $have = self::manifest($dir);
+      $missing = array_filter(array_keys($rel['assets']), static fn ($n) => !isset($have['files'][$n]) || !is_file($dir.'/'.$n));
+      if ($have && !$missing) { $res['ok'] = true; return self::remember($res); }
+      if (!$rel['assets']) { throw new \RuntimeException('Release '.$rel['tag'].' has no installers attached yet.'); }
+      if (!is_dir($dir) && !mkdir($dir, 0775, true) && !is_dir($dir)) { throw new \RuntimeException('Cannot create storage/desktop/'.$rel['version']); }
+      @set_time_limit(0);
+      $names = array_keys($rel['assets']);
+      usort($names, static fn ($a, $b) => [!in_array($a, self::UPDATE_FILES, true), $a] <=> [!in_array($b, self::UPDATE_FILES, true), $b]);
+      $sums = []; $files = $have['files'] ?? [];
+      foreach ($names as $n) {
+        $a = $rel['assets'][$n];
+        if (!isset($files[$n]) || !is_file($dir.'/'.$n)) { self::download($a, $n, $dir); $res['downloaded']++; }
+        if (in_array($n, self::UPDATE_FILES, true)) { $sums += self::ymlFiles((string) file_get_contents($dir.'/'.$n)); }
+        elseif (isset($sums[$n]) && !hash_equals($sums[$n], base64_encode(hash_file('sha512', $dir.'/'.$n, true)))) { @unlink($dir.'/'.$n); throw new \RuntimeException($n.' does not match the sha512 in the update file.'); }
+        $files[$n] = ['size' => (int) filesize($dir.'/'.$n)] + (self::classify($n) ?? []); }
+      $m = ['version' => $rel['version'], 'tag' => $rel['tag'], 'name' => $rel['name'], 'published_at' => $rel['published_at'], 'synced_at' => date('Y-m-d H:i:s'), 'repo' => self::repo(), 'files' => $files];
+      file_put_contents($dir.'/manifest.json', json_encode($m, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES), LOCK_EX);
+      self::$local = null;
+      self::prune();
+      if ($res['downloaded']) { Audit::log('tracker.release_mirrored', 'settings', null, ['version' => $rel['version'], 'files' => $res['downloaded']]); }
+      $res['ok'] = true; }
+    catch (\Throwable $e) {
+      $res['error'] = $e->getMessage();
+      ErrorLog::record('server', 'warning', 'Desktop app mirror failed: '.$e->getMessage(), __FILE__, __LINE__); }
+    return self::remember($res); }
+
+  private static function remember(array $res): array { Settings::set('tracker.sync', $res); return $res; }
+  public static function syncStatus(): array { return Settings::json('tracker.sync'); }
+
+  private static function download(array $a, string $name, string $dir): void {
+    $part = $dir.'/'.$name.'.part';
+    try {
+      if (self::$fetcher) { file_put_contents($part, (self::$fetcher)($a + ['name' => $name])); }
+      else {
+        if (!$a['id']) { throw new \RuntimeException('asset id missing'); }
+        [$code] = self::http('https://api.github.com/repos/'.self::repo().'/releases/assets/'.$a['id'], 'application/octet-stream', $part);
+        if ($code !== 200) { throw new \RuntimeException('HTTP '.$code); } }
+      clearstatcache(true, $part);
+      if ($a['size'] && (int) filesize($part) !== $a['size']) { throw new \RuntimeException('size '.filesize($part).' instead of '.$a['size']); }
+      if (!rename($part, $dir.'/'.$name)) { throw new \RuntimeException('cannot move into place'); } }
+    catch (\Throwable $e) { @unlink($part); throw new \RuntimeException('Download of '.$name.' failed: '.$e->getMessage(), 0, $e); } }
+
+  /** name => sha512 (base64) from an electron-builder update file (files: - url / sha512 entries). */
+  public static function ymlFiles(string $yml): array {
+    $out = []; $cur = null;
+    foreach (preg_split('/\r?\n/', $yml) as $line) {
+      if (preg_match('/^\s*-\s+url:\s*[\'"]?([^\'"\s]+)/', $line, $m)) { $cur = basename($m[1]); continue; }
+      if ($cur && preg_match('/^\s+sha512:\s*[\'"]?([A-Za-z0-9+\/=]+)/', $line, $m)) { $out[$cur] = $m[1]; $cur = null; }
+      elseif (!preg_match('/^\s/', $line)) { $cur = null; } }
+    return $out; }
+
+  private static function prune(): void {
+    $vers = array_values(array_filter(array_map('basename', glob(self::dir().'/*', GLOB_ONLYDIR) ?: []), [self::class, 'validVersion']));
+    usort($vers, 'version_compare');
+    foreach (array_slice(array_reverse($vers), self::KEEP) as $v) { self::rrmdir(self::dir().'/'.$v); } }
+
+  private static function rrmdir(string $d): void {
+    foreach (new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($d, \FilesystemIterator::SKIP_DOTS), \RecursiveIteratorIterator::CHILD_FIRST) as $f) { $f->isDir() && !$f->isLink() ? @rmdir($f->getPathname()) : @unlink($f->getPathname()); }
+    @rmdir($d); }
+
+  /* ---------- local mirror (what pages and the app use) ---------- */
+
+  private static function manifest(string $dir): ?array {
+    $m = is_file($dir.'/manifest.json') ? json_decode((string) file_get_contents($dir.'/manifest.json'), true) : null;
+    return is_array($m) && isset($m['version'], $m['files']) && is_array($m['files']) ? $m : null; }
+
+  /** Manifest of the newest fully mirrored version, or null. */
+  public static function local(): ?array {
+    if (self::$local !== null) { return self::$local ?: null; }
+    $best = null;
+    foreach (glob(self::dir().'/*/manifest.json') ?: [] as $f) {
+      $m = self::manifest(dirname($f));
+      if ($m && basename(dirname($f)) === $m['version'] && (!$best || version_compare($m['version'], $best['version'], '>'))) { $best = $m; } }
+    self::$local = $best ?? [];
+    return $best; }
+
+  public static function forget(): void { self::$local = null; }
+
+  /** Absolute path of a mirrored file of the newest version, or null (names are checked against the manifest). */
+  public static function path(string $name): ?string {
+    $m = self::local();
+    if (!$m || !isset($m['files'][$name]) || $name !== basename($name)) { return null; }
+    $p = self::dir().'/'.$m['version'].'/'.$name;
+    return is_file($p) ? $p : null; }
+
+  /**
+   * Downloads per platform from the local mirror: ['ok', 'connected', 'version', 'date', 'synced_at', 'platforms' =>
+   * [platform => [files...]]] where each file has name, arch, ext, size, version, date and url (server download route).
    */
   public static function latest(): array {
-    $files = [];
-    foreach (self::uploads() as $u) { $files[] = $u + ['date' => $u['uploaded_at'], 'source' => 'upload', 'url' => url('/time/desktop/download?f='.$u['id'])]; }
-    $gh = self::github();
-    foreach ($gh['assets'] ?? [] as $a) { $files[] = $a; }
-    $out = ['version' => null, 'date' => null, 'platforms' => array_fill_keys(array_keys(self::PLATFORMS), []), 'release_url' => $gh['html_url'] ?? null, 'repo' => self::repo()];
+    $m = self::local();
+    $out = ['ok' => $m !== null, 'connected' => self::connected(), 'version' => $m['version'] ?? null, 'date' => $m['published_at'] ?? null, 'synced_at' => $m['synced_at'] ?? null, 'repo' => self::repo(), 'platforms' => array_fill_keys(array_keys(self::PLATFORMS), [])];
+    if (!$m) { return $out; }
+    $all = [];
+    foreach ($m['files'] as $n => $f) { if (isset($f['platform'])) { $all[] = $f + ['name' => $n, 'version' => $m['version'], 'date' => $m['published_at'], 'url' => url('/time/desktop/download/'.rawurlencode($n))]; } }
     foreach (array_keys(self::PLATFORMS) as $p) {
-      $mine = array_values(array_filter($files, static fn ($f) => $f['platform'] === $p));
-      if (!$mine) { continue; }
-      $top = array_reduce($mine, static fn ($c, $f) => $c === null || version_compare($f['version'], $c, '>') ? $f['version'] : $c);
-      $mine = array_values(array_filter($mine, static fn ($f) => $f['version'] === $top));
-      $seen = []; $pick = [];
-      usort($mine, static fn ($a, $b) => [$a['source'] !== 'upload', $a['ext'] === 'zip', $a['arch']] <=> [$b['source'] !== 'upload', $b['ext'] === 'zip', $b['arch']]);
-      foreach ($mine as $f) { $k = $f['arch'].'.'.$f['ext']; if (!isset($seen[$k])) { $seen[$k] = 1; $pick[] = $f; } }
-      $out['platforms'][$p] = $pick;
-      if ($out['version'] === null || version_compare($top, $out['version'], '>')) { $out['version'] = $top; $out['date'] = $pick[0]['date']; } }
-    return $out; } }
+      $mine = array_values(array_filter($all, static fn ($f) => $f['platform'] === $p));
+      usort($mine, static fn ($a, $b) => [$a['ext'] === 'zip', $a['arch'] !== 'x64' && $p !== 'mac', $a['arch']] <=> [$b['ext'] === 'zip', $b['arch'] !== 'x64' && $p !== 'mac', $b['arch']]);
+      $out['platforms'][$p] = $mine; }
+    return $out; }
+
+  /**
+   * electron-updater feed file (latest*.yml of the mirrored version) with url/path entries pointing at
+   * /api/agent/updates/<file> on this server. @return array{0:int,1:string} HTTP status and body.
+   */
+  public static function updateInfo(string $file): array {
+    if (!in_array($file, self::UPDATE_FILES, true)) { return [404, 'Unknown update file.']; }
+    $p = self::path($file);
+    if (!$p) { return [404, 'No mirrored Niyanta Tracker release contains '.$file.'.']; }
+    return [200, self::rewriteYml((string) file_get_contents($p))]; }
+
+  /** Rewrite `url:` / `path:` entries of an electron-builder update file to this server's /api/agent/updates/<name>. */
+  public static function rewriteYml(string $yml): string {
+    return (string) preg_replace_callback('/^([ \t]*(?:-[ \t]+)?(?:url|path):[ \t]*)([\'"]?)([^\'"\r\n]+?)\2[ \t]*$/m', static function (array $m): string {
+      $name = basename(str_replace('\\', '/', trim($m[3])));
+      return $m[1]."'".str_replace("'", "''", absolute_url('/api/agent/updates/'.rawurlencode($name)))."'"; }, $yml); } }

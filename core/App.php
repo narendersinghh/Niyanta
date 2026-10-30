@@ -5,6 +5,7 @@ namespace Core;
 final class App {
   private static array $config = [];
   private static ?Router $router = null;
+  private static ?array $manifest = null;
 
   public static function config(?string $key = null, mixed $default = null): mixed {
     if ($key === null) { return self::$config; }
@@ -15,6 +16,19 @@ final class App {
     return $v; }
 
   public static function setConfig(array $c): void { self::$config = $c; }
+
+  /** niyanta.json, read once per request: name, version, official GitHub repository, tracker release tag prefix. */
+  public static function manifest(?string $key = null, mixed $default = null): mixed {
+    if (self::$manifest === null) { $j = json_decode((string) @file_get_contents(NY_ROOT.'/niyanta.json'), true); self::$manifest = is_array($j) ? $j : []; }
+    return $key === null ? self::$manifest : (self::$manifest[$key] ?? $default); }
+
+  /** Official GitHub repository (owner/name) of the web app and the desktop tracker. Built in, not configurable. */
+  public static function repository(): string {
+    $r = (string) self::manifest('repository', '');
+    return preg_match('#^[A-Za-z0-9_.\-]+/[A-Za-z0-9_.\-]+$#', $r) ? $r : 'narendersinghh/Niyanta'; }
+
+  /** Tag prefix of desktop tracker releases (tracker-v1.2.3); every other tag belongs to the web app. */
+  public static function trackerTagPrefix(): string { return (string) self::manifest('tracker_tag_prefix', 'tracker-v') ?: 'tracker-v'; }
 
   public static function installed(): bool { return is_file(NY_ROOT.'/config/config.php') && is_file(NY_ROOT.'/storage/installed.lock'); }
 

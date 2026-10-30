@@ -14,7 +14,18 @@ final class UpdateController extends Controller {
     return $this->view('admin::updates/index', ['title' => 'Updates', 'check' => UpdateService::lastCheck(), 'pending' => $pending, 'fields' => SettingsSchema::fields('updates'), 'tabs' => SettingsSchema::tabs(), 'tab' => 'updates',
       'history' => DB::all('SELECT l.id, l.from_version, l.to_version, l.channel, l.ref, l.status, l.backup_id, l.started_at, l.finished_at, u.name AS by_name FROM update_logs l LEFT JOIN users u ON u.id=l.started_by ORDER BY l.id DESC LIMIT 30'),
       'zip' => class_exists(\ZipArchive::class), 'curl' => function_exists('curl_init'), 'repo' => UpdateService::repo(), 'manifest' => UpdateService::manifest(), 'uploadMax' => min(\Modules\Admin\Services\SystemHealth::iniBytes((string) ini_get('upload_max_filesize')), \Modules\Admin\Services\SystemHealth::iniBytes((string) ini_get('post_max_size'))),
+      'desktop' => self::desktopOn() ? ['app' => \Modules\Attendance\Services\DesktopApp::latest(), 'sync' => \Modules\Attendance\Services\DesktopApp::syncStatus(), 'repo' => \Modules\Attendance\Services\DesktopApp::repo()] : null,
       'styles' => ['css/admin.css'], 'scripts' => ['js/admin.js']]); }
+
+  private static function desktopOn(): bool { return class_exists(\Modules\Attendance\Services\DesktopApp::class) && Modules::enabled('attendance'); }
+
+  /** Refresh now: ask GitHub for the newest tracker release and copy it to this server (may take a few minutes). */
+  public function desktopRefresh(): Response {
+    if (!self::desktopOn()) { $this->abort(404); }
+    $s = \Modules\Attendance\Services\DesktopApp::sync(true);
+    Audit::log('tracker.mirror_refresh', 'settings', null, ['ok' => $s['ok'], 'version' => $s['version'], 'downloaded' => $s['downloaded']]);
+    $this->flash($s['ok'] ? ($s['version'] ? 'Desktop app v'.$s['version'].' is ready'.($s['downloaded'] ? ' ('.$s['downloaded'].' files downloaded).' : '.') : (string) $s['error']) : 'Desktop app refresh failed: '.mb_substr((string) $s['error'], 0, 250), $s['ok'] ? 'success' : 'error');
+    return $this->redirect('/admin/updates#desktop-mirror'); }
 
   public function check(): Response {
     try {

@@ -32,7 +32,6 @@ final class SettingsController extends Controller {
       'email' => ['presets' => MailPresets::all()],
       'retention' => ['last' => Settings::json('retention.last_cleanup'), 'sizes' => $this->tableSizes(array_merge(['audit_logs', 'notifications', 'mail_queue', 'cron_logs'], feature_on('ai') ? ['ai_usage'] : [], feature_on('attendance') ? ['screenshots'] : [])), 'usage' => self::usage(), 'health' => SystemHealth::snapshot()],
       'demo' => ['demo' => DemoData::counts(), 'demoMeta' => Settings::json('demo.imported'), 'password' => Session::getFlash('demo_password')],
-      'attendance' => class_exists(\Modules\Attendance\Services\DesktopApp::class) ? ['installers' => \Modules\Attendance\Services\DesktopApp::uploads(), 'app' => \Modules\Attendance\Services\DesktopApp::latest()] : [],
       'leave' => ['ohQuota' => $this->has('leave_types') ? DB::value("SELECT annual_quota FROM leave_types WHERE code='OH'") : null, 'holidays' => $this->has('holidays') ? DB::pairs('SELECT optional, COUNT(*) FROM holidays WHERE YEAR(holiday_date)=? GROUP BY optional', [(int) date('Y')]) : []],
       default => [] };
     return $this->view('admin::settings/index', $data); }

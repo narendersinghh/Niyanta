@@ -25,7 +25,6 @@ $info = static fn (string $ic, string $c, string $title, string $html) => '<div 
 <?php break; case 'attendance': ?>
   <?= partial('admin::settings/_head', ['tabs' => $tabs, 'tab' => $tab, 'actions' => '<a class="btn ghost" href="'.e(url('/time')).'">'.icon('timer', 'sm').' Time Tracking page</a>']) ?>
   <?= $form() ?>
-  <?= isset($app) ? partial('attendance::partials/installers', ['installers' => $installers, 'app' => $app]) : '' ?>
 <?php break; case 'payroll': ?>
   <?= partial('admin::settings/_head', ['tabs' => $tabs, 'tab' => $tab, 'actions' => can('payroll.manage') ? '<a class="btn ghost" href="'.e(url('/payroll/components')).'">'.icon('sliders', 'sm').' Pay components</a>' : '']) ?>
   <?= $form() ?>

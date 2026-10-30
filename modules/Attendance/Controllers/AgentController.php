@@ -171,11 +171,28 @@ final class AgentController extends Controller {
       return $this->json(['ok' => true]); }
     catch (\Throwable $e) { error_log('Agent error report failed: '.$e->getMessage()); return $this->json(['ok' => false], 500); } }
 
-  /** Latest tracker version for the app's update check. */
+  /** Latest tracker version for the app's update check (the server's mirror of the newest release, see DesktopApp). */
   public function version(): Response {
     return $this->run(function (int $uid): array {
       $l = DesktopApp::latest();
       $cur = $this->appVersion();
       $files = [];
       foreach ($l['platforms'] as $p => $list) { foreach ($list as $f) { $files[$p][] = ['name' => $f['name'], 'arch' => $f['arch'], 'ext' => $f['ext'], 'size' => $f['size'], 'version' => $f['version']]; } }
-      return ['latest' => $l['version'], 'current' => $cur, 'update_available' => $l['version'] !== null && $cur !== null && version_compare($l['version'], preg_replace('/[^0-9.].*$/', '', $cur), '>'), 'released_at' => $l['date'], 'download_page' => absolute_url('/time#desktop'), 'files' => $files]; }); } }
+      return ['latest' => $l['version'], 'current' => $cur, 'update_available' => $l['version'] !== null && $cur !== null && version_compare($l['version'], preg_replace('/[^0-9.].*$/', '', $cur), '>'), 'released_at' => $l['date'],
+        'download_page' => absolute_url('/time#desktop'), 'updates_feed' => absolute_url('/api/agent/updates/'), 'files' => $files]; }); }
+
+  /**
+   * electron-updater feed (generic provider, device token): latest.yml / latest-mac.yml / latest-linux*.yml with url/path
+   * rewritten to this endpoint, and the mirrored installers and .blockmap files themselves (streamed).
+   */
+  public function updates(string $file): Response {
+    try {
+      if ($r = $this->guard()) { return $r; }
+      $file = rawurldecode($file);
+      if (in_array($file, DesktopApp::UPDATE_FILES, true)) {
+        [$code, $body] = DesktopApp::updateInfo($file);
+        return new Response($body, $code, ['Content-Type' => $code === 200 ? 'text/yaml; charset=utf-8' : 'text/plain; charset=utf-8', 'Cache-Control' => 'private, no-store']); }
+      $path = DesktopApp::path($file);
+      if (!$path) { return new Response('Not found.', 404, ['Content-Type' => 'text/plain; charset=utf-8']); }
+      return Response::file($path, $file, 'application/octet-stream'); }
+    catch (\Throwable $e) { return $this->fail($e); } } }

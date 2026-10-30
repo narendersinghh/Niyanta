@@ -1,6 +1,6 @@
 <?php
 namespace Modules\Admin\Services;
-use Core\{Audit, Cache, DB, Migrator, Modules, Settings};
+use Core\{App, Audit, Cache, DB, Migrator, Modules, Settings};
 
 /**
  * Self-updater for shared hosting. Checks GitHub (latest release or latest commit on a branch), downloads the package,
@@ -21,21 +21,35 @@ final class UpdateService {
 
   public static function lastCheck(): array { return Settings::json('updates.last_check'); }
 
+  /** Repository to update from: the updates.repo override (forks), else the official one from niyanta.json. */
   public static function repo(): ?array {
-    $r = trim((string) Settings::get('updates.repo', ''));
+    $r = trim((string) Settings::get('updates.repo', '')) ?: App::repository();
     return preg_match('#^([A-Za-z0-9_.\-]+)/([A-Za-z0-9_.\-]+)$#', $r, $m) ? [$m[1], $m[2]] : null; }
+
+  /**
+   * The newest web app release from a GitHub releases list: not a draft or prerelease, and not a desktop tracker release
+   * (tags starting with the tracker prefix, e.g. tracker-v1.2.0, share the repository). App tags look like v1.2.3.
+   */
+  public static function pickAppRelease(array $list): ?array {
+    $best = null; $bestV = null; $prefix = App::trackerTagPrefix();
+    foreach ($list as $r) {
+      $tag = is_array($r) ? (string) ($r['tag_name'] ?? '') : '';
+      if ($tag === '' || !empty($r['draft']) || !empty($r['prerelease']) || str_starts_with($tag, $prefix)) { continue; }
+      $v = ltrim($tag, 'vV');
+      if (!preg_match('/^\d+\.\d+(\.\d+)?([-+][0-9A-Za-z.]+)?$/', $v) || ($bestV !== null && version_compare($v, $bestV, '<='))) { continue; }
+      [$best, $bestV] = [$r, $v]; }
+    return $best; }
 
   /** Query GitHub for the latest release/commit and store the result in updates.last_check. */
   public static function check(): array {
-    $repo = self::repo() ?? throw new \RuntimeException('Set the GitHub repository (owner/name) in Settings → Updates first.');
+    $repo = self::repo() ?? throw new \RuntimeException('The GitHub repository (owner/name) in Settings › Updates is not valid.');
     [$o, $n] = array_map('rawurlencode', $repo);
     $channel = Settings::get('updates.channel', 'release') === 'commit' ? 'commit' : 'release';
     $res = ['checked_at' => date('Y-m-d H:i:s'), 'channel' => $channel, 'repo' => implode('/', $repo), 'available' => false];
     try {
       if ($channel === 'release') {
-        $j = self::api("https://api.github.com/repos/$o/$n/releases/latest");
-        $version = ltrim((string) ($j['tag_name'] ?? ''), 'vV');
-        if ($version === '') { throw new \RuntimeException('The latest release has no tag.'); }
+        $j = self::pickAppRelease(self::api("https://api.github.com/repos/$o/$n/releases?per_page=50")) ?? throw new \RuntimeException('No web app release found yet (tags like v1.2.3; desktop tracker releases are ignored).');
+        $version = ltrim((string) $j['tag_name'], 'vV');
         $pkg = null; $sum = null;
         foreach ($j['assets'] ?? [] as $a) {
           $name = (string) ($a['name'] ?? '');

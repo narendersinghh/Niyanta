@@ -11,7 +11,8 @@ Electron, plain JavaScript, **no native modules** (it builds on any CI runner wi
 ```
 src/main/      main.js (lifecycle, tray, window, IPC, auto-launch), tracker.js (state machine, activity, heartbeats,
                screenshots, power events), api.js (HTTP client), queue.js (offline queue), capture.js (screenshots),
-               toast.js (capture notice), store.js (prefs + encrypted token), errors.js (error reporting)
+               toast.js (capture notice), store.js (prefs + encrypted token), errors.js (error reporting),
+               updater.js (electron-updater against the workspace)
 src/preload/   contextIsolation bridge (window.tracker) and the notice window bridge
 src/renderer/  index.html / app.js / styles.css (380 x 640 window), toast.html (capture notice)
 build/         icon.png (1024, converted by electron-builder), icons/ (Linux), tray/ (tray states), mac entitlements
@@ -34,27 +35,46 @@ NIYANTA_TRACKER_PROFILE=/tmp/tracker-2 npm start   # a second, separate profile 
 
 | Command | Output (in `dist/`) |
 |---|---|
-| `npm run dist:win` (on Windows) | `niyanta-tracker-<v>-win-x64.exe` (NSIS installer) |
-| `npm run dist:mac` (on macOS) | `niyanta-tracker-<v>-mac-x64.dmg` / `-arm64.dmg` and `.zip` |
-| `npm run dist:linux` (on Linux) | `niyanta-tracker-<v>-linux-x86_64.AppImage`, `niyanta-tracker-<v>-linux-amd64.deb` |
+| `npm run dist:win` (on Windows) | `niyanta-tracker-<v>-win-x64.exe` (NSIS installer) + `.blockmap`, `latest.yml` |
+| `npm run dist:mac` (on macOS) | `niyanta-tracker-<v>-mac-x64.dmg` / `-arm64.dmg` and `.zip` + `.blockmap`, `latest-mac.yml` |
+| `npm run dist:linux` (on Linux) | `niyanta-tracker-<v>-linux-x86_64.AppImage`, `niyanta-tracker-<v>-linux-amd64.deb`, `latest-linux.yml` |
 
-Bump `version` in `package.json` before a release. Icons: `build/icon.png` is converted to `.ico` / `.icns` by
-electron-builder; run `npm run icons` (under `xvfb-run` on a headless Linux box) after changing `src/renderer/logo.svg`.
+The `latest*.yml` files are the auto-update metadata (version, file names, sha512, sizes). electron-builder writes them because
+`build.publish` names a `generic` provider; its URL (`https://updates.invalid/...`) is a placeholder that the app replaces at
+runtime with the workspace it is signed in to. Builds always run with `--publish never`; electron-builder uploads nothing.
+Icons: `build/icon.png` is converted to `.ico` / `.icns` by electron-builder; run `npm run icons` (under `xvfb-run` on a
+headless Linux box) after changing `src/renderer/logo.svg`.
 
-### Releases (GitHub Actions)
+### Releasing a new version
 
-`.github/workflows/desktop.yml` builds all three platforms when you push a tag `tracker-v<version>` (or run it manually) and
-attaches the installers to the GitHub Release of that tag:
+Releases live in the private repository `narendersinghh/Niyanta` (the same repository as the web app; web app releases use
+tags `vX.Y.Z`, the tracker uses `tracker-vX.Y.Z`). Nothing is published publicly. A Niyanta server only needs the GitHub
+access token in **Settings › Updates** (the same one app updates use, see docs/UPDATES.md).
 
-```bash
-git tag tracker-v1.0.0 && git push origin tracker-v1.0.0
-```
+1. Bump `version` in `desktop/package.json` (e.g. `1.2.0`) and commit: `git commit -am "Tracker 1.2.0"`.
+2. Tag and push: `git tag tracker-v1.2.0 && git push origin main tracker-v1.2.0`.
+3. `.github/workflows/desktop.yml` checks that the tag equals the `package.json` version (it fails otherwise), builds Windows,
+   macOS and Linux, and creates the GitHub Release "Niyanta Tracker v1.2.0" (not a draft, not a prerelease) with all
+   installers, `latest*.yml` and `.blockmap` files, using the workflow's own `GITHUB_TOKEN`.
+4. Every Niyanta server with a GitHub token in **Settings › Updates** copies the release to `storage/desktop/1.2.0/` within
+   30 minutes (Super Admins can press **Refresh now** there). From then on Time Tracking offers it and installed apps update.
 
-Niyanta finds that release automatically (Settings › Attendance & time tracking › Desktop app downloads: repository, defaults
-to the update repository) and offers the files on **Time Tracking › Get the desktop app**; the app's update check uses the same
-source. Without GitHub, a Super Admin can upload the installers on the same settings page (stored privately in
-`storage/desktop/<version>/`, downloadable only by signed-in people who track time). GitHub download links work for public
-repositories; for a private repository upload the installers instead.
+Running the workflow by hand (Actions › Desktop tracker › Run workflow) makes test builds: workflow artifacts only, no release.
+
+### Auto-update
+
+The app checks on start and every 6 hours: `GET /api/agent/version`, then electron-updater (generic provider) with the feed
+`<workspace>/api/agent/updates/` and the device token as `Authorization: Bearer`. The workspace serves the `latest*.yml`
+rewritten to point at itself, plus the installers and blockmaps it mirrored. The update downloads in the background; the
+tray menu and the window then show **Update ready, restart to install**, and it installs when the app quits anyway
+(`autoInstallOnAppQuit`). Errors go to the workspace error log through the normal error reporting.
+
+| Platform | Auto-update |
+|---|---|
+| Windows (NSIS) | yes |
+| macOS | only for **signed** builds (Squirrel.Mac rejects unsigned apps). Unsigned builds show a **Download** button that opens Time Tracking › Get the desktop app. |
+| Linux AppImage | yes (the AppImage file is replaced in place) |
+| Linux .deb | no, the app shows the **Download** button (install the new .deb with apt) |
 
 ### Code signing (optional)
 
@@ -94,8 +114,7 @@ first time). To sign in CI add these repository secrets; the workflow passes the
   percentage of the interval. The last three thumbnails are shown in the app; all of them on the web (My screenshots).
 - **Errors**: uncaught exceptions, unhandled rejections, failed syncs and capture failures are written to
   `userData/logs/tracker.log` and sent to the workspace error log (Audit log › Error logs, source *desktop*, with the version).
-- **Updates**: `GET /api/agent/version` on start and every 6 hours; when newer, the app shows "Update available" and opens the
-  download page.
+- **Updates**: see *Auto-update* above.
 
 ## Privacy
 

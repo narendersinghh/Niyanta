@@ -38,21 +38,21 @@ $actions = '<a class="btn ghost" href="'.e(url('/timesheets?week='.$ws)).'">'.ic
     <div class="card dl-card" id="desktop">
       <div class="card-head"><div><h3>Get the desktop app</h3><p class="small muted mb0">Niyanta Tracker for Windows, macOS and Linux. Track your day, pause, switch projects and see your activity.</p></div>
         <?php if ($app['version']): ?><span class="pill pill-lav">Latest <?= e($app['version']) ?><?= $app['date'] ? ' · '.e(fdate($app['date'])) : '' ?></span><?php endif ?></div>
+      <?php if (!$app['ok']): $sa = user()['role_slug'] === 'super_admin'; ?><div class="alert info mb"><?= icon('info', 'sm') ?><div><?php if (!$app['connected']): ?>The desktop app isn't available yet. An administrator needs to connect GitHub in <?= $sa ? '<a href="'.e(url('/admin/updates#desktop-mirror')).'"><b>Settings › Updates</b></a>' : '<b>Settings › Updates</b>' ?>.<?php else: ?>The desktop app isn't available yet. It is being fetched in the background, please check back soon.<?= $sa ? ' Status and <b>Refresh now</b>: <a href="'.e(url('/admin/updates#desktop-mirror')).'"><b>Settings › Updates</b></a>.' : '' ?><?php endif ?></div></div><?php endif ?>
       <div class="os-grid" data-os-grid>
         <?php foreach (DesktopApp::PLATFORMS as $pk => [$pl, $hint]): $files = $app['platforms'][$pk]; $f0 = $files[0] ?? null; ?>
         <div class="os-card" data-os="<?= e($pk) ?>">
           <div class="os-top"><span class="os-ic os-<?= e($pk) ?>"><?= $osIc[$pk] ?></span><div class="grow"><b><?= e($pl) ?></b><div class="xs muted"><?= e($hint) ?></div></div><span class="pill pill-mint os-you hide">Your system</span></div>
           <?php if ($f0): ?>
             <div class="os-meta xs"><span>v<?= e($f0['version']) ?></span><?= $size((int) $f0['size']) ? '<span>'.e($size((int) $f0['size'])).'</span>' : '' ?><span><?= e(fdate($f0['date'])) ?></span></div>
-            <div class="os-btns"><?php foreach ($files as $f): ?><a class="btn sm <?= $f === $f0 ? 'primary' : 'ghost' ?>" href="<?= e($f['url']) ?>"<?= $f['source'] === 'github' ? ' rel="noopener noreferrer"' : '' ?> download><?= icon('download', 'sm') ?> <?= e($pk === 'mac' ? ($archLbl[$f['arch']] ?? $f['arch']).($f['ext'] === 'zip' ? ' (.zip)' : '') : ($pk === 'windows' ? 'Download .exe' : ($pk === 'deb' ? 'Download .deb' : 'Download AppImage'))) ?></a><?php endforeach ?></div>
-          <?php else: ?><div class="os-meta xs muted">Not published yet</div><div class="os-btns"><span class="btn sm ghost is-disabled" aria-disabled="true"><?= icon('download', 'sm') ?> Coming soon</span></div><?php endif ?>
+            <div class="os-btns"><?php foreach ($files as $f): ?><a class="btn sm <?= $f === $f0 ? 'primary' : 'ghost' ?>" href="<?= e($f['url']) ?>" title="<?= e($f['name']) ?>" download><?= icon('download', 'sm') ?> <?= e($pk === 'mac' ? ($archLbl[$f['arch']] ?? $f['arch']).($f['ext'] === 'zip' ? ' (.zip)' : '') : ($pk === 'windows' ? 'Download .exe' : ($pk === 'deb' ? 'Download .deb' : 'Download AppImage'))) ?></a><?php endforeach ?></div>
+          <?php else: ?><div class="os-meta xs muted"><?= $app['ok'] ? 'Not in this release' : 'Not available yet' ?></div><div class="os-btns"><span class="btn sm ghost is-disabled" aria-disabled="true"><?= icon('download', 'sm') ?> Coming soon</span></div><?php endif ?>
         </div>
         <?php endforeach ?>
       </div>
-      <?php if (!$app['version'] && user()['role_slug'] === 'super_admin'): ?><div class="alert warn mt mb0"><?= icon('info', 'sm') ?><div>No installers yet. Upload them or connect a GitHub repository in <a href="<?= e(url('/admin/settings/attendance#desktop')) ?>"><b>Settings › Attendance &amp; time tracking</b></a>.</div></div><?php endif ?>
       <div class="dl-steps">
         <div><h4><?= icon('package', 'sm') ?> Install</h4><ol class="steps-list small">
-          <li data-os-step="windows"><b>Windows:</b> run the .exe and follow the installer.</li>
+          <li data-os-step="windows"><b>Windows:</b> run the .exe and follow the installer. The app updates itself.</li>
           <li data-os-step="mac"><b>macOS:</b> open the .dmg, drag Niyanta Tracker to Applications, then allow <i>Screen Recording</i> when asked.</li>
           <li data-os-step="linux"><b>Linux:</b> make the AppImage executable (<span class="mono">chmod +x</span>) and run it, or install the .deb with <span class="mono">sudo apt install ./niyanta-tracker-*.deb</span>.</li></ol></div>
         <div><h4><?= icon('link', 'sm') ?> Connect</h4><p class="small mb">Sign in with your Niyanta email and password and this workspace address:</p>

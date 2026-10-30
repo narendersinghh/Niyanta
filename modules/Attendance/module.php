@@ -1,6 +1,6 @@
 <?php
 use Modules\Attendance\Controllers\{AgentController, AttendanceController, ScreenshotController, SettingsController, TimeController, TimesheetController};
-use Modules\Attendance\Services\{AttendanceService, Monitoring, TimeService, Widgets};
+use Modules\Attendance\Services\{AttendanceService, DesktopApp, Monitoring, TimeService, Widgets};
 
 return [
   'key' => 'attendance', 'name' => 'Attendance & Time Tracking', 'icon' => 'clock', 'order' => 40, 'version' => '1.2.0',
@@ -29,9 +29,7 @@ return [
     $r->post('/attendance/settings', [SettingsController::class, 'save'], '__super_admin');
     $r->get('/time', [TimeController::class, 'index'], $t);
     $r->get('/time/status', [TimeController::class, 'status'], ['perm' => $t, 'throttle' => [120, 60]]);
-    $r->get('/time/desktop/download', [TimeController::class, 'download'], ['perm' => $t, 'throttle' => [30, 60]]);
-    $r->post('/attendance/desktop/upload', [SettingsController::class, 'uploadInstaller'], '__super_admin');
-    $r->post('/attendance/desktop/delete', [SettingsController::class, 'deleteInstaller'], '__super_admin');
+    $r->get('/time/desktop/download/{file}', [TimeController::class, 'download'], ['perm' => $t, 'throttle' => [30, 60]]);
     $r->get('/time/tasks', [TimeController::class, 'tasks'], $t);
     $r->post('/time/entries', [TimeController::class, 'storeEntry'], $t);
     $r->post('/time/entries/{id}', [TimeController::class, 'updateEntry'], $t);
@@ -67,6 +65,7 @@ return [
     $r->post('/api/agent/screenshot', [AgentController::class, 'screenshot'], ['auth' => false, 'csrf' => false, 'throttle' => [240, 60]]);
     $r->post('/api/agent/error', [AgentController::class, 'error'], ['auth' => false, 'csrf' => false, 'throttle' => [60, 60]]);
     $r->get('/api/agent/version', [AgentController::class, 'version'], ['auth' => false, 'csrf' => false, 'throttle' => [30, 60]]);
+    $r->get('/api/agent/updates/{file}', [AgentController::class, 'updates'], ['auth' => false, 'csrf' => false, 'throttle' => [60, 60]]);
   },
   'widgets' => [
     ['zone' => 'kpis', 'order' => 30, 'perm' => 'attendance.track', 'feature' => 'attendance', 'render' => [Widgets::class, 'kpi']],
@@ -77,6 +76,7 @@ return [
     'auto_close' => ['feature' => 'attendance', 'daily' => '23:55', 'run' => [AttendanceService::class, 'autoClose']],
     'stale_timers' => ['feature' => 'attendance', 'every' => 5, 'run' => [TimeService::class, 'staleTimers']],
     'screenshot_cleanup' => ['feature' => 'attendance', 'daily' => '03:40', 'run' => [Monitoring::class, 'cleanup']],
+    'tracker_mirror' => ['feature' => 'attendance', 'every' => 30, 'run' => [DesktopApp::class, 'cron']],
   ],
   'file_access' => [],
 ];

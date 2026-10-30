@@ -2,14 +2,35 @@
 
 Niyanta updates itself from **Settings → Updates** (`/admin/updates`, Super Admin only). No shell access, Composer or Git is required.
 
-## Configure the source
+## One-time setup: connect GitHub
+
+Niyanta and the Niyanta Tracker desktop app are released in the private repository `narendersinghh/Niyanta` (built in via
+`repository` in `niyanta.json`). Each server needs read access once:
+
+1. On GitHub: **Settings › Developer settings › Personal access tokens › Fine-grained tokens › Generate new token**.
+   Resource owner: the owner of the repository; *Repository access*: only `narendersinghh/Niyanta`; *Permissions*:
+   **Contents: Read-only** (Metadata read-only is added automatically). Pick an expiry and note the date.
+2. In Niyanta: **Settings › Updates › GitHub access token**, paste it and save. It is stored encrypted and never shown again.
+3. Press **Check for updates** (web app) and **Refresh now** under *Desktop app (Niyanta Tracker)* to confirm both work.
+
+Renew the token before it expires; until then app update checks fail and the desktop app mirror keeps the version it has.
 
 | Setting | Meaning |
 |---|---|
-| GitHub repository | `owner/name` of the repository that publishes Niyanta. |
-| Update channel | **Stable releases** (latest GitHub release, compared with `NY_VERSION`) or **Latest commit** on a branch (compared with the last installed commit SHA). |
+| GitHub repository (optional override) | Empty uses the official `narendersinghh/Niyanta`. Set `owner/name` only to follow a fork. |
+| Update channel | **Stable releases** (newest GitHub release tagged `vX.Y.Z`, compared with `NY_VERSION`) or **Latest commit** on a branch (compared with the last installed commit SHA). Desktop tracker releases (`tracker-v*`) are always ignored here. |
 | Branch | Branch followed by the commit channel (default `main`). |
-| GitHub access token | Only for private repositories. A fine-grained token with read-only *Contents* access. Stored encrypted and never shown again. |
+| GitHub access token | Required for the private repository (app updates and the desktop app). Fine-grained, read-only *Contents*. |
+
+## Desktop app (Niyanta Tracker)
+
+The scheduler job `attendance.tracker_mirror` runs every 30 minutes. It looks at the newest `tracker-vX.Y.Z` release (metadata
+cached 30 minutes) and, when that version is not on the server yet, downloads its installers, `latest*.yml` and `.blockmap`
+files once through the GitHub API into `storage/desktop/<version>/` (private, denied by `.htaccess`). Sizes are checked
+against GitHub and installers against the sha512 in `latest*.yml`; the newest two versions are kept. **Settings › Updates ›
+Refresh now** does the same immediately and shows the status. People download the app from **Time Tracking › Get the desktop
+app** (signed in, with the *Track own time* permission) and installed apps update themselves from the server
+(`/api/agent/updates/`, device token). Without a token the Time Tracking page says the desktop app is not available yet.
 
 Offline or manual updates: **Upload package** accepts a release `.zip` (it must contain `niyanta.json` and `core/version.php`, either at the root or in a single top folder like GitHub zipballs).
 
@@ -54,7 +75,14 @@ Open **Updates → Run pending migrations**, or run `php cron.php --migrate` ove
 
 ## Publishing a release (maintainers)
 
+Web app:
+
 1. Bump `version` in `niyanta.json` and `NY_VERSION` in `core/version.php`. They must match.
 2. Add new schema changes as **new** migration files. Never edit a shipped migration.
-3. Create a GitHub release tagged `vX.Y.Z` and put the changelog in its body.
-4. Optional, recommended: attach a built `niyanta-X.Y.Z.zip` and a `checksums.txt` containing `<sha256>  niyanta-X.Y.Z.zip`.
+3. Commit, then `git tag vX.Y.Z && git push origin main vX.Y.Z`.
+4. `.github/workflows/app-release.yml` checks the versions against the tag, builds `niyanta-X.Y.Z.zip` (tracked files without
+   `desktop/`, `.github/`, `tests/`, `config/config.php` and storage contents) plus `checksums.txt`, and attaches them to the
+   release "Niyanta vX.Y.Z". Edit the release on GitHub to add the changelog (it is shown in Settings › Updates).
+
+Desktop tracker: bump `desktop/package.json`, commit, `git tag tracker-vX.Y.Z && git push origin tracker-vX.Y.Z`
+(see desktop/README.md). Tracker tags never trigger the web app workflow and are never installed as app updates.

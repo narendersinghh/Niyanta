@@ -38,7 +38,7 @@ switched off answer `401`/`403`; the app then signs out.
 JSON everywhere. Success: `{"ok": true, …}`. Errors: `{"ok": false, "error": "message", "code"?: "…"}` with `401`
 (signed out), `403` (no permission / feature off), `422` (rule violation), `429` (rate limit), `500` (server failure, recorded in
 **Audit log › Error logs** with source `desktop`, the app version and a `ref`). Rate limits per IP: 600/min (login 20 per 5 min,
-screenshots 240/min, error reports 60/min, version 30/min).
+screenshots 240/min, error reports 60/min, version 30/min, update files 60/min per file).
 
 ## Endpoints
 
@@ -59,7 +59,8 @@ screenshots 240/min, error reports 60/min, version 30/min).
 | `POST /api/agent/consent` | `agree: true, policy_version` | `consent` |
 | `POST /api/agent/screenshot` | multipart `screenshot`, `activity_pct`, `display`, `captured_at` | `id` |
 | `POST /api/agent/error` | `level, message, where, stack, file, line, os, arch, context{}` | token optional |
-| `GET /api/agent/version` | | `latest, current, update_available, released_at, download_page, files` |
+| `GET /api/agent/version` | | `latest, current, update_available, released_at, download_page, updates_feed, files` |
+| `GET /api/agent/updates/{file}` | | electron-updater feed (not JSON): `latest.yml`, `latest-mac.yml`, `latest-linux.yml`, `latest-linux-arm64.yml`, `latest-linux-armv7l.yml` as `text/yaml`, or a mirrored installer / `.blockmap` (streamed). `404` when the file is not in the mirrored release |
 | `GET /api/agent/status` | | legacy alias of bootstrap |
 
 Tracking actions accept an optional `at` (ISO 8601): the moment the person clicked, for actions the app queued while offline.
@@ -103,7 +104,20 @@ than `attendance.screenshot_retention_days` are deleted nightly.
 
 ## Errors and updates
 
-The app reports uncaught exceptions, unhandled rejections, API calls that failed after retries and capture failures to
-`POST /api/agent/error` (source `desktop`, app version, OS). `GET /api/agent/version` compares `X-App-Version` with the latest
-installer (Super Admin uploads in **Settings › Attendance & time tracking › Desktop app installers**, or the newest GitHub release
-tagged `tracker-v*` of `tracker.github_repo` / `updates.repo`, cached 30 minutes) and links to the download page (`/time#desktop`).
+The app reports uncaught exceptions, unhandled rejections, API calls that failed after retries, capture failures and update
+failures to `POST /api/agent/error` (source `desktop`, app version, OS).
+
+Releases are built in, nothing is configured per workspace. The desktop app is published as GitHub releases tagged
+`tracker-vX.Y.Z` in the official (private) repository from `niyanta.json` (`repository`; `updates.repo` overrides it for
+forks). The server reads them with the token from **Settings › Updates** (`updates.github_token`, read-only Contents) and the
+scheduler job `attendance.tracker_mirror` (every 30 minutes; release metadata cached 30 minutes) copies the newest
+non-draft, non-prerelease release once into `storage/desktop/<version>/` (private; size checked against GitHub and sha512
+against `latest*.yml`; newest 2 versions kept). Super Admins can force it with **Settings › Updates › Refresh now**.
+
+- `GET /api/agent/version` compares `X-App-Version` with the mirrored version and links to the download page (`/time#desktop`).
+- `GET /api/agent/updates/{file}` (device token, same auth as the other endpoints) is the feed of electron-updater's generic
+  provider: the app sets the feed URL to `<workspace>/api/agent/updates/` at runtime and sends `Authorization: Bearer <token>`.
+  The `latest*.yml` files are served with every `url:` / `path:` rewritten to `<workspace>/api/agent/updates/<file name>`, so
+  the installer and its `.blockmap` also come from the workspace (GitHub is never contacted by the app).
+- People download installers on **Time Tracking › Get the desktop app** from `GET /time/desktop/download/{file}` (signed in,
+  `attendance.track`, `Content-Disposition: attachment`).

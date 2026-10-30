@@ -97,7 +97,10 @@
       b.push(banner(ui.notice.kind === 'error' ? 'error' : 'info', esc(ui.notice.text), `<button class="btn" data-dismiss="${ui.notice.id}">OK</button>`));
     }
     if (ui.offline) b.push(banner('warn', `${icon('cloud-off', 'sm')} <b>Offline.</b> Your actions are saved and sync automatically. Without a connection for 10 minutes, time is not counted.`));
-    if (ui.update && ui.update.available) b.push(banner('ok', `Version <b>${esc(ui.update.latest)}</b> is available.`, '<button class="btn" data-open="download">Download</button>'));
+    const up = ui.update;
+    if (up && up.ready) b.push(banner('ok', `Update ready, restart to install version <b>${esc(up.readyVersion)}</b>. It also installs when you quit.`, '<button class="btn" data-install-update>Restart</button>'));
+    else if (up && up.downloading) b.push(banner('info', `Downloading version <b>${esc(up.latest)}</b> in the background (${+up.percent || 0}%).`));
+    else if (up && up.available) b.push(banner('ok', `Version <b>${esc(up.latest)}</b> is available.`, '<button class="btn" data-open="download">Download</button>'));
     if (ui.monitoring && ui.settings.screenshots_enabled && ui.consent && ui.consent.given && ui.monitoring.permission === 'denied') b.push(banner('error', 'Screenshots need the <b>Screen Recording</b> permission.', '<button class="btn" data-open="permissions">Open settings</button>'));
     if (ui.consent && ui.consent.needed && st.state === 'tracking' && modalKind !== 'consent') b.push(banner('warn', 'Screen monitoring is on in your workspace. Please review the notice.', '<button class="btn" data-consent>Review</button>'));
     $('banners').innerHTML = b.join('');
@@ -122,8 +125,10 @@
       : (ui.consent.given ? `Screenshots of all screens every ${every(m.interval)} while tracking. You can see them in the web app and revoke consent there.` : 'Screenshots are on in your workspace, but you have not accepted the notice yet.');
     $('p-perm').classList.toggle('hide', ui.platform !== 'darwin');
     $('p-version').textContent = ui.version;
-    $('p-update-state').textContent = ui.update ? (ui.update.available ? `version ${ui.update.latest} available` : 'up to date') : 'not checked yet';
-    $('p-download').classList.toggle('hide', !(ui.update && ui.update.available));
+    const up = ui.update;
+    $('p-update-state').textContent = !up ? 'not checked yet' : (up.ready ? `version ${up.readyVersion} ready, restart to install` : (up.downloading ? `downloading ${up.latest} (${+up.percent || 0}%)` : (up.available ? `version ${up.latest} available` : 'up to date')));
+    $('p-download').classList.toggle('hide', !(up && up.available && !up.downloading));
+    $('p-download').lastChild.textContent = up && up.ready ? ' Restart to install' : ' Download';
     $('p-account').textContent = ui.account ? `${ui.account.name} · ${ui.account.workspace.url}${ui.prefs.tokenProtected ? ' · sign-in stored in the system keychain' : ''}` : '';
   }
 
@@ -201,7 +206,7 @@
   $('p-launch').addEventListener('change', e => T.setPref('launchAtLogin', e.target.checked));
   $('p-notify').addEventListener('change', e => T.setPref('notify', e.target.checked));
   $('p-check').addEventListener('click', () => T.checkUpdates());
-  $('p-download').addEventListener('click', () => T.open('download'));
+  $('p-download').addEventListener('click', () => { if (ui && ui.update && ui.update.ready) T.installUpdate(); else T.open('download'); });
   $('p-perm').addEventListener('click', () => T.open('permissions'));
   $('p-shots').addEventListener('click', () => T.open('screenshots'));
   $('p-logs').addEventListener('click', () => T.open('logs'));
@@ -214,6 +219,7 @@
     if (!t) return;
     if (t.dataset.dismiss) { noticeShown = +t.dataset.dismiss; renderBanners(ui.state || {}); }
     if (t.dataset.open) T.open(t.dataset.open);
+    if ('installUpdate' in t.dataset) { t.disabled = true; T.installUpdate(); }
     if (t.dataset.idle) T.answerIdle(t.dataset.idle);
     if ('closeModal' in t.dataset) { modalKind = null; renderModal(); }
     if ('endConfirm' in t.dataset) { modalKind = null; renderModal(); T.endDay(); }

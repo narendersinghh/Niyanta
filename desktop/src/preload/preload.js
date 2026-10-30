@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld('tracker', {
   setPref: (key, value) => call('pref', { key: String(key), value: !!value }),
   open: (what) => call('open', String(what)),
   checkUpdates: () => call('updates'),
+  installUpdate: () => call('installUpdate'),
   refresh: () => call('refresh'),
   reportError: (info) => call('error', { message: String(info && info.message || ''), stack: String(info && info.stack || ''), where: 'renderer' }),
   onState: (cb) => { const h = (_e, s) => cb(s); ipcRenderer.on('tracker:state', h); return () => ipcRenderer.removeListener('tracker:state', h); }

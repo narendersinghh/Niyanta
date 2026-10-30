@@ -14,6 +14,7 @@ const { Queue } = require('./queue');
 const capture = require('./capture');
 const toast = require('./toast');
 const store = require('./store');
+const { Updater } = require('./updater');
 
 const ACTIONS = { start: 'day/start', pause: 'pause', resume: 'resume', switch: 'switch', end: 'day/end' };
 
@@ -40,6 +41,8 @@ class Tracker extends EventEmitter {
     this.nextShot = 0;
     this.shots = [];
     this.update = null;
+    this.updater = new Updater(report);
+    this.updater.on('change', st => { if (st.status === 'ready' && !this._readyShown) { this._readyShown = true; this.emit('update-ready', st.version); } this.changed(); });
     this.autoPaused = false;
     this.permission = capture.screenPermission();
     this.loops = [];
@@ -107,6 +110,7 @@ class Tracker extends EventEmitter {
     this.queue.clear();
     this.boot = null; this.snap = null; this.idlePrompt = null; this.shots = [];
     this.api.configure(store.get('workspaceUrl'), null);
+    this.updater.configure(null, null);
     this.error = message; this.notice = null;
     this.changed();
     this.emit('signed-out');
@@ -391,15 +395,30 @@ class Tracker extends EventEmitter {
 
   /* ---------- updates ---------- */
 
+  /**
+   * On start and every 6 hours: GET /api/agent/version (what the workspace offers) and, where supported, electron-updater
+   * against <workspace>/api/agent/updates/ (downloads in the background, installs on quit). Unsupported builds (unsigned
+   * macOS, .deb, development) show "Download" instead, which opens the workspace's download page.
+   */
   async checkUpdates(manual = false) {
     if (!this.signedIn) return;
     try {
       const r = await this.api.get('version', { timeout: 15000 });
       this.update = { available: !!r.update_available, latest: r.latest, url: r.download_page, checkedAt: new Date().toISOString() };
-      if (manual) this.flash(r.update_available ? `Version ${r.latest} is available.` : (r.latest ? 'You have the latest version.' : 'No published version found yet.'), 'info');
+      if (r.update_available && this.updater.state.supported) {
+        this.updater.configure(this.api.base, this.api.token);
+        await this.updater.check();
+      }
+      if (manual) {
+        const u = this.updater.state;
+        this.flash(!r.update_available ? (r.latest ? 'You have the latest version.' : 'No version is available from your workspace yet.')
+          : (u.status === 'ready' ? `Version ${u.version || r.latest} is ready. Restart to install.` : (u.status === 'downloading' ? `Downloading version ${r.latest}...` : `Version ${r.latest} is available.`)), 'info');
+      }
     } catch (e) { if (manual) this.flash('Could not check for updates: ' + e.message, 'error'); }
     this.changed();
   }
+
+  installUpdate() { return this.updater.install(); }
 
   /* ---------- UI ---------- */
 
@@ -408,6 +427,14 @@ class Tracker extends EventEmitter {
   changed() {
     if (this._t) return;
     this._t = setTimeout(() => { this._t = null; this.emit('change', this.ui()); }, 30);
+  }
+
+  /** available: newer version on the workspace; ready: downloaded, restart to install; auto: installs itself. */
+  updateUi() {
+    if (!this.update) return null;
+    const u = this.updater.state;
+    const auto = !!u.supported && this.update.available;
+    return Object.assign({}, this.update, { auto, ready: auto && u.status === 'ready', downloading: auto && u.status === 'downloading', percent: u.percent || 0, readyVersion: u.version || this.update.latest });
   }
 
   setSelection(sel) { this.selection = { project_id: sel.project_id || null, task_id: sel.task_id || null }; }
@@ -426,7 +453,7 @@ class Tracker extends EventEmitter {
       projectsEnabled: !!this.settings.projects_enabled, projects: this.boot ? this.boot.projects : [], selection: this.selection,
       settings: this.settings, consent: this.boot ? { given: !!this.boot.consent, needed: this.consentNeeded(), policy: this.boot.policy } : null,
       monitoring: { on: !!this.settings.screenshots_enabled && !!(this.boot && this.boot.consent), interval: this.settings.screenshot_interval_seconds, permission: this.permission },
-      idlePrompt: this.idlePrompt, shots: this.shots, update: this.update,
+      idlePrompt: this.idlePrompt, shots: this.shots, update: this.updateUi(),
       prefs: { launchAtLogin: store.get('launchAtLogin', true), notify: this.notifyOn(), notifyAllowed: !!this.settings.screenshot_notify_user_can_disable, tokenProtected: store.tokenProtected() },
       at: Date.now()
     };

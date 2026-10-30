@@ -1,5 +1,6 @@
 <?php
-use Core\{DB, Settings};
+use Core\{Cache, DB, Settings};
+use Modules\Admin\Services\UpdateService;
 use Modules\Attendance\Services\{AttendanceService, DesktopApp, Tracker};
 use Modules\Payroll\Services\PayrollService;
 
@@ -152,30 +153,123 @@ return [
     assert_eq(200, $code, 'works without a token');
     assert_eq(422, trk_api('POST', '/api/agent/error', [], null)[0], 'message required'); },
 
-  'version endpoint and downloads use uploaded installers' => function () {
+  'desktop app: newest private tracker release is mirrored, downloaded from the server and fed to the auto-updater' => function () {
     ['emp' => $emp] = trk_fixture();
     $tok = trk_login();
-    $tmp = tempnam(sys_get_temp_dir(), 'exe'); file_put_contents($tmp, "MZ".str_repeat("\0", 2000));
-    $row = DesktopApp::upload(['name' => 'niyanta-tracker-1.2.0-win-x64.exe', 'tmp_name' => $tmp, 'error' => UPLOAD_ERR_OK, 'size' => 2002], '1.2.0', (int) $GLOBALS['ADMIN_ID']);
-    assert_true($row['platform'] === 'windows' && is_file(DesktopApp::filePath($row)), 'stored privately');
-    assert_true(str_starts_with(DesktopApp::filePath($row), NY_ROOT.'/storage/desktop/1.2.0/'), 'storage/desktop/<version>');
-    [$code, $j] = trk_api('GET', '/api/agent/version', [], $tok, [], '1.0.0');
-    assert_eq(200, $code, json_encode($j));
-    assert_true($j['latest'] === '1.2.0' && $j['update_available'] === true && str_contains($j['download_page'], '/time'), json_encode($j));
-    assert_eq(false, trk_api('GET', '/api/agent/version', [], $tok, [], '1.2.0')[1]['update_available'], 'up to date');
-    act_as($emp);
-    $r = http('GET', '/time/desktop/download?f='.$row['id']);
-    assert_eq(200, $r->status(), 'signed-in tracker can download');
-    $html = (string) http('GET', '/time')->body();
-    assert_true(str_contains($html, 'niyanta-tracker') || str_contains($html, 'v1.2.0'), 'time page offers the installer');
+    $oldTok = (string) Settings::get('updates.github_token', ''); $oldRepo = (string) Settings::get('updates.repo', '');
+    Settings::set('updates.github_token', ''); Settings::set('updates.repo', '');
+    assert_eq('narendersinghh/Niyanta', DesktopApp::repo(), 'official repository from niyanta.json');
+    assert_eq('tracker-v', \Core\App::trackerTagPrefix());
+    $root = sys_get_temp_dir().'/ny-desktop-'.bin2hex(random_bytes(4));
+    DesktopApp::$root = $root; DesktopApp::$fetcher = null; DesktopApp::forget();
+    Cache::forget(DesktopApp::cacheKey());
+    try {
+      act_as($emp);
+      $html = (string) http('GET', '/time')->body();
+      assert_true(str_contains($html, "The desktop app isn't available yet. An administrator needs to connect GitHub in") && str_contains($html, 'Coming soon'), 'no token: friendly message');
+      assert_eq('skipped: no GitHub token', DesktopApp::cron());
+
+      $bin = ['niyanta-tracker-1.2.10-win-x64.exe' => 'MZ'.str_repeat('w', 300), 'niyanta-tracker-1.2.10-win-x64.exe.blockmap' => 'bm-win', 'niyanta-tracker-1.2.10-mac-arm64.dmg' => 'dmg-arm', 'niyanta-tracker-1.2.10-mac-x64.dmg' => 'dmg-x64', 'niyanta-tracker-1.2.10-mac-arm64.zip' => 'PKzip',
+        'niyanta-tracker-1.2.10-linux-x86_64.AppImage' => "\x7fELF".str_repeat('a', 500), 'niyanta-tracker-1.2.10-linux-amd64.deb' => '!<arch>deb'];
+      $sha = static fn (string $c): string => base64_encode(hash('sha512', $c, true));
+      $bin['latest-linux.yml'] = "version: 1.2.10\nfiles:\n  - url: niyanta-tracker-1.2.10-linux-x86_64.AppImage\n    sha512: ".$sha($bin['niyanta-tracker-1.2.10-linux-x86_64.AppImage'])."\n    size: 504\n    blockMapSize: 98765\npath: niyanta-tracker-1.2.10-linux-x86_64.AppImage\nsha512: ".$sha($bin['niyanta-tracker-1.2.10-linux-x86_64.AppImage'])."\nreleaseDate: '2026-10-20T08:00:00.000Z'\n";
+      $bin['latest.yml'] = "version: 1.2.10\nfiles:\n  - url: niyanta-tracker-1.2.10-win-x64.exe\n    sha512: ".$sha($bin['niyanta-tracker-1.2.10-win-x64.exe'])."\n    size: 302\npath: niyanta-tracker-1.2.10-win-x64.exe\n";
+      $id = 100; $assets = [];
+      foreach ($bin as $n => $c) { $assets[] = ['id' => ++$id, 'name' => $n, 'size' => strlen($c), 'url' => 'https://api.github.com/repos/narendersinghh/Niyanta/releases/assets/'.$id]; }
+      $assets[] = ['id' => 999, 'name' => 'notes.txt', 'size' => 3];
+      $list = [
+        ['tag_name' => 'v9.0.0', 'draft' => false, 'prerelease' => false, 'assets' => [['id' => 1, 'name' => 'niyanta-9.0.0.zip', 'size' => 9]]],
+        ['tag_name' => 'tracker-v1.4.0', 'draft' => false, 'prerelease' => true, 'assets' => []],
+        ['tag_name' => 'tracker-v1.5.0', 'draft' => true, 'prerelease' => false, 'assets' => []],
+        ['tag_name' => 'tracker-v1.2.10', 'draft' => false, 'prerelease' => false, 'published_at' => '2026-10-20T08:00:00Z', 'assets' => $assets],
+        ['tag_name' => 'tracker-v1.2.9', 'draft' => false, 'prerelease' => false, 'assets' => []]];
+      $rel = DesktopApp::pickRelease($list);
+      assert_true($rel['version'] === '1.2.10' && count($rel['assets']) === count($bin) && !isset($rel['assets']['notes.txt']), 'newest by semver, drafts/prereleases/other files ignored');
+      assert_eq(['platform' => 'mac', 'arch' => 'arm64', 'ext' => 'dmg', 'version' => '1.2.0'], DesktopApp::classify('niyanta-tracker-1.2.0-mac-arm64.dmg'));
+      assert_true(DesktopApp::classify('setup.exe') === null && DesktopApp::classify('niyanta-tracker-1.2.0-win-x64.exe.blockmap') === null, 'only official installer names');
+
+      // stubbed GitHub: metadata in the cache, assets through the fetcher
+      $fetched = [];
+      DesktopApp::$fetcher = static function (array $a) use ($bin, &$fetched): string { $fetched[] = $a['name']; return $bin[$a['name']]; };
+      Cache::put(DesktopApp::cacheKey(), ['ok' => true, 'release' => $rel, 'checked_at' => date('c')], 600);
+      foreach (['1.0.0', '1.1.0'] as $old) { @mkdir("$root/$old", 0775, true); file_put_contents("$root/$old/manifest.json", json_encode(['version' => $old, 'files' => []])); }
+      $s = DesktopApp::sync();
+      assert_true($s['ok'] && $s['version'] === '1.2.10' && $s['downloaded'] === count($bin), json_encode($s));
+      assert_true(is_file("$root/1.2.10/niyanta-tracker-1.2.10-win-x64.exe") && is_file("$root/1.2.10/manifest.json") && is_file("$root/.htaccess"), 'mirrored privately');
+      assert_true(is_dir("$root/1.1.0") && !is_dir("$root/1.0.0"), 'keeps the newest 2 versions');
+      $fetched = [];
+      assert_true(DesktopApp::sync()['downloaded'] === 0 && $fetched === [], 'each asset downloaded once');
+      assert_eq('up to date 1.2.10', DesktopApp::cron());
+      $l = DesktopApp::latest();
+      assert_true($l['ok'] && $l['version'] === '1.2.10' && count($l['platforms']['mac']) === 3 && $l['platforms']['mac'][0]['ext'] === 'dmg' && str_contains($l['platforms']['windows'][0]['url'], '/time/desktop/download/niyanta-tracker-1.2.10-win-x64.exe'), json_encode($l['platforms']));
+
+      // sha512 mismatch is rejected
+      $bad = $rel; $bad['version'] = '1.3.0'; $bad['tag'] = 'tracker-v1.3.0';
+      $bad['assets'] = ['latest.yml' => ['id' => 1, 'size' => 0, 'url' => ''], 'niyanta-tracker-1.3.0-win-x64.exe' => ['id' => 2, 'size' => 0, 'url' => '']];
+      DesktopApp::$fetcher = static fn (array $a): string => $a['name'] === 'latest.yml' ? "version: 1.3.0\nfiles:\n  - url: niyanta-tracker-1.3.0-win-x64.exe\n    sha512: AAAA\n" : 'MZtampered';
+      Cache::put(DesktopApp::cacheKey(), ['ok' => true, 'release' => $bad, 'checked_at' => date('c')], 600);
+      $s = DesktopApp::sync();
+      assert_true(!$s['ok'] && str_contains((string) $s['error'], 'sha512') && !is_file("$root/1.3.0/niyanta-tracker-1.3.0-win-x64.exe"), json_encode($s));
+      DesktopApp::forget();
+      assert_eq('1.2.10', DesktopApp::latest()['version'], 'failed mirror leaves the previous version in place');
+      Cache::put(DesktopApp::cacheKey(), ['ok' => true, 'release' => $rel, 'checked_at' => date('c')], 600);
+
+      // Time Tracking page and the download route
+      $html = (string) http('GET', '/time')->body();
+      assert_true(str_contains($html, '/time/desktop/download/niyanta-tracker-1.2.10-win-x64.exe') && str_contains($html, 'v1.2.10') && !str_contains($html, "isn't available yet") && !str_contains($html, 'github.com'), 'time page offers server downloads');
+      $r = http('GET', '/time/desktop/download/niyanta-tracker-1.2.10-win-x64.exe');
+      assert_true($r->status() === 200 && str_starts_with((string) ($r->headers()['Content-Disposition'] ?? ''), 'attachment;') && ($r->headers()['Content-Length'] ?? '') === '302', 'streamed attachment: '.$r->status());
+      assert_eq(404, http('GET', '/time/desktop/download/latest.yml')->status(), 'only installers on the web route');
+      assert_eq(404, http('GET', '/time/desktop/download/..%2Fmanifest.json')->status(), 'no traversal');
+      act_as(null);
+      $g = http('GET', '/time/desktop/download/niyanta-tracker-1.2.10-win-x64.exe')->status();
+      assert_true(in_array($g, [301, 302, 303, 401], true), 'guests cannot download: '.$g);
+
+      // version endpoint and the electron-updater feed (device token)
+      [$code, $j] = trk_api('GET', '/api/agent/version', [], $tok, [], '1.0.0');
+      assert_true($code === 200 && $j['latest'] === '1.2.10' && $j['update_available'] === true && str_ends_with($j['updates_feed'], '/api/agent/updates/'), json_encode($j));
+      assert_eq(false, trk_api('GET', '/api/agent/version', [], $tok, [], '1.2.10')[1]['update_available'], 'up to date');
+      assert_eq(401, trk_api('GET', '/api/agent/updates/latest-linux.yml', [], null)[0], 'feed needs the device token');
+      $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer '.$tok;
+      $r = http('GET', '/api/agent/updates/latest-linux.yml', [], false);
+      $abs = "'".absolute_url('/api/agent/updates/niyanta-tracker-1.2.10-linux-x86_64.AppImage')."'";
+      assert_true($r->status() === 200 && str_starts_with((string) ($r->headers()['Content-Type'] ?? ''), 'text/yaml'), $r->status().' '.$r->body());
+      assert_true(str_contains($r->body(), "  - url: $abs\n") && str_contains($r->body(), "path: $abs\n") && str_contains($r->body(), 'blockMapSize: 98765') && str_contains($r->body(), "releaseDate: '2026-10-20T08:00:00.000Z'"), $r->body());
+      $b = http('GET', '/api/agent/updates/niyanta-tracker-1.2.10-win-x64.exe.blockmap', [], false);
+      assert_true($b->status() === 200 && ($b->headers()['Content-Length'] ?? '') === '6', 'blockmap served');
+      assert_eq(200, http('GET', '/api/agent/updates/niyanta-tracker-1.2.10-linux-x86_64.AppImage', [], false)->status(), 'binary served');
+      assert_eq(404, http('GET', '/api/agent/updates/latest-mac.yml', [], false)->status(), 'not in the release');
+      assert_eq(404, http('GET', '/api/agent/updates/manifest.json', [], false)->status(), 'manifest not served');
+      unset($_SERVER['HTTP_AUTHORIZATION']); }
+    finally {
+      DesktopApp::$fetcher = null; DesktopApp::$root = null; DesktopApp::forget(); Cache::forget(DesktopApp::cacheKey());
+      Settings::set('updates.github_token', $oldTok); Settings::set('updates.repo', $oldRepo);
+      if (is_dir($root)) { exec('rm -rf '.escapeshellarg($root)); } } },
+
+  'installer uploads are gone; the web app updater ignores tracker releases' => function () {
+    foreach (['/attendance/desktop/upload', '/attendance/desktop/delete'] as $p) { assert_eq(404, http('POST', $p)->status(), $p); }
+    act_as((int) $GLOBALS['ADMIN_ID']);
+    $html = (string) http('GET', '/admin/settings/attendance')->body();
+    assert_true(!str_contains($html, 'tracker.github_repo') && !str_contains($html, 'Upload installer') && !str_contains($html, 'Desktop app installers'), 'no installer settings');
+    $html = (string) http('GET', '/admin/updates')->body();
+    assert_true(str_contains($html, 'placeholder="narendersinghh/Niyanta"') && str_contains($html, 'id="desktop-mirror"') && str_contains($html, 'Refresh now'), 'built-in repository and the desktop mirror status in Settings › Updates');
     act_as(null);
-    $g = http('GET', '/time/desktop/download?f='.$row['id'])->status();
-    assert_true(in_array($g, [301, 302, 303, 401], true), 'guests cannot download: '.$g);
-    assert_eq(['platform' => 'mac', 'arch' => 'arm64', 'ext' => 'dmg'], DesktopApp::classify('niyanta-tracker-1.2.0-mac-arm64.dmg'));
-    assert_eq('deb', DesktopApp::classify('niyanta-tracker-1.2.0-linux-amd64.deb')['platform']);
-    $rel = DesktopApp::pickRelease([['tag_name' => 'v9.0.0', 'assets' => []], ['tag_name' => 'tracker-v1.3.0', 'draft' => false, 'prerelease' => false, 'published_at' => '2026-10-01T00:00:00Z', 'assets' => [['name' => 'niyanta-tracker-1.3.0-linux-x86_64.AppImage', 'size' => 9, 'browser_download_url' => 'https://example.test/a']]], ['tag_name' => 'tracker-v1.4.0', 'prerelease' => true, 'assets' => []]]);
-    assert_true($rel['version'] === '1.3.0' && $rel['assets'][0]['platform'] === 'linux', 'picks the newest published tracker release');
-    DesktopApp::remove($row['id'], (int) $GLOBALS['ADMIN_ID']); },
+    assert_true(!method_exists(DesktopApp::class, 'upload') && !method_exists(DesktopApp::class, 'remove') && !is_file(NY_ROOT.'/modules/Attendance/views/partials/installers.php'), 'upload code removed');
+    $old = Settings::get('updates.repo', '');
+    Settings::set('updates.repo', '');
+    assert_eq(['narendersinghh', 'Niyanta'], UpdateService::repo(), 'defaults to niyanta.json');
+    Settings::set('updates.repo', 'acme/fork');
+    assert_eq(['acme', 'fork'], UpdateService::repo(), 'override for forks');
+    Settings::set('updates.repo', (string) $old);
+    $pick = UpdateService::pickAppRelease([
+      ['tag_name' => 'tracker-v3.0.0', 'draft' => false, 'prerelease' => false],
+      ['tag_name' => 'v1.3.0', 'draft' => false, 'prerelease' => true],
+      ['tag_name' => 'v1.10.0', 'draft' => true, 'prerelease' => false],
+      ['tag_name' => 'v1.2.0', 'draft' => false, 'prerelease' => false],
+      ['tag_name' => 'v1.2.1', 'draft' => false, 'prerelease' => false],
+      ['tag_name' => 'nightly', 'draft' => false, 'prerelease' => false]]);
+    assert_eq('v1.2.1', $pick['tag_name'] ?? null, 'app release only');
+    assert_eq(null, UpdateService::pickAppRelease([['tag_name' => 'tracker-v1.0.0']]), 'tracker-only repository: no app update'); },
 
   'web app has no start/stop controls; tracking routes are gone' => function () {
     ['emp' => $emp] = trk_fixture();

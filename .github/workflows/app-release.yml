@@ -1,0 +1,58 @@
+# Builds the Niyanta web app update package for a tag vX.Y.Z and attaches it to the GitHub Release of that tag
+# (in this private repository; the servers download it with the token from Settings › Updates).
+# Release: bump niyanta.json "version" and NY_VERSION in core/version.php, commit, then
+#   git tag v1.2.3 && git push origin v1.2.3
+# Desktop tracker releases use tracker-v* tags and their own workflow (desktop.yml); this one never runs for them.
+name: Web app release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check versions match the tag
+        shell: bash
+        run: |
+          want="${GITHUB_REF_NAME#v}"
+          json="$(php -r 'echo json_decode(file_get_contents("niyanta.json"), true)["version"];')"
+          core="$(php -r 'define("NY_ROOT", "."); require "core/version.php"; echo NY_VERSION;')"
+          if [ "$want" != "$json" ] || [ "$want" != "$core" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match niyanta.json ($json) / core/version.php ($core)"; exit 1
+          fi
+          echo "VERSION=$want" >> "$GITHUB_ENV"
+      - name: Lint PHP
+        run: find . -name '*.php' -not -path './desktop/*' -print0 | xargs -0 -n1 -P4 php -l > /dev/null
+      - name: Build update package
+        shell: bash
+        run: |
+          set -euo pipefail
+          name="niyanta-$VERSION"
+          mkdir -p "build/$name"
+          # tracked files only; no desktop app, CI, tests, local config or storage contents (keep the empty folders)
+          git ls-files -z \
+            | grep -zvE '^(desktop|\.github|tests)/' \
+            | grep -zvE '^config/config\.php$' \
+            | grep -zvE '^storage/.+' \
+            | xargs -0 -I{} cp --parents {} "build/$name/"
+          git ls-files -z 'storage/' | grep -zE '(\.gitkeep|\.htaccess)$' | xargs -0 -I{} cp --parents {} "build/$name/"
+          (cd build && zip -qr9 "$name.zip" "$name")
+          (cd build && sha256sum "$name.zip" > checksums.txt)
+          ls -la build; cat build/checksums.txt
+      - name: Attach to the GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Niyanta ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          fail_on_unmatched_files: true
+          files: |
+            build/niyanta-${{ env.VERSION }}.zip
+            build/checksums.txt

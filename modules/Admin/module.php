@@ -52,6 +52,7 @@ return [
     $r->post('/admin/updates/check', [UpdateController::class, 'check'], $sa);
     $r->post('/admin/updates/apply', [UpdateController::class, 'apply'], $sa);
     $r->post('/admin/updates/migrate', [UpdateController::class, 'migrate'], $sa);
+    $r->post('/admin/updates/desktop-refresh', [UpdateController::class, 'desktopRefresh'], $sa + ['throttle' => [6, 600]]);
     $r->post('/admin/updates/upload', [UpdateController::class, 'upload'], $sa + ['throttle' => [5, 600]]);
     $r->get('/admin/updates/{id}', [UpdateController::class, 'show'], $sa);
     $r->get('/admin/cron', [CronAdminController::class, 'index'], $sa);
