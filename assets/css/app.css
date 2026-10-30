@@ -439,8 +439,9 @@ html{scrollbar-color:color-mix(in srgb,var(--muted) 45%,transparent) transparent
 @keyframes ttp{70%{box-shadow:0 0 0 7px transparent}100%{box-shadow:0 0 0 0 transparent}}
 @media (prefers-reduced-motion:reduce){.tt-dot{animation:none}}
 @media (max-width:900px){.tt-live .tt-what{display:none}}
-.sidebar:not(.nav-compact) .sec-toggle,.sidebar:not(.nav-compact) .sec-count{display:none}
-.sidebar:not(.nav-compact) .nav-sec-head{padding:12px 10px 5px}
+.nav-sec .sec-toggle,.nav-sec .sec-count{display:none}
+.nav-sec .nav-sec-head{padding:12px 10px 5px}
+.nav-sec .nav-sec-items{display:block!important}
 .nav a{padding:6px 8px;margin:1px 0}
 .nav .ni{width:28px;height:28px}
 .nav-group{margin-top:10px}
