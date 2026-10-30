@@ -1,0 +1,87 @@
+# One-click releases. In GitHub: Actions > Release > Run workflow, pick what to release and how big the change is.
+# The workflow bumps the version numbers, commits to main, creates the tag(s) and builds the installers / update
+# package. Niyanta servers pick up new versions automatically (Settings > Updates for the web app, Time Tracking for
+# the desktop app). Versions: patch = fixes (1.0.0 -> 1.0.1), minor = new features (1.0.0 -> 1.1.0), major = big changes.
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      what:
+        description: What to release
+        type: choice
+        options: [both, web app, desktop app]
+        default: both
+      bump:
+        description: Size of the change
+        type: choice
+        options: [patch, minor, major, current]
+        default: patch
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    name: Bump versions and tag
+    runs-on: ubuntu-latest
+    outputs:
+      app_tag: ${{ steps.tag.outputs.app_tag }}
+      tracker_tag: ${{ steps.tag.outputs.tracker_tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - id: tag
+        shell: bash
+        env:
+          WHAT: ${{ inputs.what }}
+          BUMP: ${{ inputs.bump }}
+        run: |
+          set -euo pipefail
+          next() { node -e 'const [v,b]=process.argv.slice(1);let [a,c,d]=v.split(".").map(Number);if(b==="major"){a++;c=0;d=0}else if(b==="minor"){c++;d=0}else if(b==="patch"){d++}console.log([a,c,d].join("."))' "$1" "$2"; }
+          git config user.name "github-actions[bot]"; git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          changed=""
+          if [ "$WHAT" != "desktop app" ]; then
+            cur="$(node -p 'require("./niyanta.json").version')"; new="$(next "$cur" "$BUMP")"
+            if git rev-parse -q --verify "refs/tags/v$new" >/dev/null; then echo "::error::Tag v$new already exists. Choose a bigger bump."; exit 1; fi
+            node -e 'const f="niyanta.json",fs=require("fs"),j=JSON.parse(fs.readFileSync(f));j.version=process.argv[1];fs.writeFileSync(f,JSON.stringify(j)+"\n")' "$new"
+            sed -i "s/define('NY_VERSION', '[^']*')/define('NY_VERSION', '$new')/" core/version.php
+            echo "app_tag=v$new" >> "$GITHUB_OUTPUT"; changed="$changed web app $new"
+          fi
+          if [ "$WHAT" != "web app" ]; then
+            cur="$(node -p 'require("./desktop/package.json").version')"; new="$(next "$cur" "$BUMP")"
+            if git rev-parse -q --verify "refs/tags/tracker-v$new" >/dev/null; then echo "::error::Tag tracker-v$new already exists. Choose a bigger bump."; exit 1; fi
+            (cd desktop && npm version "$new" --no-git-tag-version --allow-same-version >/dev/null)
+            echo "tracker_tag=tracker-v$new" >> "$GITHUB_OUTPUT"; changed="$changed desktop $new"
+          fi
+          git add -A
+          if ! git diff --cached --quiet; then git commit -m "Release:$changed"; git push origin HEAD:main; fi
+          for t in $(grep -E '^(app_tag|tracker_tag)=' "$GITHUB_OUTPUT" | cut -d= -f2); do git tag -a "$t" -m "Release $t"; git push origin "$t"; done
+          echo "### Released:$changed" >> "$GITHUB_STEP_SUMMARY"
+
+  web-app:
+    name: Build web app update
+    needs: bump
+    if: needs.bump.outputs.app_tag != ''
+    uses: ./.github/workflows/app-release.yml
+    with:
+      tag: ${{ needs.bump.outputs.app_tag }}
+    secrets: inherit
+
+  desktop:
+    name: Build desktop app
+    needs: bump
+    if: needs.bump.outputs.tracker_tag != ''
+    uses: ./.github/workflows/desktop.yml
+    with:
+      tag: ${{ needs.bump.outputs.tracker_tag }}
+    secrets: inherit

@@ -8,23 +8,34 @@ name: Web app release
 on:
   push:
     tags: ['v*']
+  workflow_call:
+    inputs:
+      tag:
+        description: Release tag (vX.Y.Z), set by the Release workflow
+        type: string
+        required: true
 
 permissions:
   contents: write
+
+env:
+  TAG: ${{ inputs.tag || github.ref_name }}
 
 jobs:
   package:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
       - name: Check versions match the tag
         shell: bash
         run: |
-          want="${GITHUB_REF_NAME#v}"
+          want="${TAG#v}"
           json="$(php -r 'echo json_decode(file_get_contents("niyanta.json"), true)["version"];')"
           core="$(php -r 'define("NY_ROOT", "."); require "core/version.php"; echo NY_VERSION;')"
           if [ "$want" != "$json" ] || [ "$want" != "$core" ]; then
-            echo "::error::Tag $GITHUB_REF_NAME does not match niyanta.json ($json) / core/version.php ($core)"; exit 1
+            echo "::error::Tag $TAG does not match niyanta.json ($json) / core/version.php ($core)"; exit 1
           fi
           echo "VERSION=$want" >> "$GITHUB_ENV"
       - name: Lint PHP
@@ -48,8 +59,8 @@ jobs:
       - name: Attach to the GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
-          name: Niyanta ${{ github.ref_name }}
+          tag_name: ${{ inputs.tag || github.ref_name }}
+          name: Niyanta ${{ inputs.tag || github.ref_name }}
           draft: false
           prerelease: false
           fail_on_unmatched_files: true
