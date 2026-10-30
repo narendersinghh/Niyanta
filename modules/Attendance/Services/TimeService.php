@@ -124,21 +124,35 @@ final class TimeService {
       Audit::log('time.stop', 'time_entry', (int) $e['id'], ['reason' => $reason, 'duration' => $dur, 'status' => $status], $uid);
       return ['id' => (int) $e['id'], 'duration' => $dur]; }); }
 
-  /** Accumulate activity from a heartbeat. Idle is capped to the time since the last beat (+ the idle threshold, which clients report retroactively) and to the elapsed time. */
-  public static function heartbeat(int $uid, int $active, int $idle): ?array {
-    return DB::transaction(static function () use ($uid, $active, $idle): ?array {
-      $e = DB::first('SELECT * FROM time_entries WHERE user_id=? AND is_running=1 ORDER BY id DESC LIMIT 1 FOR UPDATE', [$uid]);
+  /**
+   * Accumulate activity from a heartbeat sent at $at (the app's time of the beat, clamped by Tracker::at(); null = now). The beat
+   * covers the $active + $idle seconds before it: when that period starts more than STALE_SECONDS after the last heartbeat, the
+   * app was not running in between (switched off, killed, asleep), so the entry is stopped at its last heartbeat instead of
+   * being stretched over the gap. Otherwise the entry's last heartbeat moves to $at (crossing midnight starts the new day, see
+   * Tracker::settle()). Idle is capped to the time since the last beat (+ the idle threshold, reported retroactively) and to
+   * the elapsed time.
+   */
+  public static function heartbeat(int $uid, int $active, int $idle, ?string $at = null): ?array {
+    return DB::transaction(static function () use ($uid, $active, $idle, $at): ?array {
+      AttendanceService::lock($uid);
+      $e = DB::first('SELECT * FROM time_entries WHERE user_id=? AND is_running=1 ORDER BY id DESC LIMIT 1', [$uid]);
+      if (!$e) { Tracker::settle($uid); return null; }
+      $hb = strtotime($e['last_heartbeat_at'] ?: $e['started_at']);
+      $end = max($hb, $at ? (int) strtotime($at) : time());
+      if ($end - max(0, $active) - max(0, $idle) - $hb > self::STALE_SECONDS) { self::stop($uid, null, 'stale', true); Tracker::settle($uid); return null; }
+      Tracker::settle($uid, date('Y-m-d H:i:s', $end));
+      $e = DB::first('SELECT * FROM time_entries WHERE user_id=? AND is_running=1 ORDER BY id DESC LIMIT 1', [$uid]);
       if (!$e) { return null; }
-      $now = time();
-      $since = max(0, $now - strtotime($e['last_heartbeat_at'] ?: $e['started_at'])) + 5 + max(1, (int) \Core\Settings::get('attendance.idle_minutes', 5)) * 60;
+      $last = strtotime($e['last_heartbeat_at'] ?: $e['started_at']);
+      $since = max(0, $end - $last) + 5 + max(1, (int) \Core\Settings::get('attendance.idle_minutes', 5)) * 60;
       $idle = min(max(0, $idle), $since);
-      $elapsed = max(0, $now - strtotime($e['started_at']));
+      $elapsed = max(0, $end - strtotime($e['started_at']));
       $total = min((int) $e['idle_seconds'] + $idle, $elapsed);
-      DB::update('time_entries', ['idle_seconds' => $total, 'last_heartbeat_at' => date('Y-m-d H:i:s', $now)], 'id=?', [$e['id']]);
+      DB::update('time_entries', ['idle_seconds' => $total, 'last_heartbeat_at' => date('Y-m-d H:i:s', max($end, $last))], 'id=?', [$e['id']]);
       $e['idle_seconds'] = $total;
-      return ['id' => (int) $e['id'], 'elapsed' => self::elapsed($e, $now), 'idle' => $total, 'discarded' => (int) $e['discarded_seconds'], 'activity' => max(0, min(100, (int) round(100 * max(0, $active) / max(1, $active + $idle))))]; }); }
+      return ['id' => (int) $e['id'], 'elapsed' => self::elapsed($e), 'idle' => $total, 'discarded' => (int) $e['discarded_seconds'], 'activity' => max(0, min(100, (int) round(100 * max(0, $active) / max(1, $active + $idle))))]; }); }
 
-  /** Remove recorded idle time from the running entry (user chose "discard"). */
+  /** Remove recorded idle time from the running entry (legacy answer without the span's times: "discard" N seconds). */
   public static function discardIdle(int $uid, int $seconds): ?array {
     return DB::transaction(static function () use ($uid, $seconds): ?array {
       $e = DB::first('SELECT * FROM time_entries WHERE user_id=? AND is_running=1 ORDER BY id DESC LIMIT 1 FOR UPDATE', [$uid]);
@@ -150,12 +164,66 @@ final class TimeService {
       $e['discarded_seconds'] = (int) $e['discarded_seconds'] + $sec;
       return ['discarded' => $sec, 'total_discarded' => $e['discarded_seconds'], 'elapsed' => self::elapsed($e)]; }); }
 
-  /** Cron: stop timers without a heartbeat for more than 10 minutes, at their last heartbeat. */
+  /**
+   * The answer to an idle prompt for exact spans [{from, to}] (ISO 8601, the app's times; at most 24 h each, within the last
+   * 7 days). Each span is recorded per overlapping entry (time_idle_spans). "discard" also removes exactly the overlap from
+   * those entries: discarded_seconds (+ duration_seconds of stopped entries, whose week and closed day are resynced), running
+   * or stopped, whichever entries the span fell into (a pause, project switch or midnight may have happened since). Parts of
+   * a span that were already discarded are never discarded twice, so retries are harmless. Returns discarded/kept seconds.
+   */
+  public static function idleSpans(int $uid, array $spans, string $action): array {
+    return DB::transaction(static function () use ($uid, $spans, $action): array {
+      AttendanceService::lock($uid);
+      $now = time(); $out = ['discarded' => 0, 'kept' => 0]; $days = [];
+      foreach (array_slice($spans, 0, 50) as $sp) {
+        $f = is_array($sp) ? strtotime((string) ($sp['from'] ?? '')) : false; $t = is_array($sp) ? strtotime((string) ($sp['to'] ?? '')) : false;
+        if (!$f || !$t) { continue; }
+        $t = min($t, $now);
+        if ($t <= $f || $f < $now - 7 * 86400 || $t - $f > 86400) { continue; }
+        $rows = DB::all('SELECT * FROM time_entries WHERE user_id=? AND started_at<? AND started_at>? AND (is_running=1 OR ended_at>?) ORDER BY started_at', [$uid, date('Y-m-d H:i:s', $t), date('Y-m-d H:i:s', $f - 2 * 86400), date('Y-m-d H:i:s', $f)]);
+        foreach ($rows as $e) {
+          $end = $e['is_running'] ? $now : strtotime($e['ended_at']);
+          $s = max($f, strtotime($e['started_at'])); $en = min($t, $end);
+          if ($en <= $s) { continue; }
+          $span = ['user_id' => $uid, 'time_entry_id' => (int) $e['id'], 'started_at' => date('Y-m-d H:i:s', $s), 'ended_at' => date('Y-m-d H:i:s', $en), 'action' => $action, 'created_at' => date('Y-m-d H:i:s')];
+          if ($action === 'keep') {
+            if (!DB::value("SELECT 1 FROM time_idle_spans WHERE time_entry_id=? AND started_at=? AND ended_at=? LIMIT 1", [$e['id'], $span['started_at'], $span['ended_at']])) { DB::insert('time_idle_spans', $span + ['seconds' => $en - $s]); $out['kept'] += $en - $s; }
+            continue; }
+          if (!$e['is_running'] && !Timesheets::entryEditable($e)) { continue; }
+          $sec = min($en - $s - self::discardedWithin((int) $e['id'], $s, $en), max(0, $end - strtotime($e['started_at']) - (int) $e['discarded_seconds']));
+          if ($sec <= 0) { continue; }
+          $disc = (int) $e['discarded_seconds'] + $sec;
+          $d = ['discarded_seconds' => $disc, 'idle_seconds' => max((int) $e['idle_seconds'], $disc)];
+          if (!$e['is_running']) { $d['duration_seconds'] = max(0, (int) $e['duration_seconds'] - $sec); $days[substr($e['started_at'], 0, 10)] = true; }
+          DB::update('time_entries', $d, 'id=?', [$e['id']]);
+          DB::insert('time_idle_spans', $span + ['seconds' => $sec]);
+          Audit::log('time.idle_discard', 'time_entry', (int) $e['id'], ['seconds' => $sec, 'from' => $span['started_at'], 'to' => $span['ended_at'], 'source' => 'desktop'], $uid);
+          $out['discarded'] += $sec; } }
+      foreach (array_keys($days) as $d) { Timesheets::sync($uid, self::weekStart($d)); AttendanceService::resync($uid, $d); }
+      if ($out['kept']) { Audit::log('time.idle_keep', 'user', $uid, ['seconds' => $out['kept'], 'source' => 'desktop'], $uid); }
+      return $out; }); }
+
+  /** Seconds of [$s, $e) already discarded from an entry by earlier idle answers (union of the recorded spans). */
+  private static function discardedWithin(int $entryId, int $s, int $e): int {
+    $sum = 0; $pos = $s;
+    foreach (DB::all("SELECT started_at, ended_at FROM time_idle_spans WHERE time_entry_id=? AND action='discard' AND started_at<? AND ended_at>? ORDER BY started_at", [$entryId, date('Y-m-d H:i:s', $e), date('Y-m-d H:i:s', $s)]) as $r) {
+      $a = max($pos, strtotime($r['started_at'])); $b = min($e, strtotime($r['ended_at']));
+      if ($b > $a) { $sum += $b - $a; $pos = $b; } }
+    return $sum; }
+
+  /**
+   * Cron (every 5 min): stop timers without a heartbeat for more than 10 minutes at their last heartbeat (never at the time the
+   * job runs), then settle people with a day before today still open or an entry still running from an earlier day (closes
+   * those days and splits entries at midnight, see Tracker::settle()).
+   */
   public static function staleTimers(): string {
     $n = 0;
     foreach (DB::column('SELECT user_id FROM time_entries WHERE is_running=1 AND COALESCE(last_heartbeat_at, started_at) < ?', [date('Y-m-d H:i:s', time() - self::STALE_SECONDS)]) as $uid) {
       if (self::stop((int) $uid, null, 'stale', true)) { $n++; } }
-    return "stopped $n"; }
+    $today = date('Y-m-d');
+    $users = DB::column('SELECT user_id FROM attendance WHERE clock_out IS NULL AND clock_in IS NOT NULL AND work_date<? UNION SELECT user_id FROM time_entries WHERE is_running=1 AND started_at<?', [$today, $today.' 00:00:00']);
+    foreach ($users as $uid) { Tracker::settle((int) $uid); }
+    return "stopped $n, settled ".count($users); }
 
   /** Is the entry editable by its owner? (open week, or a rejected week being fixed; never in a finalized payroll month) */
   public static function editable(array $e): bool { return Timesheets::entryEditable($e); }

@@ -7,11 +7,18 @@ live status, entries, timesheets and screenshots read-only (manual corrections e
 
 | App action | Server effect |
 |---|---|
-| Start day | clock in (or resume an ended day; the gap counts as a pause) + start a time entry |
+| Start (first start of the day) | clock in (or reopen an ended day; the gap counts as a pause) + start a time entry |
 | Pause | stop the running entry + start a break |
-| Resume | end the break + start a new entry on the last (or given) project/task |
+| Resume | end the break + start a new entry on the last (or given) project/task; clocks in first when the day has not started (e.g. after midnight) |
 | Switch project | close the running entry and start the next one **at the same second** (no gap, no pause) |
-| End day | stop the entry + clock out |
+| Midnight (automatic) | the running entry and the day end at 00:00 (workspace time zone); the new day starts at 00:00 with a new entry on the same project/task |
+| End day (legacy) | stop the entry + clock out. Older apps only: the app has no End day, the day ends by itself at midnight |
+
+**Day boundary.** `Tracker::settle()` runs before every tracking action, heartbeat, `state` and `bootstrap` (and in the
+`stale_timers` job): a running entry that started before today is split at every midnight when the app was alive across it
+(a heartbeat or the action itself at or after 00:00, at most 10 minutes after the previous heartbeat); otherwise it is stopped
+at its last heartbeat once stale. Open days before today with nothing running are closed at the end of their last entry.
+A paused day simply ends; the next Start (or Resume) begins the new day.
 
 Only tracked time counts as worked time: when a day has entries, `attendance.worked_seconds` = the sum of its entries.
 Entries are approved automatically when they stop, unless a manager rejects the week (`Timesheets`).
@@ -53,9 +60,9 @@ screenshots 240/min, error reports 60/min, version 30/min, update files 60/min p
 | `POST /api/agent/pause` | | `state` |
 | `POST /api/agent/resume` | `project_id?, task_id?, description?` | `state` |
 | `POST /api/agent/switch` | `project_id (null = no project), task_id?, description?` | `state` |
-| `POST /api/agent/day/end` | | `state` |
-| `POST /api/agent/heartbeat` | `active_seconds, idle_seconds` since the previous beat | `running, entry, state` |
-| `POST /api/agent/idle` | `action: keep|discard, seconds` | `discarded, state` |
+| `POST /api/agent/day/end` | | `state` (legacy, not used by the app) |
+| `POST /api/agent/heartbeat` | `active_seconds, idle_seconds` since the previous beat, `at?` (time of the beat) | `running, entry, state` |
+| `POST /api/agent/idle` | `action: keep|discard, spans: [{from, to}]` (or `from, to`; older apps: `seconds`) | `discarded, kept, state` |
 | `POST /api/agent/consent` | `agree: true, policy_version` | `consent` |
 | `POST /api/agent/screenshot` | multipart `screenshot`, `activity_pct`, `display`, `captured_at` | `id` |
 | `POST /api/agent/error` | `level, message, where, stack, file, line, os, arch, context{}` | token optional |
@@ -66,29 +73,47 @@ screenshots 240/min, error reports 60/min, version 30/min, update files 60/min p
 Tracking actions accept an optional `at` (ISO 8601): the moment the person clicked, for actions the app queued while offline.
 The server uses it when it is not in the future, not before the person's last recorded event and at most 6 hours old.
 All tracking actions are idempotent and serialised per user: retrying `day/start`, `pause`, `resume` or `day/end` after a timeout
-never double-books. `projects` lists only projects the person may see (`ProjectAccess`); `project_id`/`task_id` are validated
+never double-books. `pause` with nothing running is a no-op (an entry still running from an earlier day is stopped and its day
+closed). `projects` lists only projects the person may see (`ProjectAccess`); `project_id`/`task_id` are validated
 again on every call.
 
 `state` object: `state` (`not_started | tracking | paused | stopped | ended`; `stopped` = day open but no running entry, e.g. after
-the server stopped a stale entry), `label`, `day{date, clock_in, clock_out, paused_since}`, `running{id, started_at, elapsed,
+the server stopped a stale entry; `ended` only after a legacy `day/end`), `label`, `day{date, clock_in, clock_out, paused_since}`, `running{id, started_at, elapsed,
 project_id, project, task_id, task, description, device, …}` or `null`, `last{project_id, task_id, description}`,
 `totals{tracked, active, idle, paused, entries}` in seconds for today.
 
-`settings`: `heartbeat_seconds` (15 to 300, default 60), `idle_minutes`, `auto_pause_on_lock`, `screenshots_enabled`,
+`settings`: `heartbeat_seconds` (15 to 60, default 60), `idle_minutes`, `auto_pause_on_lock`, `screenshots_enabled`,
 `screenshot_interval_seconds` (10 to 3600, default 180), `screenshot_notify` (default on), `screenshot_notify_user_can_disable`,
 `retention_days`, `stale_minutes` (10), `projects_enabled`.
 
 ## Activity, idle and stale entries
 
-The app samples `powerMonitor.getSystemIdleTime()` every second: a second is *idle* when there was no mouse or keyboard input for
-at least `idle_minutes`, otherwise *active*. Every `heartbeat_seconds` it sends the counts since the previous beat. The server adds
-the idle part to the running entry (capped to the time since the last beat plus the idle threshold, and to the elapsed time).
-When the person returns from an idle stretch longer than the threshold, the app sends a heartbeat and asks "keep or discard";
-`discard` removes the idle seconds from the entry (`discarded_seconds`).
+The app samples `powerMonitor.getSystemIdleTime()` every second: once there was no mouse or keyboard input for `idle_minutes`, an
+idle span opens at the last input (those seconds move from active to idle) and every following second counts as idle; the timer
+keeps running. Every `heartbeat_seconds` (at most 60) it sends the counts since the previous beat with the beat's time `at`.
+The server adds the idle part to the running entry (capped to the time since the last beat plus the idle threshold, and to the
+elapsed time) and moves `last_heartbeat_at` to `at`. A beat whose seconds start more than 10 minutes after the last heartbeat
+(`at - active - idle - last_heartbeat_at`) means the app was not running in between (switched off, killed, asleep): the entry is
+stopped at its last heartbeat and `running: false` is returned. Offline beats are merged in the queue only while contiguous,
+so a continuous offline stretch is kept and a gap is not bridged.
 
-If no heartbeat arrives for 10 minutes the `stale_timers` cron (every 5 min) stops the entry at its last heartbeat; the day stays
-open (`stopped`) and the app resumes with `resume` when it comes back. The daily `auto_close` job (23:55) stops running entries at
-their last heartbeat and closes open days at the end of their last entry. Heartbeat `running: false` tells the app to refresh `state`.
+When the person is back (input again) the app asks "You were idle for 14 min (2:10 pm to 2:24 pm). Keep or discard this time?"
+for all spans not answered yet (merged into one prompt), while tracking continues. `POST /api/agent/idle` with the spans:
+`discard` removes exactly the overlap of each span with the entries it falls into (running or already stopped, e.g. after a
+pause, project switch or midnight): `time_entries.discarded_seconds` (+ `duration_seconds` of stopped entries, with the week's
+timesheet and the closed day resynced); `keep` counts the time as worked and it stays reported as idle. Every answered span is
+recorded in `time_idle_spans` (`time_entry_id, started_at, ended_at, seconds, action`); retries never discard twice. Older apps
+send only `seconds`, which is discarded from the running entry's recorded idle time.
+
+If no heartbeat arrives for 10 minutes the `stale_timers` job (every 5 min) stops the entry at its last heartbeat (never at the
+time the job runs) and closes days that are over; the day stays open (`stopped`) and the app resumes with `resume` when it comes
+back. The daily `auto_close` job (23:55) only does the same (it no longer closes today or stops a healthy entry: the day ends at
+midnight). Heartbeat `running: false` tells the app to refresh `state`.
+
+**Crash or power cut.** The app saves locally every 15 s whether it is tracking and when it was last alive. On the next start,
+if it was tracking: back within 10 minutes it sends `pause` at that time (`at`) and `resume` (tracking continues, the minutes
+the app was not running are not counted); later, it sends an empty heartbeat so the server stops the entry at its last heartbeat
+(at most 60 s lost), and shows the normal not-tracking state with a note (Resume, or Start in a new day).
 
 ## Screenshots and consent (mandatory)
 

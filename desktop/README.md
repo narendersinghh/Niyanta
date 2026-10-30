@@ -1,8 +1,9 @@
 # Niyanta Tracker (desktop app)
 
 The time tracker for Niyanta workspaces, for **Windows, macOS and Linux**. Since the web app no longer starts or stops time,
-this app is how people track their day: start the day (clock in), pause, resume, switch project without stopping, end the day
-(clock out). Activity (active / idle) comes from keyboard and mouse input, and if the workspace turns it on, screenshots of
+this app is how people track their day: Start (clock in), Pause, Resume and switch project without stopping. There is no
+"end day": the day ends by itself at midnight (workspace time zone) and, if the person was tracking, continues in the new day on
+the same project/task. Activity (active / idle) comes from keyboard and mouse input, and if the workspace turns it on, screenshots of
 all screens are taken at the configured interval, with a small notice each time. Everything syncs with the server; the API
 contract is in [`modules/Attendance/AGENT_API.md`](../modules/Attendance/AGENT_API.md).
 
@@ -105,20 +106,37 @@ first time). To sign in CI add these repository secrets; the workflow passes the
 - **Offline**: actions, heartbeats, idle answers, screenshots and error reports go into a persisted queue
   (`userData/queue.json`, screenshots in `userData/pending/`) and are retried with exponential backoff. If the computer is
   offline for more than 10 minutes the server stops the entry at the last sync; the app tells the person and resumes when back.
-- **Activity**: `powerMonitor.getSystemIdleTime()` every second; a second is idle once there was no input for the workspace's
-  idle threshold. Coming back from a longer idle stretch asks "keep or discard idle time" (same rule as before on the web).
+  Queued heartbeats keep their time and are merged only while contiguous, so a gap is never counted.
+- **Midnight**: the app checks the date (workspace time zone) every second and after waking up. Tracking at midnight: the
+  server closes the running entry and the old day at 00:00 and continues on the same project/task in the new day (the app sends
+  a heartbeat at once; no click needed). Asleep across midnight: the old entry ends at its last heartbeat and tracking resumes
+  in the new day on waking. Paused at midnight: the old day ends; Start begins the new one.
+- **Activity and idle**: `powerMonitor.getSystemIdleTime()` every second. After the workspace's idle threshold (`idle_minutes`)
+  without input an idle span opens at the last input; the timer keeps running and the chip shows *Idle*. When the person is
+  back, the window comes to the front (plus a notification that opens it) with "You were idle for 14 min (2:10 pm to 2:24 pm).
+  Keep or discard this time?". Tracking continues while the question is open; spans that pile up before an answer are merged
+  into one prompt. Discard removes exactly those spans on the server (`/api/agent/idle` with the spans' times); Keep counts them
+  as worked (still reported as idle). Nothing is detected while paused; an idle span still open when tracking pauses (e.g. screen
+  locked) ends at the pause.
 - **Power**: locking the screen or sleeping pauses tracking (if the workspace setting is on) and unlocking / waking resumes it.
-  Quitting the app while tracking pauses first.
+  Quitting the app while tracking pauses first; a system shutdown or log-out is delayed (Linux/macOS) until that is done.
+- **Crash or power cut**: heartbeats (at most every 60 s) keep the running entry's end on the server, and the app saves locally
+  every 15 s whether it is tracking and when it was last alive (`config.json` > `session`). On the next start after an unclean
+  exit while tracking: back within 10 minutes (crash, quick restart) the entry is closed at the last alive moment and tracking
+  resumes automatically with a note; after longer, the server closes the entry at its last heartbeat (at most a minute is lost,
+  the time the computer was off is never counted) and the app shows the normal not-tracking state with a note, so nobody is
+  tracked by surprise hours later (Resume, or Start in a new day). The server's stale job does the same if the app never returns.
 - **Screenshots**: only with monitoring enabled, the person's consent (the app shows the notice and records consent via the
   API before the first capture) and while tracking. All displays, max 1920 px wide, JPEG quality 60, uploaded with the activity
-  percentage of the interval. The last three thumbnails are shown in the app; all of them on the web (My screenshots).
+  percentage of the interval. They are not shown in the app (only the small capture notice, if enabled); people see them on
+  the web (My screenshots).
 - **Errors**: uncaught exceptions, unhandled rejections, failed syncs and capture failures are written to
   `userData/logs/tracker.log` and sent to the workspace error log (Audit log › Error logs, source *desktop*, with the version).
 - **Updates**: see *Auto-update* above.
 
 ## Privacy
 
-The app records: start/pause/end times, the chosen project/task, counts of active and idle seconds (never keystrokes, never
+The app records: start/pause times, the chosen project/task, counts of active and idle seconds (never keystrokes, never
 which keys or what is typed, no URLs or window titles), and, only when the workspace enables monitoring and the person accepted
 the notice, screenshots while tracking. People can see all of it in the web app (Time Tracking, Timesheets, My screenshots),
 revoke screenshot consent at any time, and screenshots are deleted after the workspace's retention period.

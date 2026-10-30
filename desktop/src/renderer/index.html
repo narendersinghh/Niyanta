@@ -8,10 +8,9 @@
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-<svg xmlns="http://www.w3.org/2000/svg" style="display:none">
+<svg xmlns="http://www.w3.org/2000/svg" class="sprite" width="0" height="0" aria-hidden="true" focusable="false">
   <symbol id="i-play" viewBox="0 0 24 24"><path d="m7 4 13 8-13 8z"/></symbol>
   <symbol id="i-pause" viewBox="0 0 24 24"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></symbol>
-  <symbol id="i-stop" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="3"/></symbol>
   <symbol id="i-swap" viewBox="0 0 24 24"><path d="M7 4 3 8l4 4M3 8h14M17 20l4-4-4-4M21 16H7"/></symbol>
   <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
   <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
@@ -48,7 +47,7 @@
   <section id="hero" class="hero" data-state="not_started" aria-live="polite">
     <div class="hero-top"><span id="chip" class="chip"><i class="dot"></i><span id="chip-label">Not started</span></span><span id="today" class="chip soft"></span></div>
     <div id="clock" class="clock">00:00:00</div>
-    <div id="sub" class="sub">Start your day when you begin working.</div>
+    <div id="sub" class="sub">Press Start when you begin working.</div>
   </section>
 
   <section class="pickers" id="pickers">
@@ -60,10 +59,9 @@
   </section>
 
   <section class="controls" id="controls">
-    <button id="btn-start" class="btn primary big" type="button"><svg class="ic"><use href="#i-play"/></svg> <span>Start day</span></button>
-    <button id="btn-pause" class="btn warm big hide" type="button"><svg class="ic"><use href="#i-pause"/></svg> Pause</button>
-    <button id="btn-resume" class="btn primary big hide" type="button"><svg class="ic"><use href="#i-play"/></svg> Resume</button>
-    <button id="btn-end" class="btn ghost big hide" type="button"><svg class="ic"><use href="#i-stop"/></svg> End day</button>
+    <button id="btn-start" class="btn primary big" type="button" title="Start tracking today. The day ends by itself at midnight."><svg class="ic"><use href="#i-play"/></svg> Start</button>
+    <button id="btn-pause" class="btn warm big hide" type="button" title="Pause tracking (a break)"><svg class="ic"><use href="#i-pause"/></svg> Pause</button>
+    <button id="btn-resume" class="btn primary big hide" type="button" title="Continue tracking on the selected project"><svg class="ic"><use href="#i-play"/></svg> Resume</button>
   </section>
 
   <section class="totals" aria-label="Today">
@@ -73,10 +71,7 @@
     <div class="tile t-lav"><span>Total</span><b id="t-total">0h 00m</b></div>
   </section>
 
-  <section class="shots">
-    <div class="row between"><h2>Recent screenshots</h2><span id="mon-info" class="muted xs"></span></div>
-    <div id="thumbs" class="thumbs"></div>
-  </section>
+  <p id="mon-info" class="mon muted xs"></p>
 
   <footer class="foot"><span id="sync" class="muted xs">Synced</span><button id="open-web" class="link xs" type="button">Open Time Tracking <svg class="ic sm"><use href="#i-ext"/></svg></button></footer>
 </main>

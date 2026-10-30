@@ -56,13 +56,14 @@ final class AgentController extends Controller {
     return $d; }
 
   public static function settings(): array {
-    return ['heartbeat_seconds' => max(15, min(300, (int) Settings::get('attendance.heartbeat_seconds', 60))), 'idle_minutes' => max(1, (int) Settings::get('attendance.idle_minutes', 5)), 'auto_pause_on_lock' => Settings::bool('attendance.auto_pause_lock', true),
+    return ['heartbeat_seconds' => max(15, min(60, (int) Settings::get('attendance.heartbeat_seconds', 60))), 'idle_minutes' => max(1, (int) Settings::get('attendance.idle_minutes', 5)), 'auto_pause_on_lock' => Settings::bool('attendance.auto_pause_lock', true),
       'screenshots_enabled' => Monitoring::enabled(), 'screenshot_interval_seconds' => Monitoring::intervalSeconds(), 'screenshot_notify' => Monitoring::notifyDefault(), 'screenshot_notify_user_can_disable' => Monitoring::notifyOptional(),
       'retention_days' => Monitoring::retention(), 'stale_minutes' => intdiv(T::STALE_SECONDS, 60), 'projects_enabled' => feature_on('projects')]; }
 
   /** Everything the app needs after sign-in or on start-up. */
   private function payload(array $u): array {
     $uid = (int) $u['id'];
+    Tracker::settle($uid);
     $projects = [];
     foreach (T::projects($u) as $id => $n) { $projects[(int) $id] = ['id' => (int) $id, 'name' => $n, 'tasks' => []]; }
     if ($projects) {
@@ -105,7 +106,8 @@ final class AgentController extends Controller {
   /** Legacy agents: GET /api/agent/status (same as bootstrap). */
   public function status(): Response { return $this->bootstrap(); }
 
-  public function state(): Response { return $this->run(static fn (int $uid): array => ['state' => Tracker::state($uid), 'settings' => self::settings(), 'consent' => (bool) Monitoring::consent($uid)]); }
+  public function state(): Response {
+    return $this->run(static function (int $uid): array { Tracker::settle($uid); return ['state' => Tracker::state($uid), 'settings' => self::settings(), 'consent' => (bool) Monitoring::consent($uid)]; }); }
 
   public function tasks(): Response { return $this->run(fn (int $uid): array => ['tasks' => T::tasks($this->agent, (int) ($this->input()['project_id'] ?? 0))]); }
 
@@ -114,25 +116,36 @@ final class AgentController extends Controller {
 
   public function dayStart(): Response { return $this->run(fn (int $uid): array => ['state' => Tracker::startDay($this->agent, $this->target(), (int) $this->agent['token_id'], $this->request->ip(), $this->at())]); }
   public function pause(): Response { return $this->run(fn (int $uid): array => ['state' => Tracker::pause($uid, $this->at())]); }
-  public function resume(): Response { return $this->run(fn (int $uid): array => ['state' => Tracker::resume($this->agent, $this->target(), (int) $this->agent['token_id'], $this->at())]); }
+  public function resume(): Response { return $this->run(fn (int $uid): array => ['state' => Tracker::resume($this->agent, $this->target(), (int) $this->agent['token_id'], $this->at(), $this->request->ip())]); }
   public function switchProject(): Response {
     return $this->run(function (int $uid): array {
       $d = $this->target();
       if (!array_key_exists('project_id', $d)) { throw new \DomainException('Choose a project (or "No project") to switch to.'); }
       return ['state' => Tracker::switchTo($this->agent, $d, (int) $this->agent['token_id'], $this->at())]; }); }
+  /** Legacy (older apps): the day now ends by itself at midnight. */
   public function dayEnd(): Response { return $this->run(fn (int $uid): array => ['state' => Tracker::endDay($uid, $this->request->ip(), $this->at())]); }
 
-  /** Activity since the previous heartbeat. running=false tells the app the server stopped the entry (stale, auto-close, or another device). */
+  /**
+   * Activity since the previous heartbeat, sent at `at` (queued beats keep their time). running=false tells the app the server
+   * stopped the entry (stale: the app was not running in between, auto-close, or another device).
+   */
   public function heartbeat(): Response {
     return $this->run(function (int $uid): array {
       $in = $this->input();
-      $r = T::heartbeat($uid, min(3600, max(0, (int) ($in['active_seconds'] ?? 0))), min(3600, max(0, (int) ($in['idle_seconds'] ?? 0))));
+      $r = T::heartbeat($uid, min(86400, max(0, (int) ($in['active_seconds'] ?? 0))), min(86400, max(0, (int) ($in['idle_seconds'] ?? 0))), Tracker::at($uid, $this->at()));
       return ['running' => (bool) $r, 'entry' => $r, 'state' => Tracker::state($uid)]; }); }
 
-  /** Back from idle: keep (no change) or discard the idle seconds from the running entry. */
+  /**
+   * Back from idle: keep (counts as worked, recorded as idle) or discard. With the span's times (`from`/`to`, or `spans`
+   * [{from, to}] for several merged spans) exactly those spans are removed from whatever entries they fall into; without them
+   * (older apps) `seconds` of recorded idle time are discarded from the running entry.
+   */
   public function idle(): Response {
     return $this->run(function (int $uid): array {
       $in = $this->input();
+      $act = ($in['action'] ?? '') === 'discard' ? 'discard' : 'keep';
+      $spans = is_array($in['spans'] ?? null) ? array_values($in['spans']) : (isset($in['from'], $in['to']) ? [['from' => $in['from'], 'to' => $in['to']]] : []);
+      if ($spans) { $r = T::idleSpans($uid, $spans, $act); return $r + ['state' => Tracker::state($uid)]; }
       $sec = min(86400, max(0, (int) ($in['seconds'] ?? 0)));
       if (($in['action'] ?? '') !== 'discard') { Audit::log('time.idle_keep', 'user', $uid, ['seconds' => $sec, 'source' => 'desktop'], $uid); return ['discarded' => 0, 'state' => Tracker::state($uid)]; }
       $r = T::discardIdle($uid, $sec) ?? throw new \DomainException('You are not tracking right now.');

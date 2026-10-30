@@ -12,7 +12,6 @@ contextBridge.exposeInMainWorld('tracker', {
   pause: () => call('action', { name: 'pause', body: {} }),
   resume: (sel) => call('action', { name: 'resume', body: sel || {} }),
   switchProject: (sel) => call('action', { name: 'switch', body: sel || {} }),
-  endDay: () => call('action', { name: 'end', body: {} }),
   select: (sel) => call('select', sel || {}),
   answerIdle: (action) => call('idle', action === 'discard' ? 'discard' : 'keep'),
   acceptConsent: () => call('consent'),
@@ -22,5 +21,4 @@ contextBridge.exposeInMainWorld('tracker', {
   installUpdate: () => call('installUpdate'),
   refresh: () => call('refresh'),
   reportError: (info) => call('error', { message: String(info && info.message || ''), stack: String(info && info.stack || ''), where: 'renderer' }),
-  onState: (cb) => { const h = (_e, s) => cb(s); ipcRenderer.on('tracker:state', h); return () => ipcRenderer.removeListener('tracker:state', h); }
-});
+  onState: (cb) => { const h = (_e, s) => cb(s); ipcRenderer.on('tracker:state', h); return () => ipcRenderer.removeListener('tracker:state', h); } });

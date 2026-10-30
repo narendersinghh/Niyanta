@@ -134,16 +134,12 @@ final class AttendanceService {
     if ($open && !$last) { $end = min($end, strtotime($open)); }
     self::closeRow($r, date('Y-m-d H:i:s', max($in, $end)), 'auto-closed'); }
 
-  /** Cron: stop running timers (at their last heartbeat), then close open attendance days. */
-  public static function autoClose(): string {
-    $t = 0;
-    foreach (DB::column('SELECT user_id FROM time_entries WHERE is_running=1') as $uid) { if (TimeService::stop((int) $uid, null, 'auto-close', true)) { $t++; } }
-    $n = 0;
-    foreach (DB::all('SELECT * FROM attendance WHERE clock_out IS NULL AND clock_in IS NOT NULL AND work_date<=?', [date('Y-m-d')]) as $r) {
-      DB::transaction(static fn () => self::autoCloseRow($r));
-      Audit::log('attendance.auto_close', 'attendance', (int) $r['id'], [], (int) $r['user_id']);
-      $n++; }
-    return "closed $n attendance, stopped $t timers"; }
+  /**
+   * Cron (23:55): stop stale timers at their last heartbeat and close open days before today. Today is not closed here: the
+   * day ends at midnight, where a running entry continues into the new day (Tracker::settle(), run by the app's next call and
+   * by the stale_timers job every 5 minutes, which also closes the day once it is over).
+   */
+  public static function autoClose(): string { return TimeService::staleTimers(); }
 
   /** HR/manager edit or create of a record (audit-logged, edited_by set). */
   public static function saveManual(array $d, int $editor): int {
