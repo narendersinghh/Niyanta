@@ -1,7 +1,7 @@
 <?php
 $canAdd = can('attendance.track') && \Modules\Attendance\Services\Timesheets::canEditDate(min(date('Y-m-d'), date('Y-m-d', strtotime($ws.' +6 days'))), ($ts['status'] ?? '') === 'rejected');
 ?>
-<?= partial('attendance::partials/hub', ['tab' => 'weekly', 'title' => 'Time tracking', 'subtitle' => 'Your week at a glance, by project and day.', 'people' => $people, 'targetName' => $person['name'], 'base' => '/timesheets', 'hidden' => ['week' => $ws],
+<?= partial('attendance::partials/hub', ['tab' => 'weekly', 'title' => 'Time & Attendance', 'subtitle' => 'Your week at a glance, by project and day.', 'people' => $people, 'targetName' => $person['name'], 'base' => '/timesheets', 'hidden' => ['week' => $ws],
   'actions' => $canAdd ? '<button class="btn primary" data-modal="entry-dialog" data-entry-new>'.icon('plus', 'sm').' Add manual time</button>' : '']) ?>
 <?= partial('attendance::partials/ts_week', compact('ws', 's', 'ts', 'person', 'own', 'locked', 'canReview') + ['nav' => '/timesheets']) ?>
 <div class="grid g-main">

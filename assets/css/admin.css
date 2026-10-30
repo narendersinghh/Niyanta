@@ -239,3 +239,7 @@ input[type=file]::file-selector-button{font:inherit;font-weight:600;font-size:.8
 .set-nav:hover::-webkit-scrollbar{width:6px}
 .set-nav a{padding:5px 10px 5px 5px}
 .set-nav .grp{padding:11px 10px 4px}
+.set-cats{grid-column:1/-1;max-width:100%;overflow-x:auto;flex-wrap:nowrap;scrollbar-width:none;justify-self:start}
+.set-cats::-webkit-scrollbar{display:none}
+.set-cats a{display:inline-flex;align-items:center;gap:.4rem;white-space:nowrap}
+.set-shell:has(>.set-cats.home){grid-template-columns:minmax(0,1fr)}

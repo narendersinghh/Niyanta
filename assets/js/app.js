@@ -28,12 +28,14 @@ d.addEventListener("click",e=>{if(e.target.closest("[data-nav-toggle]"))$("#app"
 d.addEventListener("click",e=>{$$("details.dd[open]").forEach(x=>{if(!x.contains(e.target))x.removeAttribute("open")})});
 d.addEventListener("keydown",e=>{if(e.key==="Escape")$$("details.dd[open]").forEach(x=>x.removeAttribute("open"));
 if(e.key==="/"&&!/INPUT|TEXTAREA|SELECT/.test(d.activeElement?.tagName||"")&&!d.activeElement?.isContentEditable){const s=$("[data-search]");if(s){e.preventDefault();s.focus()}}});
-/* sidebar sections: only the chevron expands/collapses (remembered); hovering a collapsed section shows a flyout kept inside the viewport */
-$$(".nav-sec").forEach(x=>{const k="ny-sec-"+x.dataset.sec,h=$(".nav-sec-head",x),tg=$("[data-sec-toggle]",x),it=$(".nav-sec-items",x),set=o=>{x.classList.toggle("open",o);tg.setAttribute("aria-expanded",o?"true":"false")};
-try{const v=localStorage.getItem(k);if(v==="1")set(true);if(v==="0"&&!x.hasAttribute("data-active"))set(false)}catch(e){}
-tg.addEventListener("click",e=>{e.stopPropagation();const o=!x.classList.contains("open");x.classList.remove("fly");set(o);try{localStorage.setItem(k,o?"1":"0")}catch(e){}});
+/* sidebar sections: all open while the menu fits; when it overflows, sections collapse (the chevron expands one, remembered) and hovering a collapsed one shows a flyout */
+const SB=$(".sidebar"),SECS=$$(".nav-sec"),secSet=(x,o)=>{x.classList.toggle("open",o);const tg=$("[data-sec-toggle]",x);if(tg)tg.setAttribute("aria-expanded",o?"true":"false")},secPref=x=>{try{return localStorage.getItem("ny-sec-"+x.dataset.sec)}catch(e){return null}};
+const navFit=()=>{if(!SB||!SECS.length)return;SB.classList.remove("nav-compact");SECS.forEach(x=>{x.classList.remove("fly");secSet(x,true)});if(SB.scrollHeight<=SB.clientHeight+2)return;SB.classList.add("nav-compact");SECS.forEach(x=>secSet(x,secPref(x)==="1"||x.hasAttribute("data-active")))};
+SECS.forEach(x=>{const h=$(".nav-sec-head",x),tg=$("[data-sec-toggle]",x),it=$(".nav-sec-items",x);
+tg.addEventListener("click",e=>{e.stopPropagation();const o=!x.classList.contains("open");x.classList.remove("fly");secSet(x,o);try{localStorage.setItem("ny-sec-"+x.dataset.sec,o?"1":"0")}catch(e){}});
 let t;const show=()=>{if(x.classList.contains("open")||innerWidth<=900)return;clearTimeout(t);x.classList.add("fly");const r=h.getBoundingClientRect(),hh=it.offsetHeight,top=Math.max(12,Math.min(r.top-8,innerHeight-hh-12));it.style.top=top+"px";it.style.maxHeight=(innerHeight-24)+"px"};
 x.addEventListener("mouseenter",show);x.addEventListener("mouseleave",()=>{t=setTimeout(()=>x.classList.remove("fly"),150)})});
+navFit();let navT;addEventListener("resize",()=>{clearTimeout(navT);navT=setTimeout(navFit,150)});
 /* instant search: grouped results dropdown under the top-bar search (keyboard friendly) */
 const sIn=$("[data-search]");if(sIn){const form=sIn.closest("form"),pop=d.createElement("div");pop.className="search-pop hide";pop.setAttribute("role","listbox");form.append(pop);let t,ctl,idx=-1;
 const items=()=>$$(".sp-item",pop),mark=i=>{const a=items();idx=Math.max(-1,Math.min(i,a.length-1));a.forEach((x,k)=>x.classList.toggle("on",k===idx));a[idx]?.scrollIntoView({block:"nearest"})};

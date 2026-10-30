@@ -3,7 +3,7 @@ $tabs = ['all' => 'All weeks', 'approved' => 'Approved', 'rejected' => 'Rejected
 $q = static fn (array $m): string => e(url('/timesheets/approvals?'.http_build_query(array_filter($m + ['status' => $status, 'week' => $week, 'user' => $person ?: null], static fn ($v) => $v !== null && $v !== '' && $v !== 'all'))));
 $tot = (int) $stats['total']; $pct = $tot ? (int) round(100 * $stats['billable'] / $tot) : 0;
 ?>
-<?= partial('attendance::partials/hub', ['tab' => 'review', 'title' => 'Time tracking', 'subtitle' => 'Team weeks are approved automatically. Reject a week to send it back with a note.']) ?>
+<?= partial('attendance::partials/hub', ['tab' => 'review', 'title' => 'Time & Attendance', 'subtitle' => 'Team weeks are approved automatically. Reject a week to send it back with a note.']) ?>
 <div class="grid g4 mb">
   <div class="tile bg-lav"><span class="tile-ic"><?= icon('clock') ?></span><div><div class="num"><?= e(rtrim(rtrim(number_format($tot / 3600, 1), '0'), '.')) ?><small class="tile-unit">h</small></div><div class="lbl">Hours logged</div></div></div>
   <div class="tile bg-mint"><span class="tile-ic"><?= icon('trend-up') ?></span><div><div class="num"><?= $pct ?><small class="tile-unit">%</small></div><div class="lbl">Billable</div></div></div>

@@ -13,10 +13,8 @@ return [
     'attendance.screenshots.view' => ['label' => 'View monitoring screenshots of team', 'roles' => []],
   ],
   'nav' => [
-    ['label' => 'Time Tracking', 'icon' => 'timer', 'color' => '#F5A524', 'url' => '/time', 'also' => ['/timesheets'], 'perm' => 'attendance.track', 'section' => 'main', 'order' => 3],
-    ['label' => 'Team Time', 'icon' => 'calendar', 'color' => '#2E9BF6', 'url' => '/timesheets/approvals', 'perm' => 'attendance.timesheets.approve', 'hide_if' => 'attendance.track', 'section' => 'work', 'order' => 3],
-    ['label' => 'My Attendance', 'icon' => 'clock', 'color' => '#FF6F59', 'url' => '/attendance', 'perm' => 'attendance.track', 'section' => 'me', 'order' => 2],
-    ['label' => 'Team Attendance', 'icon' => 'activity', 'color' => '#2E9BF6', 'url' => '/attendance/team', 'perm' => 'attendance.view_all', 'section' => 'hr', 'order' => 2],
+    ['label' => 'Time & Attendance', 'icon' => 'timer', 'color' => '#F5A524', 'url' => '/time', 'also' => ['/timesheets', '/attendance'], 'perm' => 'attendance.track', 'section' => 'main', 'order' => 3],
+    ['label' => 'Time & Attendance', 'icon' => 'timer', 'color' => '#F5A524', 'url' => '/attendance/team', 'also' => ['/timesheets', '/time'], 'perm' => 'attendance.view_all', 'hide_if' => 'attendance.track', 'section' => 'main', 'order' => 3],
   ],
   'settings_view' => 'attendance::settings',
   'routes' => function (Core\Router $r): void {

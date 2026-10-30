@@ -1,5 +1,6 @@
 <?php $max = $trend ? max(1.0, ...array_map(static fn ($t) => (float) $t['net'], $trend)) : 1.0; ?>
-<?= partial('partials/page_head', ['title' => 'My Payslips', 'subtitle' => 'Your monthly salary statements, ready to view and download.', 'crumbs' => [['My HR'], ['My Payslips']]]) ?>
+<?= partial('partials/page_head', ['title' => 'My Pay', 'subtitle' => 'Your monthly salary statements, ready to view and download.', 'crumbs' => [['My HR'], ['My Pay']]]) ?>
+<?= partial('payroll::_mypay', ['active' => 'payslips']) ?>
 <?php if (!$p['total']): ?>
   <div class="card"><?= empty_state('No payslips yet', 'Your payslips will appear here as soon as payroll for a month is finalized. You will also get a notification.', 'money-wallet') ?></div>
 <?php else: ?>

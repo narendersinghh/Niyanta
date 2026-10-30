@@ -10,7 +10,7 @@ $weekend = array_map('intval', explode(',', (string) setting('general.weekend_da
 $uq = $target !== $me ? '&user='.$target : '';
 $attLbl = ['leave' => 'Leave', 'holiday' => 'Holiday', 'absent' => 'Absent', 'half_day' => 'Half day'];
 ?>
-<?= partial('attendance::partials/hub', ['tab' => 'monthly', 'title' => 'Time tracking', 'subtitle' => 'Tracked time for every day of the month. Open a day to see its timeline.', 'target' => $target, 'targetName' => $targetName, 'people' => $people, 'mode' => 'month', 'month' => $month, 'base' => '/time/monthly',
+<?= partial('attendance::partials/hub', ['tab' => 'monthly', 'title' => 'Time & Attendance', 'subtitle' => 'Tracked time for every day of the month. Open a day to see its timeline.', 'target' => $target, 'targetName' => $targetName, 'people' => $people, 'mode' => 'month', 'month' => $month, 'base' => '/time/monthly',
   'extra' => '<div class="hub-total"><span>Total</span><b>'.e(hours($total)).'</b><span class="muted">'.$worked.' day'.($worked === 1 ? '' : 's').' tracked</span></div>']) ?>
 <div class="card mcal-card">
   <div class="mcal" role="grid" aria-label="<?= e(date('F Y', strtotime($m0))) ?>">

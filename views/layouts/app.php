@@ -39,7 +39,7 @@ echo partial('partials/head', get_defined_vars());
       $hasActive = (bool) array_filter($items, $on);
       $links = '';
       foreach ($items as $n) { $links .= '<a href="'.e(url($n['url'])).'" class="'.($on($n) ? 'active' : '').'"><span class="ni" style="--c:'.e($n['color']).'">'.icon($n['icon'] ?? 'grid').'</span> '.e($n['label']).'</a>'; } ?>
-      <?php if ($collapsible): ?><div class="nav-sec<?= $hasActive ? ' open' : '' ?>" data-sec="<?= e($sec) ?>"<?= $hasActive ? ' data-active' : '' ?>><div class="nav-sec-head"><span class="sec-label"><?= e($label) ?></span><span class="sec-count"><?= count($items) ?></span><button type="button" class="sec-toggle" data-sec-toggle aria-expanded="<?= $hasActive ? 'true' : 'false' ?>" aria-label="Expand or collapse <?= e($label) ?>"><?= icon('chevron-down') ?></button></div><div class="nav-sec-items"><div class="fly-title"><?= e($label) ?></div><?= $links ?></div></div>
+      <?php if ($collapsible): ?><div class="nav-sec open" data-sec="<?= e($sec) ?>"<?= $hasActive ? ' data-active' : '' ?>><div class="nav-sec-head"><span class="sec-label"><?= e($label) ?></span><span class="sec-count"><?= count($items) ?></span><button type="button" class="sec-toggle" data-sec-toggle aria-expanded="true" aria-label="Expand or collapse <?= e($label) ?>"><?= icon('chevron-down') ?></button></div><div class="nav-sec-items"><div class="fly-title"><?= e($label) ?></div><?= $links ?></div></div>
       <?php else: ?><?php if ($label): ?><div class="nav-group"><?= e($label) ?></div><?php endif ?><?= $links ?><?php endif ?>
     <?php endforeach ?>
   </nav>

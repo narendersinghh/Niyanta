@@ -12,7 +12,7 @@ $osIc = ['windows' => '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="c
 $osIc['deb'] = $osIc['linux'];
 $archLbl = ['arm64' => 'Apple silicon', 'x64' => 'Intel', 'universal' => 'Universal'];
 ?>
-<?= partial('attendance::partials/hub', ['tab' => 'tracker', 'title' => 'Time tracking', 'subtitle' => 'Your workday is tracked by the Niyanta Tracker desktop app. Here you see your live status, today\'s time and the app downloads.',
+<?= partial('attendance::partials/hub', ['tab' => 'tracker', 'title' => 'Time & Attendance', 'subtitle' => 'Your workday is tracked by the Niyanta Tracker desktop app. Here you see your live status, today\'s time and the app downloads.',
   'actions' => '<a class="btn soft" href="#desktop">'.icon('download', 'sm').' Desktop app</a>']) ?>
 <div class="grid g-side">
   <div class="stack">

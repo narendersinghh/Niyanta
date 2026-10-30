@@ -7,9 +7,8 @@ $prev = date('Y-m', strtotime($ym.'-01 -1 month')); $next = date('Y-m', strtotim
 $t = $month['totals'];
 $leaveOn = feature_on('leave'); /* leave & holidays switched off: such days show as a neutral "Day off" */
 $off = static fn (string $st): bool => !$leaveOn && in_array($st, ['leave', 'holiday'], true);
-$actions = (can('attendance.view_all') ? '<a class="btn ghost" href="'.e(url('/attendance/team')).'">'.icon('users', 'sm').' Team view</a>' : '').(can('attendance.track') ? '<a class="btn soft" href="'.e(url('/time')).'">'.icon('timer', 'sm').' Time Tracking</a>' : '');
 ?>
-<?= partial('partials/page_head', ['title' => 'Attendance', 'subtitle' => 'Your day starts in the Niyanta Tracker desktop app and closes by itself at midnight. Only tracked time counts as worked time.', 'crumbs' => [['People'], ['Attendance']], 'actions' => $actions]) ?>
+<?= partial('attendance::partials/hub', ['tab' => 'attendance', 'title' => 'Time & Attendance', 'subtitle' => 'Your attendance month. Your day starts in the Niyanta Tracker desktop app and closes by itself at midnight.']) ?>
 <?php if (can('attendance.track')): ?>
 <div class="card hero att-hero mb">
   <div>

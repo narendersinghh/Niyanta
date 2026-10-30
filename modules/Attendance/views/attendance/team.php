@@ -2,9 +2,9 @@
 $isToday = $date === date('Y-m-d');
 $leaveOn = feature_on('leave'); /* leave & holidays switched off: no leave/holiday labels, such days show as "Day off" */
 $notIn = max(0, (int) $stats['total'] - (int) $stats['working'] - (int) $stats['on_break'] - (int) $stats['done'] - $leaveCount);
-$actions = '<a class="btn ghost" href="'.e(url('/attendance')).'">'.icon('user', 'sm').' My attendance</a><button class="btn ghost" data-modal="export-dialog">'.icon('download', 'sm').' Export CSV</button>'.(can('attendance.manage') ? '<button class="btn primary" data-att-new data-modal="att-dialog">'.icon('plus', 'sm').' Add record</button>' : '');
+$actions = '<button class="btn ghost" data-modal="export-dialog">'.icon('download', 'sm').' Export CSV</button>'.(can('attendance.manage') ? '<button class="btn primary" data-att-new data-modal="att-dialog">'.icon('plus', 'sm').' Add record</button>' : '');
 ?>
-<?= partial('partials/page_head', ['title' => 'Team attendance', 'subtitle' => $isToday ? 'Who is working right now across your team.' : 'Attendance for '.fdate($date, 'l, d M Y').'.', 'crumbs' => [['People'], ['Attendance', '/attendance'], ['Team']], 'actions' => $actions]) ?>
+<?= partial('attendance::partials/hub', ['tab' => 'team-attendance', 'title' => 'Time & Attendance', 'subtitle' => $isToday ? 'Who is working right now across your team.' : 'Team attendance for '.fdate($date, 'l, d M Y').'.', 'actions' => $actions]) ?>
 <div class="grid g4 mb">
   <div class="tile bg-mint"><span class="tile-ic"><?= icon('activity') ?></span><div><div class="num"><?= (int) $stats['working'] ?></div><div class="lbl"><?= $isToday ? 'Working now' : 'Open (not clocked out)' ?></div></div></div>
   <div class="tile bg-lemon"><span class="tile-ic"><?= icon('coffee') ?></span><div><div class="num"><?= (int) $stats['on_break'] ?></div><div class="lbl">On a break</div></div></div>

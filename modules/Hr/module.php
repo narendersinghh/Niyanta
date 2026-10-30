@@ -24,7 +24,7 @@ return [
     ['label' => 'Company Docs', 'icon' => 'book', 'color' => '#2E9BF6', 'url' => '/hr/documents', 'perm' => 'hr.company_docs.view', 'section' => 'me', 'order' => 7],
     ['label' => 'Team Directory', 'icon' => 'users', 'color' => '#F5A524', 'url' => '/hr/employees', 'perm' => 'hr.directory.view', 'hide_if' => 'hr.employees.view', 'section' => 'me', 'order' => 8],
     ['label' => 'Employees', 'icon' => 'id-card', 'color' => '#12B5A0', 'url' => '/hr/employees', 'perm' => 'hr.employees.view', 'section' => 'hr', 'order' => 1],
-    ['label' => 'Leave Approvals', 'icon' => 'check-circle', 'color' => '#F0508A', 'url' => '/hr/leave/approvals', 'perm' => 'hr.leave.approve', 'section' => 'hr', 'order' => 3],
+    ['label' => 'Leave Approvals', 'icon' => 'check-circle', 'color' => '#F0508A', 'url' => '/hr/leave/approvals', 'perm' => 'hr.leave.approve', 'hide_if' => 'hr.leave.request', 'section' => 'hr', 'order' => 3],
   ],
   'routes' => function (Core\Router $r): void {
     $self = ['hr.employees.view', 'hr.directory.view', 'hr.leave.request'];

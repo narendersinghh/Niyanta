@@ -1,18 +1,25 @@
 <?php
-/* Time hub header: title, tabs (Tracker, Daily, Weekly, Monthly, Screenshots, Team review) and the member / date toolbar.
+/* Time & Attendance header: title, tabs (Tracker, Timesheet, Screenshots, Attendance, Team), the view switch and the member / date toolbar.
+   $tab: tracker|daily|weekly|monthly|screenshots|attendance|team-attendance|review
    $tab, $title, $subtitle; optional $hidden (extra GET fields for the member picker), $target + $targetName + $people (member picker), $mode ('date'|'month'|null) with $date or $month, $base (path for the toolbar), $actions (html), $extra (html in the toolbar) */
 $me = (int) user()['id'];
 $target = (int) ($target ?? $me);
 $people = $people ?? [];
 $uq = $target !== $me ? '?user='.$target : '';
-$track = can('attendance.track');
+$track = can('attendance.track'); $all = can('attendance.view_all'); $rev = can('attendance.timesheets.approve');
+/* top tabs; Timesheet and Team have a Day/Week/Month or Attendance/Review switch in the toolbar */
 $tabs = array_filter([
   'tracker' => $track ? ['Tracker', 'timer', '/time'] : null,
-  'daily' => ['Daily', 'clock', '/time/daily'.$uq],
-  'weekly' => ['Weekly', 'calendar', $target === $me ? '/timesheets' : '/timesheets/user/'.$target],
-  'monthly' => ['Monthly', 'grid', '/time/monthly'.$uq],
+  'timesheet' => ['Timesheet', 'calendar', '/time/daily'.$uq],
   'screenshots' => \Modules\Attendance\Services\Monitoring::enabled() || can('attendance.screenshots.view') ? ['Screenshots', 'image', '/time/screenshots'.$uq] : null,
-  'review' => can('attendance.timesheets.approve') ? ['Team review', 'check-square', '/timesheets/approvals'] : null]);
+  'attendance' => $track ? ['Attendance', 'clock', '/attendance'] : null,
+  'team' => $all || $rev ? ['Team', 'users', $all ? '/attendance/team' : '/timesheets/approvals'] : null]);
+$group = ['daily' => 'timesheet', 'weekly' => 'timesheet', 'monthly' => 'timesheet', 'team-attendance' => 'team', 'review' => 'team'][$tab] ?? $tab;
+$subs = match ($group) {
+  'timesheet' => ['daily' => ['Day', '/time/daily'.$uq], 'weekly' => ['Week', $target === $me ? '/timesheets' : '/timesheets/user/'.$target], 'monthly' => ['Month', '/time/monthly'.$uq]],
+  'team' => array_filter(['team-attendance' => $all ? ['Attendance', '/attendance/team'] : null, 'review' => $rev ? ['Timesheet review', '/timesheets/approvals'] : null]),
+  default => []};
+if (count($subs) < 2) { $subs = []; }
 $mode = $mode ?? null;
 $keep = static fn (array $q): string => ($q = array_filter($q + ($target !== $me ? ['user' => $target] : []), static fn ($v) => $v !== null && $v !== '')) ? '?'.http_build_query($q) : '';
 ?>
@@ -20,9 +27,10 @@ $keep = static fn (array $q): string => ($q = array_filter($q + ($target !== $me
   <div class="grow"><h1><?= e($title) ?></h1><?php if (!empty($subtitle)): ?><p class="muted mb0"><?= e($subtitle) ?></p><?php endif ?></div>
   <?php if (!empty($actions)): ?><div class="hub-actions"><?= $actions ?></div><?php endif ?>
 </div>
-<nav class="tabs hub-tabs" aria-label="Time tracking views"><?php foreach ($tabs as $k => [$l, $ic, $href]): ?><a href="<?= e(url($href)) ?>" class="<?= $k === $tab ? 'active' : '' ?>"<?= $k === $tab ? ' aria-current="page"' : '' ?>><?= icon($ic, 'sm') ?> <?= e($l) ?></a><?php endforeach ?></nav>
-<?php if ($people || $mode || !empty($extra)): ?>
+<nav class="tabs hub-tabs" aria-label="Time and attendance sections"><?php foreach ($tabs as $k => [$l, $ic, $href]): ?><a href="<?= e(url($href)) ?>" class="<?= $k === $group ? 'active' : '' ?>"<?= $k === $group ? ' aria-current="page"' : '' ?>><?= icon($ic, 'sm') ?> <?= e($l) ?></a><?php endforeach ?></nav>
+<?php if ($people || $mode || $subs || !empty($extra)): ?>
 <div class="hub-bar">
+  <?php if ($subs): ?><div class="hub-field"><span class="lbl">View</span><nav class="seg" aria-label="<?= $group === 'team' ? 'Team views' : 'Timesheet period' ?>"><?php foreach ($subs as $k => [$l, $href]): ?><a href="<?= e(url($href)) ?>" class="<?= $k === $tab ? 'on' : '' ?>"<?= $k === $tab ? ' aria-current="page"' : '' ?>><?= e($l) ?></a><?php endforeach ?></nav></div><?php endif ?>
   <?php if ($people): ?><form method="get" action="<?= e(url($base)) ?>" class="hub-field"><label for="hub-member">Member</label>
     <div class="hub-member"><?= avatar($targetName ?? '', null, 'sm') ?><select id="hub-member" name="user" data-autosubmit><?php foreach ($people as $id => $n): ?><option value="<?= (int) $id ?>"<?= selected($id, $target) ?>><?= e($n) ?><?= (int) $id === $me ? ' (me)' : '' ?></option><?php endforeach ?></select></div>
     <?php if ($mode === 'date'): ?><input type="hidden" name="date" value="<?= e($date) ?>"><?php elseif ($mode === 'month'): ?><input type="hidden" name="month" value="<?= e($month) ?>"><?php endif ?><?php foreach ($hidden ?? [] as $hk => $hv): ?><input type="hidden" name="<?= e($hk) ?>" value="<?= e($hv) ?>"><?php endforeach ?></form><?php endif ?>

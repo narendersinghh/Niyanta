@@ -14,8 +14,8 @@ return [
     'payroll.reimbursements.approve' => ['label' => 'Approve reimbursement claims', 'roles' => ['hr']],
   ],
   'nav' => [
-    ['label' => 'My Payslips', 'icon' => 'file-text', 'color' => '#7C5CFF', 'url' => '/payslips', 'perm' => 'payroll.view_own', 'section' => 'me', 'order' => 5],
-    ['label' => 'Reimbursements', 'icon' => 'receipt', 'color' => '#F0508A', 'url' => '/reimbursements', 'perm' => ['payroll.reimbursements.request', 'payroll.reimbursements.approve'], 'section' => 'me', 'order' => 6],
+    ['label' => 'My Pay', 'icon' => 'file-text', 'color' => '#7C5CFF', 'url' => '/payslips', 'also' => ['/reimbursements'], 'perm' => 'payroll.view_own', 'section' => 'me', 'order' => 5],
+    ['label' => 'Reimbursements', 'icon' => 'receipt', 'color' => '#F0508A', 'url' => '/reimbursements', 'perm' => ['payroll.reimbursements.request', 'payroll.reimbursements.approve'], 'hide_if' => 'payroll.view_own', 'section' => 'me', 'order' => 6],
     ['label' => 'Payroll', 'icon' => 'wallet', 'color' => '#7C5CFF', 'url' => '/payroll', 'perm' => 'payroll.manage', 'section' => 'hr', 'order' => 4],
   ],
   'routes' => function (Core\Router $r): void {

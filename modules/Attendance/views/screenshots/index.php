@@ -6,7 +6,7 @@ $pj = feature_on('projects');
 $tf = (string) setting('general.time_format', 'h:i A');
 $hm = static fn (int $h, int $m): string => date($tf, mktime($h, $m, 0));
 ?>
-<?= partial('attendance::partials/hub', ['tab' => 'screenshots', 'title' => 'Time tracking', 'subtitle' => 'Captured by the desktop app only while tracking, with consent. Kept for '.$retention.' days.', 'target' => $target, 'targetName' => $targetName, 'people' => $people, 'mode' => 'date', 'date' => $date, 'base' => '/time/screenshots']) ?>
+<?= partial('attendance::partials/hub', ['tab' => 'screenshots', 'title' => 'Time & Attendance', 'subtitle' => 'Captured by the desktop app only while tracking, with consent. Kept for '.$retention.' days.', 'target' => $target, 'targetName' => $targetName, 'people' => $people, 'mode' => 'date', 'date' => $date, 'base' => '/time/screenshots']) ?>
 <?php if (!$enabled): ?><div class="alert warn"><?= icon('info', 'sm') ?> Screenshot monitoring is currently turned off. Existing images remain until their retention period ends.</div><?php endif ?>
 <?= partial('attendance::partials/day_summary', ['sum' => $sum, 'targetName' => $targetName]) ?>
 <?php if (!$hours): ?><div class="card"><?= empty_state('No screenshots on this day', $own ? 'Screenshots appear here when the desktop app captures your screens while you track.' : 'Nothing was captured for '.e($targetName).' on this day.', 'security-shield') ?></div>
