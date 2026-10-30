@@ -1,3 +1,3 @@
 <?php
-define('NY_VERSION', '1.0.2');
+define('NY_VERSION', '1.0.3');
 define('NY_MIN_PHP', '8.2.0');
