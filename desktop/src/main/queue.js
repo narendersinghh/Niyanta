@@ -1,6 +1,6 @@
 'use strict';
-/* Offline queue: everything that must reach the server (tracking actions, heartbeats, idle answers, screenshots, error
-   reports) goes through here. Jobs are persisted to userData/queue.json (screenshots as files in userData/pending), sent in
+/* Offline queue: everything that must reach the server (tracking actions, heartbeats with idle spans, activity slots,
+   screenshots, error reports) goes through here. Jobs are persisted to userData/queue.json (screenshots as files in userData/pending), sent in
    order and retried with exponential backoff while the network or the server is unavailable. */
 const fs = require('fs');
 const path = require('path');
@@ -12,6 +12,7 @@ const MAX_JOBS = 2000;
 const MAX_AGE_MS = 24 * 3600 * 1000;
 const MAX_SHOTS = 400;
 const GAP_MS = 120000;
+const MAX_SLOTS = 200;
 
 /** Does heartbeat b follow on from heartbeat a (the seconds b covers start no later than 2 minutes after a was sent)? */
 function contiguous(a, b) {
@@ -44,8 +45,9 @@ class Queue extends EventEmitter {
 
   /**
    * Add a job. Consecutive heartbeats are merged so a long offline period stays one small request: the merged beat keeps the
-   * newest time (`at`) and the summed seconds, so the server still sees one continuous stretch. A beat that does not follow
-   * on from the previous one (the app was not running in between) is kept separate, so the server can see that gap.
+   * newest time (`at`), the summed seconds and all idle spans, so the server still sees one continuous stretch. A beat that
+   * does not follow on from the previous one (the app was not running in between) is kept separate, so the server can see
+   * that gap. Consecutive activity reports are merged into one batch (up to 200 slots).
    */
   add(job) {
     job = Object.assign({ id: crypto.randomBytes(6).toString('hex'), createdAt: Date.now(), tries: 0 }, job);
@@ -53,7 +55,9 @@ class Queue extends EventEmitter {
     if (job.type === 'heartbeat' && last && last.type === 'heartbeat' && !this.running && contiguous(last.json, job.json)) {
       last.json.active_seconds += job.json.active_seconds;
       last.json.idle_seconds += job.json.idle_seconds;
-      if (job.json.at) last.json.at = job.json.at; }
+      if (job.json.at) last.json.at = job.json.at;
+      if (job.json.idle_spans) last.json.idle_spans = (last.json.idle_spans || []).concat(job.json.idle_spans); }
+    else if (job.type === 'activity' && last && last.type === 'activity' && (!this.running || this.jobs.length > 1) && last.json.slots.length + job.json.slots.length <= MAX_SLOTS) last.json.slots = last.json.slots.concat(job.json.slots);
     else this.jobs.push(job);
     this.trim();
     this.persist();

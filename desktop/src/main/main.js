@@ -54,22 +54,17 @@ function push(ui) {
   updateTray(ui); }
 
 /**
- * Back from idle: bring the window to the front (the in-app dialog asks keep or discard; the timer keeps running), flash
- * the taskbar entry, and show a notification that opens the window, for systems that do not let apps take the focus.
+ * Back after tracking paused itself (idle up to the maximum): the window shows a short message with Resume (non-blocking);
+ * when the window is not focused, an OS notification says the same and opens the window on click. Nothing is asked.
  */
 let idleNote = null;
-function idlePrompt(p) {
-  const wasFocused = win && !win.isDestroyed() && win.isVisible() && win.isFocused();
-  showWindow();
-  if (win) win.moveTop();
-  if (win && !win.isFocused()) win.flashFrame(true);
-  if (wasFocused || !Notification.isSupported()) return;
-  const mins = Math.max(1, Math.round(p.seconds / 60));
-  const t = s => new Date(s).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+function idleReturn(p) {
+  const focused = win && !win.isDestroyed() && win.isVisible() && win.isFocused();
+  if (focused || !Notification.isSupported()) return;
   try {
     if (idleNote) idleNote.close();
-    idleNote = new Notification({ title: 'Welcome back', body: `You were idle for ${mins} min (${t(p.from)} to ${t(p.to)}). Keep or discard this time? Tracking continues meanwhile.`, silent: false });
-    idleNote.on('click', () => { showWindow(); if (win) win.flashFrame(false); });
+    idleNote = new Notification({ title: 'Niyanta Tracker', body: `Tracking paused after ${p.minutes} min idle. Resume when you are back.`, silent: true });
+    idleNote.on('click', () => showWindow());
     idleNote.show(); }
   catch (e) { errors.report('notification', e, {}, 'warning'); } }
 
@@ -156,7 +151,6 @@ function registerIpc() {
   h('signOut', () => tracker.signOut());
   h('action', ({ name, body }) => tracker.action(name, sanitizeSel(body)));
   h('select', sel => { tracker.setSelection(sanitizeSel(sel)); return { ok: true }; });
-  h('idle', a => tracker.answerIdle(a));
   h('consent', () => tracker.acceptConsent());
   h('pref', ({ key, value }) => {
     if (key === 'launchAtLogin') setLaunchAtLogin(value);
@@ -208,7 +202,7 @@ app.whenReady().then(async () => {
   tracker = new Tracker(errors.report);
   errors.attach(tracker);
   tracker.on('change', push);
-  tracker.on('idle-prompt', p => idlePrompt(p));
+  tracker.on('idle-return', p => idleReturn(p));
   tracker.on('consent-needed', () => showWindow());
   tracker.on('update-ready', v => { if (tray && process.platform === 'win32') tray.displayBalloon({ title: 'Niyanta Tracker', content: `Version ${v} is ready. Restart the app to install it, or it installs when you quit.` }); });
   registerIpc();

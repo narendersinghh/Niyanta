@@ -60,6 +60,7 @@ return [
     $r->post('/api/agent/switch', [AgentController::class, 'switchProject'], $api);
     $r->post('/api/agent/day/end', [AgentController::class, 'dayEnd'], $api);
     $r->post('/api/agent/heartbeat', [AgentController::class, 'heartbeat'], $api);
+    $r->post('/api/agent/activity', [AgentController::class, 'activity'], $api);
     $r->post('/api/agent/idle', [AgentController::class, 'idle'], $api);
     $r->post('/api/agent/consent', [AgentController::class, 'consent'], $api);
     $r->post('/api/agent/screenshot', [AgentController::class, 'screenshot'], ['auth' => false, 'csrf' => false, 'throttle' => [240, 60]]);

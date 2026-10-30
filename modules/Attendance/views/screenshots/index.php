@@ -28,6 +28,7 @@ $hm = static fn (int $h, int $m): string => date($tf, mktime($h, $m, 0));
       <span class="sc-time"><?= e($range) ?></span>
       <?php if ($a !== null): ?><span class="sc-act"><span class="ds-bar"><i class="<?= $a >= 60 ? 'hi' : ($a >= 30 ? 'mid' : 'lo') ?>" style="width:<?= $a ?>%"></i></span><?= $a ?>%</span>
       <span class="sc-foot">Active time <b><?= (int) round($a / 10) ?> min</b></span><?php endif ?>
+      <?php $keys = array_filter(array_column($list, 'keystrokes'), 'is_numeric'); $mouse = array_filter(array_column($list, 'mouse_events'), 'is_numeric'); if ($keys || $mouse): ?><span class="sc-io" title="Keystrokes and mouse events in this slot"><span>Keys <b><?= (int) array_sum($keys) ?></b></span><span>Mouse <b><?= (int) array_sum($mouse) ?></b></span></span><?php endif ?>
     </button>
   <?php endforeach ?>
   </div>

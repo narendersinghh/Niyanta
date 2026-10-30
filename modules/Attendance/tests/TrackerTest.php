@@ -370,28 +370,66 @@ return [
     assert_true(abs($hb - (time() - 60)) <= 2, 'last heartbeat = time of the beat, not of the upload');
     assert_eq(100, (int) DB::value('SELECT idle_seconds FROM time_entries WHERE user_id=? AND is_running=1', [$emp])); },
 
-  'idle prompt: discard removes exactly the span (running or stopped entries), keep is recorded, retries are harmless' => function () {
+  'idle is saved automatically: heartbeat idle_spans are recorded as auto, the legacy idle answer never discards' => function () {
     ['a' => $a, 'emp' => $emp] = trk_fixture();
     $tok = trk_login();
     DB::query('DELETE FROM attendance WHERE user_id=?', [$emp]); DB::query('DELETE FROM time_entries WHERE user_id=?', [$emp]);
     trk_api('POST', '/api/agent/day/start', ['project_id' => $a], $tok);
-    DB::query('UPDATE time_entries SET started_at=DATE_SUB(NOW(), INTERVAL 3600 SECOND), last_heartbeat_at=NOW() WHERE user_id=?', [$emp]);
+    DB::query('UPDATE time_entries SET started_at=DATE_SUB(NOW(), INTERVAL 3600 SECOND), last_heartbeat_at=DATE_SUB(NOW(), INTERVAL 300 SECOND) WHERE user_id=?', [$emp]);
     DB::query('UPDATE attendance SET clock_in=DATE_SUB(NOW(), INTERVAL 3600 SECOND) WHERE user_id=?', [$emp]);
-    $span = ['from' => date('c', time() - 1800), 'to' => date('c', time() - 1200)];
-    [$code, $j] = trk_api('POST', '/api/agent/idle', ['action' => 'discard', 'spans' => [$span]], $tok);
-    assert_true($code === 200 && $j['discarded'] === 600, 'discarded the span: '.json_encode($j));
-    assert_true(abs($j['state']['totals']['tracked'] - 3000) <= 2, 'tracked time without the span: '.$j['state']['totals']['tracked']);
-    assert_eq(0, trk_api('POST', '/api/agent/idle', ['action' => 'discard', 'spans' => [$span]], $tok)[1]['discarded'], 'a retry discards nothing more');
-    assert_eq(300, trk_api('POST', '/api/agent/idle', ['action' => 'discard', 'from' => date('c', time() - 1500), 'to' => date('c', time() - 900)], $tok)[1]['discarded'], 'only the part not discarded yet');
-    trk_api('POST', '/api/agent/pause', [], $tok);
-    $before = (int) DB::value('SELECT duration_seconds FROM time_entries WHERE user_id=?', [$emp]);
-    [, $j] = trk_api('POST', '/api/agent/idle', ['action' => 'discard', 'spans' => [['from' => date('c', time() - 600), 'to' => date('c', time() - 300)]]], $tok);
-    assert_eq(300, $j['discarded'], 'answering after a pause still discards from the stopped entry');
-    assert_eq($before - 300, (int) DB::value('SELECT duration_seconds FROM time_entries WHERE user_id=?', [$emp]));
-    [, $j] = trk_api('POST', '/api/agent/idle', ['action' => 'keep', 'spans' => [['from' => date('c', time() - 3000), 'to' => date('c', time() - 2400)]]], $tok);
-    assert_eq(600, $j['kept'], 'kept span recorded');
-    assert_eq(1, (int) DB::value("SELECT COUNT(*) FROM time_idle_spans WHERE user_id=? AND action='keep'", [$emp]));
-    assert_eq(3, (int) DB::value("SELECT COUNT(*) FROM time_idle_spans WHERE user_id=? AND action='discard'", [$emp])); },
+    $span = ['from' => date('c', time() - 600), 'to' => date('c', time() - 10)];
+    [$code, $j] = trk_api('POST', '/api/agent/heartbeat', ['active_seconds' => 0, 'idle_seconds' => 590, 'idle_spans' => [$span]], $tok);
+    assert_true($code === 200 && $j['running'] === true, 'heartbeat: '.json_encode($j));
+    assert_true(abs($j['state']['totals']['tracked'] - 3600) <= 2, 'idle time stays tracked: '.$j['state']['totals']['tracked']);
+    assert_true($j['state']['totals']['idle'] >= 590, 'and is reported as idle: '.$j['state']['totals']['idle']);
+    assert_eq(1, (int) DB::value("SELECT COUNT(*) FROM time_idle_spans WHERE user_id=? AND action='auto' AND seconds=590", [$emp]), 'span recorded as auto');
+    trk_api('POST', '/api/agent/heartbeat', ['active_seconds' => 5, 'idle_seconds' => 0, 'idle_spans' => [$span]], $tok);
+    assert_eq(1, (int) DB::value('SELECT COUNT(*) FROM time_idle_spans WHERE user_id=?', [$emp]), 'a retried span is not recorded twice');
+    [$code, $j] = trk_api('POST', '/api/agent/idle', ['action' => 'discard', 'spans' => [['from' => date('c', time() - 1800), 'to' => date('c', time() - 1200)]]], $tok);
+    assert_true($code === 200 && $j['discarded'] === 0 && $j['kept'] === 600, 'legacy discard keeps the time: '.json_encode($j));
+    assert_eq(0, (int) DB::value('SELECT discarded_seconds FROM time_entries WHERE user_id=? AND is_running=1', [$emp]));
+    assert_eq(0, trk_api('POST', '/api/agent/idle', ['action' => 'discard', 'seconds' => 300], $tok)[1]['discarded'], 'legacy seconds-only answer is a no-op');
+    assert_true(abs(trk_api('GET', '/api/agent/state', [], $tok)[1]['state']['totals']['tracked'] - 3600) <= 3, 'tracked time unchanged'); },
+
+  'idle auto pause setting reaches the app and is always more than the idle threshold' => function () {
+    $tok = trk_login();
+    Settings::set('attendance.idle_minutes', '5'); Settings::set('attendance.idle_auto_pause_minutes', '20');
+    assert_eq(20, trk_api('GET', '/api/agent/bootstrap', [], $tok)[1]['settings']['idle_auto_pause_minutes']);
+    Settings::set('attendance.idle_auto_pause_minutes', '3');
+    assert_eq(6, trk_api('GET', '/api/agent/state', [], $tok)[1]['settings']['idle_auto_pause_minutes'], 'clamped above idle_minutes');
+    Settings::set('attendance.idle_auto_pause_minutes', '15'); },
+
+  'activity slots: stored per slot, tied to the entry, clamped, idempotent; screenshots carry the counts' => function () {
+    ['a' => $a, 'emp' => $emp] = trk_fixture();
+    $tok = trk_login();
+    DB::query('DELETE FROM attendance WHERE user_id=?', [$emp]); DB::query('DELETE FROM time_entries WHERE user_id=?', [$emp]); DB::query('DELETE FROM activity_slots WHERE user_id=?', [$emp]);
+    trk_api('POST', '/api/agent/day/start', ['project_id' => $a], $tok);
+    DB::query('UPDATE time_entries SET started_at=DATE_SUB(NOW(), INTERVAL 3600 SECOND), last_heartbeat_at=NOW() WHERE user_id=?', [$emp]);
+    $entry = (int) DB::value('SELECT id FROM time_entries WHERE user_id=? AND is_running=1', [$emp]);
+    $t0 = time() - 900; $t0 -= $t0 % 180;
+    $r = TimeService::activitySlots($emp, [
+      ['slot_start' => gmdate('c', $t0), 'slot_seconds' => 180, 'active_seconds' => 120, 'keystrokes' => 340, 'mouse_events' => 85],
+      ['slot_start' => gmdate('c', $t0 + 180), 'slot_seconds' => 180, 'active_seconds' => 999, 'keystrokes' => null, 'mouse_events' => null],
+      ['slot_start' => gmdate('c', $t0 + 360), 'slot_seconds' => 0, 'active_seconds' => 0],
+      ['slot_start' => 'nonsense', 'slot_seconds' => 60, 'active_seconds' => 1],
+      ['slot_start' => gmdate('c', time() + 3600), 'slot_seconds' => 60, 'active_seconds' => 1]], 7);
+    assert_eq(['saved' => 2, 'skipped' => 3], $r);
+    $s = DB::first('SELECT * FROM activity_slots WHERE user_id=? AND slot_start=?', [$emp, date('Y-m-d H:i:s', $t0)]);
+    assert_true($s && (int) $s['time_entry_id'] === $entry && (int) $s['active_seconds'] === 120 && (int) $s['keystrokes'] === 340 && (int) $s['mouse_events'] === 85 && (int) $s['agent_token_id'] === 7, 'stored: '.json_encode($s));
+    $s2 = DB::first('SELECT * FROM activity_slots WHERE user_id=? AND slot_start=?', [$emp, date('Y-m-d H:i:s', $t0 + 180)]);
+    assert_true((int) $s2['active_seconds'] === 180 && $s2['keystrokes'] === null, 'active clamped to the slot, unknown counts stay null');
+    TimeService::activitySlots($emp, [['slot_start' => gmdate('c', $t0), 'slot_seconds' => 180, 'active_seconds' => 120, 'keystrokes' => 340, 'mouse_events' => 85]]);
+    assert_eq(['saved' => 0, 'skipped' => 1], TimeService::activitySlots($emp, [['slot_start' => gmdate('c', $t0), 'slot_seconds' => 40, 'active_seconds' => 40]]), 'a smaller report never shrinks a slot');
+    assert_eq(2, (int) DB::value('SELECT COUNT(*) FROM activity_slots WHERE user_id=?', [$emp]), 'retries are idempotent');
+    TimeService::activitySlots($emp, [['slot_start' => gmdate('c', $t0 + 180), 'slot_seconds' => 180, 'active_seconds' => 30, 'keystrokes' => 3, 'mouse_events' => 4]]);
+    assert_eq(30, (int) DB::value('SELECT active_seconds FROM activity_slots WHERE user_id=? AND slot_start=?', [$emp, date('Y-m-d H:i:s', $t0 + 180)]), 'a complete report replaces the slot');
+    Settings::set('attendance.screenshots_enabled', '1'); DB::query('DELETE FROM screenshots WHERE user_id=?', [$emp]);
+    trk_api('POST', '/api/agent/consent', ['agree' => '1', 'policy_version' => \Modules\Attendance\Services\Monitoring::POLICY_VERSION], $tok);
+    [$code, $j] = trk_api('POST', '/api/agent/screenshot', ['activity_pct' => 67, 'keystrokes' => 340, 'mouse_events' => 85, 'display' => 0, 'captured_at' => date('c')], $tok, trk_jpeg());
+    assert_eq(200, $code, json_encode($j));
+    $sh = DB::first('SELECT * FROM screenshots WHERE id=?', [$j['id']]);
+    assert_true((int) $sh['activity_pct'] === 67 && (int) $sh['keystrokes'] === 340 && (int) $sh['mouse_events'] === 85, 'screenshot counts: '.json_encode($sh));
+    Settings::set('attendance.screenshots_enabled', '0'); },
 
   'nightly auto close keeps today running; stale_timers closes days that are over at their last entry' => function () {
     ['a' => $a, 'emp' => $emp] = trk_fixture();

@@ -13,7 +13,6 @@ contextBridge.exposeInMainWorld('tracker', {
   resume: (sel) => call('action', { name: 'resume', body: sel || {} }),
   switchProject: (sel) => call('action', { name: 'switch', body: sel || {} }),
   select: (sel) => call('select', sel || {}),
-  answerIdle: (action) => call('idle', action === 'discard' ? 'discard' : 'keep'),
   acceptConsent: () => call('consent'),
   setPref: (key, value) => call('pref', { key: String(key), value: !!value }),
   open: (what) => call('open', String(what)),

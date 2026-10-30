@@ -51,7 +51,7 @@ final class Monitoring {
    * Store an uploaded capture. It is linked to the time entry that covered the capture moment (running now, or for
    * captures queued while offline, a stopped entry), so captures outside tracked time are refused.
    */
-  public static function store(int $uid, array $file, string $source, ?int $activity, ?int $display = null, ?string $capturedAt = null, ?int $tokenId = null): int {
+  public static function store(int $uid, array $file, string $source, ?int $activity, ?int $display = null, ?string $capturedAt = null, ?int $tokenId = null, ?int $keystrokes = null, ?int $mouseEvents = null): int {
     if (!self::enabled()) { throw new \DomainException('Screenshot monitoring is turned off.'); }
     if (!self::consent($uid)) { throw new \DomainException('Monitoring consent is required before capturing.'); }
     $now = time();
@@ -65,7 +65,8 @@ final class Monitoring {
     if (!$info || !in_array($info[2], [IMAGETYPE_JPEG, IMAGETYPE_PNG, IMAGETYPE_WEBP], true) || $info[0] > 4096 || $info[1] > 4096) { throw new \DomainException('The screenshot must be a JPEG, PNG or WebP image up to 4096px.'); }
     try { $s = Storage::store($file, 'screenshots/u'.$uid, ['jpg', 'jpeg', 'png', 'webp'], self::MAX_BYTES); }
     catch (\Core\ValidationException $ex) { throw new \DomainException((string) (array_values($ex->errors)[0] ?? 'Upload failed.')); }
-    $id = DB::insert('screenshots', ['user_id' => $uid, 'time_entry_id' => $e['id'], 'disk_path' => $s['path'], 'taken_at' => $taken, 'source' => $source, 'activity_pct' => $activity === null ? null : max(0, min(100, $activity)), 'display_index' => $display === null ? null : max(0, min(15, $display)), 'agent_token_id' => $tokenId]);
+    $id = DB::insert('screenshots', ['user_id' => $uid, 'time_entry_id' => $e['id'], 'disk_path' => $s['path'], 'taken_at' => $taken, 'source' => $source, 'activity_pct' => $activity === null ? null : max(0, min(100, $activity)), 'display_index' => $display === null ? null : max(0, min(15, $display)), 'agent_token_id' => $tokenId,
+      'keystrokes' => $keystrokes === null ? null : max(0, min(1000000, $keystrokes)), 'mouse_events' => $mouseEvents === null ? null : max(0, min(1000000, $mouseEvents))]);
     Audit::log('monitoring.screenshot', 'screenshot', $id, ['source' => $source, 'display' => $display], $uid);
     return $id; }
 

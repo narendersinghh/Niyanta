@@ -61,10 +61,11 @@ screenshots 240/min, error reports 60/min, version 30/min, update files 60/min p
 | `POST /api/agent/resume` | `project_id?, task_id?, description?` | `state` |
 | `POST /api/agent/switch` | `project_id (null = no project), task_id?, description?` | `state` |
 | `POST /api/agent/day/end` | | `state` (legacy, not used by the app) |
-| `POST /api/agent/heartbeat` | `active_seconds, idle_seconds` since the previous beat, `at?` (time of the beat) | `running, entry, state` |
-| `POST /api/agent/idle` | `action: keep|discard, spans: [{from, to}]` (or `from, to`; older apps: `seconds`) | `discarded, kept, state` |
+| `POST /api/agent/heartbeat` | `active_seconds, idle_seconds` since the previous beat, `at?` (time of the beat), `idle_spans?: [{from, to}]` | `running, entry, state` |
+| `POST /api/agent/activity` | `slots: [{slot_start, slot_seconds, active_seconds, keystrokes, mouse_events}]` (1 to 500) | `saved, skipped` |
+| `POST /api/agent/idle` | legacy (apps up to 1.0.2): `action: keep|discard, spans: [{from, to}]` (or `seconds`); always kept | `discarded: 0, kept, state` |
 | `POST /api/agent/consent` | `agree: true, policy_version` | `consent` |
-| `POST /api/agent/screenshot` | multipart `screenshot`, `activity_pct`, `display`, `captured_at` | `id` |
+| `POST /api/agent/screenshot` | multipart `screenshot`, `activity_pct`, `keystrokes`, `mouse_events`, `display`, `captured_at` | `id` |
 | `POST /api/agent/error` | `level, message, where, stack, file, line, os, arch, context{}` | token optional |
 | `GET /api/agent/version` | | `latest, current, update_available, released_at, download_page, updates_feed, files` |
 | `GET /api/agent/updates/{file}` | | electron-updater feed (not JSON): `latest.yml`, `latest-mac.yml`, `latest-linux.yml`, `latest-linux-arm64.yml`, `latest-linux-armv7l.yml` as `text/yaml`, or a mirrored installer / `.blockmap` (streamed). `404` when the file is not in the mirrored release |
@@ -82,28 +83,43 @@ the server stopped a stale entry; `ended` only after a legacy `day/end`), `label
 project_id, project, task_id, task, description, device, …}` or `null`, `last{project_id, task_id, description}`,
 `totals{tracked, active, idle, paused, entries}` in seconds for today.
 
-`settings`: `heartbeat_seconds` (15 to 60, default 60), `idle_minutes`, `auto_pause_on_lock`, `screenshots_enabled`,
+`settings`: `heartbeat_seconds` (15 to 60, default 60), `idle_minutes`, `idle_auto_pause_minutes` (2 to 240, default 15,
+always at least `idle_minutes` + 1), `auto_pause_on_lock`, `screenshots_enabled`,
 `screenshot_interval_seconds` (10 to 3600, default 180), `screenshot_notify` (default on), `screenshot_notify_user_can_disable`,
 `retention_days`, `stale_minutes` (10), `projects_enabled`.
 
 ## Activity, idle and stale entries
 
-The app samples `powerMonitor.getSystemIdleTime()` every second: once there was no mouse or keyboard input for `idle_minutes`, an
-idle span opens at the last input (those seconds move from active to idle) and every following second counts as idle; the timer
-keeps running. Every `heartbeat_seconds` (at most 60) it sends the counts since the previous beat with the beat's time `at`.
-The server adds the idle part to the running entry (capped to the time since the last beat plus the idle threshold, and to the
-elapsed time) and moves `last_heartbeat_at` to `at`. A beat whose seconds start more than 10 minutes after the last heartbeat
-(`at - active - idle - last_heartbeat_at`) means the app was not running in between (switched off, killed, asleep): the entry is
-stopped at its last heartbeat and `running: false` is returned. Offline beats are merged in the queue only while contiguous,
-so a continuous offline stretch is kept and a gap is not bridged.
+**Activity.** A second is active when there was keyboard or mouse input in it. The app uses a global input hook
+(`uiohook-napi`) and counts keystrokes (key presses) and mouse events (clicks, wheel, moves at most 4 per second), never which
+keys or where. Where the hook is unavailable (Wayland, macOS without the Accessibility permission, the module failed to load)
+it samples `powerMonitor.getSystemIdleTime()` every second (active when the last input was at most 1 s ago) and sends the
+counts as `null`. Seconds are summed per slot of `screenshot_interval_seconds`, counted from the workspace's midnight:
+`POST /api/agent/activity` with `slots: [{slot_start (ISO 8601), slot_seconds (tracked seconds in the slot, paused time
+excluded, 1 to 3600), active_seconds, keystrokes, mouse_events}]`. Stored in `activity_slots` (one row per user and
+`slot_start`, tied to the time entry that overlaps the slot most, with the device token): `active_seconds` is clamped to
+`slot_seconds`, a repeated `slot_start` replaces the row only when it covers at least as many seconds (retries never double
+count), slots older than 7 days or in the future are skipped. Activity % of a slot = `active_seconds / slot_seconds`. Slots
+are sent whether or not screenshots are on. The screenshot taken at the end of a slot carries that slot's `activity_pct`,
+`keystrokes` and `mouse_events` (stored on `screenshots`).
 
-When the person is back (input again) the app asks "You were idle for 14 min (2:10 pm to 2:24 pm). Keep or discard this time?"
-for all spans not answered yet (merged into one prompt), while tracking continues. `POST /api/agent/idle` with the spans:
-`discard` removes exactly the overlap of each span with the entries it falls into (running or already stopped, e.g. after a
-pause, project switch or midnight): `time_entries.discarded_seconds` (+ `duration_seconds` of stopped entries, with the week's
-timesheet and the closed day resynced); `keep` counts the time as worked and it stays reported as idle. Every answered span is
-recorded in `time_idle_spans` (`time_entry_id, started_at, ended_at, seconds, action`); retries never discard twice. Older apps
-send only `seconds`, which is discarded from the running entry's recorded idle time.
+**Idle.** Once there was no input for `idle_minutes`, the person is idle from the last input (those seconds move from active
+to idle) and the timer keeps running. Every `heartbeat_seconds` (at most 60) the app sends the counts since the previous beat
+with the beat's time `at`. The server adds the idle part to the running entry (capped to the time since the last beat plus the
+idle threshold, and to the elapsed time) and moves `last_heartbeat_at` to `at`. When the idle span ends (input again, a pause,
+sleep) the app sends it in the next heartbeat as `idle_spans: [{from, to}]`; each span is recorded per overlapping entry in
+`time_idle_spans` with `action = 'auto'` (retries are skipped). Idle time is never removed from tracked time and nothing is
+asked. If the person stays idle until `idle_auto_pause_minutes` after the last input, the app sends `pause` with
+`at` = last input + that maximum: the idle minutes up to then stay tracked as idle time and nothing after is tracked. When the
+person is back the app shows "Tracking paused after 15 min idle. Resume when you are back." with a Resume button.
+`POST /api/agent/idle` remains for apps up to 1.0.2: both answers only record the spans as kept idle time (`action = 'keep'`),
+`discard` no longer removes anything.
+
+**Stale entries.** A beat whose seconds start more than 10 minutes after the last heartbeat
+(`at - active - idle - last_heartbeat_at`) means the app was not running in between (switched off, killed, asleep): the entry is
+stopped at its last heartbeat and `running: false` is returned. Offline beats are merged in the queue only while contiguous
+(their idle spans are kept), so a continuous offline stretch is kept and a gap is not bridged; activity slots queued offline
+are sent in one batch.
 
 If no heartbeat arrives for 10 minutes the `stale_timers` job (every 5 min) stops the entry at its last heartbeat (never at the
 time the job runs) and closes days that are over; the day stays open (`stopped`) and the app resumes with `resume` when it comes

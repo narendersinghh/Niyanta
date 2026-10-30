@@ -9,7 +9,7 @@ final class ScreenshotController extends BaseController {
   public function index(): Response {
     [$target, $name, $people] = $this->member('attendance.screenshots.view', 'screenshots');
     $date = min(date('Y-m-d'), $this->dateParam('date', date('Y-m-d')));
-    $rows = DB::all('SELECT s.id, s.taken_at, s.source, s.activity_pct, s.display_index, p.name AS project_name, t.title AS task_title, te.description FROM screenshots s LEFT JOIN time_entries te ON te.id=s.time_entry_id LEFT JOIN projects p ON p.id=te.project_id LEFT JOIN tasks t ON t.id=te.task_id WHERE s.user_id=? AND s.taken_at>=? AND s.taken_at<? ORDER BY s.taken_at, s.display_index LIMIT 3000', [$target, $date.' 00:00:00', date('Y-m-d', strtotime($date.' +1 day')).' 00:00:00']);
+    $rows = DB::all('SELECT s.id, s.taken_at, s.source, s.activity_pct, s.keystrokes, s.mouse_events, s.display_index, p.name AS project_name, t.title AS task_title, te.description FROM screenshots s LEFT JOIN time_entries te ON te.id=s.time_entry_id LEFT JOIN projects p ON p.id=te.project_id LEFT JOIN tasks t ON t.id=te.task_id WHERE s.user_id=? AND s.taken_at>=? AND s.taken_at<? ORDER BY s.taken_at, s.display_index LIMIT 3000', [$target, $date.' 00:00:00', date('Y-m-d', strtotime($date.' +1 day')).' 00:00:00']);
     $hours = [];
     foreach ($rows as $r) { $t = strtotime($r['taken_at']); $hours[(int) date('G', $t)][intdiv((int) date('i', $t), 10)][] = $r; }
     if ($target !== $this->uid()) { Audit::log('monitoring.view', 'user', $target, ['date' => $date]); }

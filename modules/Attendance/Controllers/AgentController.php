@@ -55,8 +55,11 @@ final class AgentController extends Controller {
     if (array_key_exists('billable', $in)) { $d['billable'] = filter_var($in['billable'], FILTER_VALIDATE_BOOLEAN) ? 1 : 0; }
     return $d; }
 
+  /** Idle minutes until tracking pauses by itself (2 to 240, always more than idle_minutes). */
+  public static function idleAutoPause(): int { return max(max(1, (int) Settings::get('attendance.idle_minutes', 5)) + 1, min(240, max(2, (int) Settings::get('attendance.idle_auto_pause_minutes', 15)))); }
+
   public static function settings(): array {
-    return ['heartbeat_seconds' => max(15, min(60, (int) Settings::get('attendance.heartbeat_seconds', 60))), 'idle_minutes' => max(1, (int) Settings::get('attendance.idle_minutes', 5)), 'auto_pause_on_lock' => Settings::bool('attendance.auto_pause_lock', true),
+    return ['heartbeat_seconds' => max(15, min(60, (int) Settings::get('attendance.heartbeat_seconds', 60))), 'idle_minutes' => max(1, (int) Settings::get('attendance.idle_minutes', 5)), 'idle_auto_pause_minutes' => self::idleAutoPause(), 'auto_pause_on_lock' => Settings::bool('attendance.auto_pause_lock', true),
       'screenshots_enabled' => Monitoring::enabled(), 'screenshot_interval_seconds' => Monitoring::intervalSeconds(), 'screenshot_notify' => Monitoring::notifyDefault(), 'screenshot_notify_user_can_disable' => Monitoring::notifyOptional(),
       'retention_days' => Monitoring::retention(), 'stale_minutes' => intdiv(T::STALE_SECONDS, 60), 'projects_enabled' => feature_on('projects')]; }
 
@@ -126,30 +129,37 @@ final class AgentController extends Controller {
   public function dayEnd(): Response { return $this->run(fn (int $uid): array => ['state' => Tracker::endDay($uid, $this->request->ip(), $this->at())]); }
 
   /**
-   * Activity since the previous heartbeat, sent at `at` (queued beats keep their time). running=false tells the app the server
-   * stopped the entry (stale: the app was not running in between, auto-close, or another device).
+   * Activity since the previous heartbeat, sent at `at` (queued beats keep their time), plus `idle_spans` [{from, to}] the app
+   * closed since (saved as idle time, time_idle_spans action 'auto'). running=false tells the app the server stopped the entry
+   * (stale: the app was not running in between, auto-close, or another device).
    */
   public function heartbeat(): Response {
     return $this->run(function (int $uid): array {
       $in = $this->input();
       $r = T::heartbeat($uid, min(86400, max(0, (int) ($in['active_seconds'] ?? 0))), min(86400, max(0, (int) ($in['idle_seconds'] ?? 0))), Tracker::at($uid, $this->at()));
+      if (is_array($in['idle_spans'] ?? null) && $in['idle_spans']) { T::idleSpans($uid, array_values($in['idle_spans']), 'auto'); }
       return ['running' => (bool) $r, 'entry' => $r, 'state' => Tracker::state($uid)]; }); }
 
   /**
-   * Back from idle: keep (counts as worked, recorded as idle) or discard. With the span's times (`from`/`to`, or `spans`
-   * [{from, to}] for several merged spans) exactly those spans are removed from whatever entries they fall into; without them
-   * (older apps) `seconds` of recorded idle time are discarded from the running entry.
+   * Legacy (apps up to 1.0.2 asked "keep or discard?"): idle time is now always kept, so both answers only record the spans
+   * as kept idle time and nothing is removed from tracked time (`discarded` is always 0).
    */
   public function idle(): Response {
     return $this->run(function (int $uid): array {
       $in = $this->input();
-      $act = ($in['action'] ?? '') === 'discard' ? 'discard' : 'keep';
       $spans = is_array($in['spans'] ?? null) ? array_values($in['spans']) : (isset($in['from'], $in['to']) ? [['from' => $in['from'], 'to' => $in['to']]] : []);
-      if ($spans) { $r = T::idleSpans($uid, $spans, $act); return $r + ['state' => Tracker::state($uid)]; }
-      $sec = min(86400, max(0, (int) ($in['seconds'] ?? 0)));
-      if (($in['action'] ?? '') !== 'discard') { Audit::log('time.idle_keep', 'user', $uid, ['seconds' => $sec, 'source' => 'desktop'], $uid); return ['discarded' => 0, 'state' => Tracker::state($uid)]; }
-      $r = T::discardIdle($uid, $sec) ?? throw new \DomainException('You are not tracking right now.');
-      return ['discarded' => $r['discarded'], 'state' => Tracker::state($uid)]; }); }
+      $r = $spans ? T::idleSpans($uid, $spans, 'keep') : ['discarded' => 0, 'kept' => 0];
+      return $r + ['state' => Tracker::state($uid)]; }); }
+
+  /**
+   * Activity per slot (the screenshot interval): {slots: [{slot_start, slot_seconds, active_seconds, keystrokes?, mouse_events?}]}
+   * (at most 500 per request). Idempotent per slot_start; see TimeService::activitySlots().
+   */
+  public function activity(): Response {
+    return $this->run(function (int $uid): array {
+      $slots = $this->input()['slots'] ?? null;
+      if (!is_array($slots) || !$slots || count($slots) > 500) { throw new \DomainException('Send 1 to 500 activity slots as "slots".'); }
+      return T::activitySlots($uid, $slots, (int) $this->agent['token_id']); }); }
 
   /** Accept the monitoring notice shown in the app (policy version must match). */
   public function consent(): Response {
@@ -162,12 +172,12 @@ final class AgentController extends Controller {
       $c = Monitoring::consent($uid);
       return ['consent' => ['policy_version' => $c['policy_version'], 'consented_at' => date('c', strtotime($c['consented_at']))]]; }); }
 
-  /** multipart: screenshot (JPEG/PNG/WebP), activity_pct, display (0-based index), captured_at (ISO 8601). */
+  /** multipart: screenshot (JPEG/PNG/WebP), activity_pct, keystrokes, mouse_events (of the slot), display (0-based index), captured_at (ISO 8601). */
   public function screenshot(): Response {
     return $this->run(function (int $uid): array {
       $f = $this->request->file('screenshot') ?? throw new \DomainException('Send the image as multipart field "screenshot".');
-      $act = $this->request->input('activity_pct'); $disp = $this->request->input('display');
-      return ['id' => Monitoring::store($uid, $f, 'desktop', is_numeric($act) ? (int) $act : null, is_numeric($disp) ? (int) $disp : null, $this->request->str('captured_at') ?: null, (int) $this->agent['token_id'])]; }); }
+      $num = fn (string $k): ?int => is_numeric($v = $this->request->input($k)) ? (int) $v : null;
+      return ['id' => Monitoring::store($uid, $f, 'desktop', $num('activity_pct'), $num('display'), $this->request->str('captured_at') ?: null, (int) $this->agent['token_id'], $num('keystrokes'), $num('mouse_events'))]; }); }
 
   /** Error report from the app: works without a token (sign-in problems), then attributed to nobody. */
   public function error(): Response {

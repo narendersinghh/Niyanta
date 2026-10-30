@@ -22,6 +22,9 @@ function writeLocal(line) {
 
 function attach(t) { tracker = t; }
 
+/** Local log line only (not sent to the workspace). */
+function log(line) { writeLocal('INFO ' + line); }
+
 /** report(where, error, context?, level?) */
 function report(where, err, context = {}, level = 'error') {
   try {
@@ -46,4 +49,4 @@ function installGlobalHandlers() {
   app.on('child-process-gone', (_ev, d) => { if (d.reason !== 'clean-exit') report('process', new Error(`${d.type} process gone: ${d.reason}`), { exitCode: d.exitCode }, 'warning'); });
 }
 
-module.exports = { report, attach, installGlobalHandlers, logFile };
+module.exports = { report, log, attach, installGlobalHandlers, logFile };

@@ -18,7 +18,8 @@
     "dist:linux": "electron-builder --linux AppImage deb --x64 --publish never"
   },
   "dependencies": {
-    "electron-updater": "6.3.9"
+    "electron-updater": "6.3.9",
+    "uiohook-napi": "1.5.5"
   },
   "devDependencies": {
     "electron": "33.4.11",
@@ -34,7 +35,10 @@
     },
     "files": [
       "src/**/*",
-      "package.json"
+      "package.json",
+      "!**/node_modules/uiohook-napi/libuiohook/**",
+      "!**/node_modules/uiohook-napi/src/**",
+      "!**/node_modules/uiohook-napi/binding.gyp"
     ],
     "extraResources": [
       {
@@ -46,6 +50,7 @@
       }
     ],
     "asar": true,
+    "npmRebuild": false,
     "win": {
       "target": [
         {
@@ -121,6 +126,8 @@
       "depends": [
         "libnotify4",
         "libxtst6",
+        "libxt6",
+        "libxrandr2",
         "libnss3"
       ]
     },

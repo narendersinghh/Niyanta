@@ -7,11 +7,14 @@ the same project/task. Activity (active / idle) comes from keyboard and mouse in
 all screens are taken at the configured interval, with a small notice each time. Everything syncs with the server; the API
 contract is in [`modules/Attendance/AGENT_API.md`](../modules/Attendance/AGENT_API.md).
 
-Electron, plain JavaScript, **no native modules** (it builds on any CI runner without a compiler).
+Electron, plain JavaScript. One native module, [`uiohook-napi`](https://github.com/SnosMe/uiohook-napi) (global keyboard and
+mouse hook for real activity levels): it is N-API and ships prebuilt binaries for win32-x64, darwin-x64/arm64 and linux-x64,
+so nothing is compiled (`build.npmRebuild` is `false`; electron-builder unpacks the `.node` file from the asar automatically).
+If it cannot load or run on a computer, the app falls back to the system idle time (see *Activity and idle*).
 
 ```
-src/main/      main.js (lifecycle, tray, window, IPC, auto-launch), tracker.js (state machine, activity, heartbeats,
-               screenshots, power events), api.js (HTTP client), queue.js (offline queue), capture.js (screenshots),
+src/main/      main.js (lifecycle, tray, window, IPC, auto-launch), tracker.js (state machine, activity slots, idle,
+               heartbeats, screenshots, power events), activity.js (keyboard/mouse input hook or idle-time fallback), api.js (HTTP client), queue.js (offline queue), capture.js (screenshots),
                toast.js (capture notice), store.js (prefs + encrypted token), errors.js (error reporting),
                updater.js (electron-updater against the workspace)
 src/preload/   contextIsolation bridge (window.tracker) and the notice window bridge
@@ -28,7 +31,11 @@ npm install
 npm start                      # opens the app; sign in with your workspace URL, email and password
 npm run check                  # node --check on every JS file
 NIYANTA_TRACKER_PROFILE=/tmp/tracker-2 npm start   # a second, separate profile (another user)
+NIYANTA_NO_INPUT_HOOK=1 npm start                  # force the idle-time fallback (no input hook)
 ```
+
+The activity source in use (and why the fallback is used) is written to `userData/logs/tracker.log`
+(`activity source: input hook ...` or `activity source: system idle time ... (reason)`).
 
 `http://localhost` / `127.0.0.1` workspaces are allowed for development; any other address must be `https://`.
 
@@ -90,10 +97,14 @@ first time). To sign in CI add these repository secrets; the workflow passes the
 ## Permissions per OS
 
 - **macOS**: *Screen Recording* (System Settings › Privacy & Security › Screen Recording) is needed for screenshots; the app
-  detects a missing permission and links to the right pane. Idle detection needs no permission. Launch at login uses Login Items.
+  detects a missing permission and links to the right pane. *Accessibility* (Privacy & Security › Accessibility) is needed for
+  keyboard and mouse counts: the app asks once; until it is granted the activity comes from the system idle time (no counts)
+  and the hook starts by itself within a minute of granting it. Launch at login uses Login Items.
 - **Windows**: no special permission. Launch at login uses the Run registry key of the current user.
-- **Linux (X11)**: works out of the box. **Wayland**: screen capture goes through the desktop portal and may ask every time
-  (or be unavailable on some compositors); idle time may read as 0 on some Wayland sessions. Launch at login writes
+- **Linux (X11)**: works out of the box (the hook needs libX11, libXtst, libXt and libXrandr, listed as .deb dependencies).
+  **Wayland**: the input hook is not used (it would only see X11 apps), activity comes from the system idle time, which may
+  read as 0 on some Wayland sessions; screen capture goes through the desktop portal and may ask every time (or be
+  unavailable on some compositors). Launch at login writes
   `~/.config/autostart/niyanta-tracker.desktop`. Without a keychain service (gnome-keyring / kwallet) the device token is
   stored unencrypted in the user's profile (file mode 600). The capture notice uses a plain window on Linux (no transparency).
 
@@ -103,7 +114,7 @@ first time). To sign in CI add these repository secrets; the workflow passes the
   People see and disconnect devices on Time Tracking › Connected devices. Same lockout and rate limits as the web sign-in.
 - **State machine**: the server is the source of truth; the app applies actions optimistically and sends them with their time
   (`at`). Retries never double-book (the server's actions are idempotent).
-- **Offline**: actions, heartbeats, idle answers, screenshots and error reports go into a persisted queue
+- **Offline**: actions, heartbeats (with idle spans), activity slots, screenshots and error reports go into a persisted queue
   (`userData/queue.json`, screenshots in `userData/pending/`) and are retried with exponential backoff. If the computer is
   offline for more than 10 minutes the server stops the entry at the last sync; the app tells the person and resumes when back.
   Queued heartbeats keep their time and are merged only while contiguous, so a gap is never counted.
@@ -111,13 +122,22 @@ first time). To sign in CI add these repository secrets; the workflow passes the
   server closes the running entry and the old day at 00:00 and continues on the same project/task in the new day (the app sends
   a heartbeat at once; no click needed). Asleep across midnight: the old entry ends at its last heartbeat and tracking resumes
   in the new day on waking. Paused at midnight: the old day ends; Start begins the new one.
-- **Activity and idle**: `powerMonitor.getSystemIdleTime()` every second. After the workspace's idle threshold (`idle_minutes`)
-  without input an idle span opens at the last input; the timer keeps running and the chip shows *Idle*. When the person is
-  back, the window comes to the front (plus a notification that opens it) with "You were idle for 14 min (2:10 pm to 2:24 pm).
-  Keep or discard this time?". Tracking continues while the question is open; spans that pile up before an answer are merged
-  into one prompt. Discard removes exactly those spans on the server (`/api/agent/idle` with the spans' times); Keep counts them
-  as worked (still reported as idle). Nothing is detected while paused; an idle span still open when tracking pauses (e.g. screen
-  locked) ends at the pause.
+- **Activity**: a second counts as active when there was keyboard or mouse input in it. With the input hook (Windows, macOS
+  with Accessibility, Linux X11) the app also counts keystrokes (key presses, auto-repeat ignored) and mouse events (clicks,
+  wheel, moves at most 4 per second), never which keys or where; otherwise (fallback) `powerMonitor.getSystemIdleTime()` is
+  read every second, active when the last input was at most 1 s ago, and the counts are unknown. If the hook stops reporting
+  input while the system still sees input for 30 s, the app switches to the fallback. Seconds are summed per **slot** = the
+  screenshot interval (`screenshot_interval_seconds`, e.g. 180 s), counted from the workspace's midnight: activity % =
+  active seconds / tracked seconds of the slot (paused time excluded). Every slot is sent to `/api/agent/activity` (also
+  without screenshots or consent), and the screenshot taken at the end of the slot carries its activity % and counts (the
+  capture notice shows that %). The open slot is saved with the session and continued after a quick restart.
+- **Idle**: after `idle_minutes` without input the person is idle from the last input (the chip shows *Idle*); the timer keeps
+  running and the idle time is saved automatically (heartbeat `idle_seconds` plus the span in `idle_spans`). Back before the
+  maximum: the chip goes back to *Tracking*, nothing is asked. Idle until `idle_auto_pause_minutes` (default 15, from the last
+  input): tracking pauses at last input + 15 min, so those 15 minutes are kept as idle time and nothing after is tracked. When
+  the person is back, the window shows "Tracking paused after 15 min idle. Resume when you are back." with **Resume** (and a
+  system notification when the window is not focused). Nothing is detected while paused; an idle span still open when tracking
+  pauses (e.g. screen locked) ends at the pause.
 - **Power**: locking the screen or sleeping pauses tracking (if the workspace setting is on) and unlocking / waking resumes it.
   Quitting the app while tracking pauses first; a system shutdown or log-out is delayed (Linux/macOS) until that is done.
 - **Crash or power cut**: heartbeats (at most every 60 s) keep the running entry's end on the server, and the app saves locally
@@ -127,8 +147,8 @@ first time). To sign in CI add these repository secrets; the workflow passes the
   the time the computer was off is never counted) and the app shows the normal not-tracking state with a note, so nobody is
   tracked by surprise hours later (Resume, or Start in a new day). The server's stale job does the same if the app never returns.
 - **Screenshots**: only with monitoring enabled, the person's consent (the app shows the notice and records consent via the
-  API before the first capture) and while tracking. All displays, max 1920 px wide, JPEG quality 60, uploaded with the activity
-  percentage of the interval. They are not shown in the app (only the small capture notice, if enabled); people see them on
+  API before the first capture) and while tracking. One capture at the end of each activity slot, all displays, max 1920 px
+  wide, JPEG quality 60, uploaded with that slot's activity percentage, keystrokes and mouse events. They are not shown in the app (only the small capture notice, if enabled); people see them on
   the web (My screenshots).
 - **Errors**: uncaught exceptions, unhandled rejections, failed syncs and capture failures are written to
   `userData/logs/tracker.log` and sent to the workspace error log (Audit log › Error logs, source *desktop*, with the version).
@@ -136,7 +156,7 @@ first time). To sign in CI add these repository secrets; the workflow passes the
 
 ## Privacy
 
-The app records: start/pause times, the chosen project/task, counts of active and idle seconds (never keystrokes, never
-which keys or what is typed, no URLs or window titles), and, only when the workspace enables monitoring and the person accepted
+The app records: start/pause times, the chosen project/task, active and idle seconds, and per slot the number of keystrokes
+and mouse events (counts only: never which keys or what is typed, no mouse positions, no URLs or window titles), and, only when the workspace enables monitoring and the person accepted
 the notice, screenshots while tracking. People can see all of it in the web app (Time Tracking, Timesheets, My screenshots),
 revoke screenshot consent at any time, and screenshots are deleted after the workspace's retention period.

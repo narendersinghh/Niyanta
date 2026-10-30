@@ -88,6 +88,7 @@
     const b = [];
     if (ui.notice && ui.notice.id !== noticeShown) {
       b.push(banner(ui.notice.kind === 'error' ? 'error' : 'info', esc(ui.notice.text), `<button class="btn" data-dismiss="${ui.notice.id}">OK</button>`)); }
+    if (ui.idlePause && ui.idlePause.back && st.state === 'paused') b.push(banner('info', `${icon('coffee', 'sm')} Tracking paused after ${+ui.idlePause.minutes} min idle. Resume when you are back.`, '<button class="btn" data-resume>Resume</button>'));
     if (ui.offline) b.push(banner('warn', `${icon('cloud-off', 'sm')} <b>Offline.</b> Your actions are saved and sync automatically. Without a connection for 10 minutes, time is not counted.`));
     const up = ui.update;
     if (up && up.ready) b.push(banner('ok', `Update ready, restart to install version <b>${esc(up.readyVersion)}</b>. It also installs when you quit.`, '<button class="btn" data-install-update>Restart</button>'));
@@ -97,10 +98,12 @@
     if (ui.consent && ui.consent.needed && st.state === 'tracking' && modalKind !== 'consent') b.push(banner('warn', 'Screen monitoring is on in your workspace. Please review the notice.', '<button class="btn" data-consent>Review</button>'));
     $('banners').innerHTML = b.join(''); }
 
-  /** One quiet line about screen monitoring (screenshots themselves are never shown in the app). */
+  /** One quiet line about screen monitoring (screenshots themselves are never shown in the app) and the last activity level. */
   function renderMonitoring() {
     const m = ui.monitoring || {};
-    $('mon-info').innerHTML = !ui.settings.screenshots_enabled ? '' : (m.on ? `${icon('camera', 'sm')} Screenshots every ${esc(every(m.interval))} while tracking` : `${icon('camera', 'sm')} Screen monitoring is on: please review the notice`); }
+    const a = ui.activity && ui.activity.last && ui.state && ui.state.state === 'tracking' ? `Activity ${+ui.activity.last.pct}% (last ${esc(every(ui.activity.last.seconds))})` : '';
+    const mon = !ui.settings.screenshots_enabled ? '' : (m.on ? `${icon('camera', 'sm')} Screenshots every ${esc(every(m.interval))} while tracking` : `${icon('camera', 'sm')} Screen monitoring is on: please review the notice`);
+    $('mon-info').innerHTML = [mon, a].filter(Boolean).join(' · '); }
 
   function renderSheet() {
     if (!ui || ui.screen !== 'tracker') { $('sheet').classList.add('hide'); return; }
@@ -110,7 +113,8 @@
     $('p-notify-hint').textContent = ui.prefs.notifyAllowed ? 'Show a small notice each time a screenshot is taken.' : 'Your administrator keeps this notice on for everyone.';
     const m = ui.monitoring || {};
     $('p-monitor').textContent = !ui.settings.screenshots_enabled ? 'Screenshots are off in your workspace. Only your tracked time and activity level (not what you type) are recorded.'
-      : (ui.consent.given ? `Screenshots of all screens every ${every(m.interval)} while tracking. You can see them in the web app and revoke consent there.` : 'Screenshots are on in your workspace, but you have not accepted the notice yet.');
+      : (ui.consent.given ? `Screenshots of all screens every ${every(m.interval)} while tracking. You can see them in the web app and revoke consent there.` : 'Screenshots are on in your workspace, but you have not accepted the notice yet.')
+      + (ui.activity && ui.activity.source ? (ui.activity.counting ? ' Activity is measured from keyboard and mouse input (counts only, never what you type).' : ' Activity is measured from the system idle time (keyboard and mouse counts are not available on this computer).') : '');
     $('p-perm').classList.toggle('hide', ui.platform !== 'darwin');
     $('p-version').textContent = ui.version;
     const up = ui.update;
@@ -120,27 +124,16 @@
     $('p-account').textContent = ui.account ? `${ui.account.name} · ${ui.account.workspace.url}${ui.prefs.tokenProtected ? ' · sign-in stored in the system keychain' : ''}` : ''; }
 
   function renderModal() {
-    let kind = null;
-    if (ui.screen === 'tracker' && ui.idlePrompt) kind = 'idle';
-    else if (ui.screen === 'tracker' && ui.consent && ui.consent.needed && (modalKind === 'consent' || (ui.state && ui.state.state === 'tracking' && !consentLater))) kind = 'consent';
+    const kind = ui.screen === 'tracker' && ui.consent && ui.consent.needed && (modalKind === 'consent' || (ui.state && ui.state.state === 'tracking' && !consentLater)) ? 'consent' : null;
     modalKind = kind;
     $('modal').classList.toggle('hide', !kind);
     if (!kind) return;
-    if (kind === 'idle') {
-      const p = ui.idlePrompt;
-      const mins = Math.max(1, Math.round(p.seconds / 60));
-      $('m-art').innerHTML = `<div class="bubble">${icon('coffee')}</div>`;
-      $('m-title').textContent = 'Welcome back!';
-      $('m-body').className = 'm-body center';
-      $('m-body').innerHTML = `<p>You were idle for <b>${mins < 60 ? mins + ' min' : hm(p.seconds)}</b> (${esc(time(p.from))} to ${esc(time(p.to))})${p.count > 1 ? ` in ${p.count} periods` : ''}. Keep or discard this time?</p><p class="note">Tracking continues while you decide. Discard removes exactly this idle time from your tracked time.</p>`;
-      $('m-actions').innerHTML = '<button class="btn ghost" data-idle="keep">Keep</button><button class="btn primary" data-idle="discard">Discard</button>';
-    } else {
-      const p = ui.consent.policy || { points: [] };
-      $('m-art').innerHTML = `<div class="bubble lav">${icon('shield')}</div>`;
-      $('m-title').textContent = p.title || 'Screen monitoring notice';
-      $('m-body').className = 'm-body';
-      $('m-body').innerHTML = `<p>Your workspace uses screenshots while you track time (policy ${esc(p.version)}):</p><ul>${p.points.map(x => `<li>${esc(x)}</li>`).join('')}</ul>`;
-      $('m-actions').innerHTML = '<button class="btn ghost" data-consent-later>Not now</button><button class="btn primary" data-consent-accept>I accept</button>'; } }
+    const p = ui.consent.policy || { points: [] };
+    $('m-art').innerHTML = `<div class="bubble lav">${icon('shield')}</div>`;
+    $('m-title').textContent = p.title || 'Screen monitoring notice';
+    $('m-body').className = 'm-body';
+    $('m-body').innerHTML = `<p>Your workspace uses screenshots while you track time (policy ${esc(p.version)}):</p><ul>${p.points.map(x => `<li>${esc(x)}</li>`).join('')}</ul>`;
+    $('m-actions').innerHTML = '<button class="btn ghost" data-consent-later>Not now</button><button class="btn primary" data-consent-accept>I accept</button>'; }
 
   /* ---------- live clock ---------- */
 
@@ -196,7 +189,7 @@
     if (t.dataset.dismiss) { noticeShown = +t.dataset.dismiss; renderBanners(ui.state || {}); }
     if (t.dataset.open) T.open(t.dataset.open);
     if ('installUpdate' in t.dataset) { t.disabled = true; T.installUpdate(); }
-    if (t.dataset.idle) T.answerIdle(t.dataset.idle);
+    if ('resume' in t.dataset) T.resume(currentSel());
     if ('consent' in t.dataset) { consentLater = false; modalKind = 'consent'; renderModal(); }
     if ('consentLater' in t.dataset) { consentLater = true; modalKind = null; renderModal(); renderBanners(ui.state || {}); }
     if ('consentAccept' in t.dataset) { t.disabled = true; T.acceptConsent().then(() => { modalKind = null; }); } });

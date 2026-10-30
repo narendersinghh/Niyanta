@@ -45,7 +45,8 @@ abstract class BaseController extends Controller {
     $next = date('Y-m-d', strtotime($date.' +1 day'));
     $rows = \Core\DB::all('SELECT te.*, p.name AS project_name, p.color AS project_color, t.title AS task_title FROM time_entries te LEFT JOIN projects p ON p.id=te.project_id LEFT JOIN tasks t ON t.id=te.task_id WHERE te.user_id=? AND te.started_at>=? AND te.started_at<? ORDER BY te.started_at', [$uid, $date.' 00:00:00', $next.' 00:00:00']);
     $att = \Core\DB::first('SELECT clock_in, clock_out, break_seconds FROM attendance WHERE user_id=? AND work_date=? LIMIT 1', [$uid, $date]);
-    $act = \Core\DB::value('SELECT AVG(activity_pct) FROM screenshots WHERE user_id=? AND taken_at>=? AND taken_at<? AND activity_pct IS NOT NULL', [$uid, $date.' 00:00:00', $next.' 00:00:00']);
+    $slots = \Core\DB::first('SELECT SUM(slot_seconds) AS s, SUM(active_seconds) AS a FROM activity_slots WHERE user_id=? AND slot_start>=? AND slot_start<?', [$uid, $date.' 00:00:00', $next.' 00:00:00']);
+    $act = (int) ($slots['s'] ?? 0) ? 100 * (int) $slots['a'] / (int) $slots['s'] : \Core\DB::value('SELECT AVG(activity_pct) FROM screenshots WHERE user_id=? AND taken_at>=? AND taken_at<? AND activity_pct IS NOT NULL', [$uid, $date.' 00:00:00', $next.' 00:00:00']);
     $total = 0; $idle = 0; $first = null; $last = null;
     foreach ($rows as &$r) {
       $r['dur'] = \Modules\Attendance\Services\TimeService::elapsed($r);
