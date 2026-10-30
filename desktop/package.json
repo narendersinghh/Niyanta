@@ -94,7 +94,7 @@
       "notarize": false
     },
     "dmg": {
-      "title": "Niyanta Tracker ${version}"
+      "title": "Niyanta Tracker ${version}${arch}"
     },
     "linux": {
       "target": [
