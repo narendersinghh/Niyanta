@@ -1,5 +1,5 @@
 <?php
-use Modules\Attendance\Controllers\{AgentController, AttendanceController, ScreenshotController, SettingsController, TimeController, TimesheetController};
+use Modules\Attendance\Controllers\{AgentController, AttendanceController, HubController, ScreenshotController, SettingsController, TimeController, TimesheetController};
 use Modules\Attendance\Services\{AttendanceService, DesktopApp, Monitoring, TimeService, Widgets};
 
 return [
@@ -13,8 +13,8 @@ return [
     'attendance.screenshots.view' => ['label' => 'View monitoring screenshots of team', 'roles' => []],
   ],
   'nav' => [
-    ['label' => 'Time Tracking', 'icon' => 'timer', 'color' => '#F5A524', 'url' => '/time', 'perm' => 'attendance.track', 'section' => 'main', 'order' => 3],
-    ['label' => 'Timesheets', 'icon' => 'calendar', 'color' => '#2E9BF6', 'url' => '/timesheets', 'perm' => ['attendance.track', 'attendance.timesheets.approve'], 'section' => 'work', 'order' => 3],
+    ['label' => 'Time Tracking', 'icon' => 'timer', 'color' => '#F5A524', 'url' => '/time', 'also' => ['/timesheets'], 'perm' => 'attendance.track', 'section' => 'main', 'order' => 3],
+    ['label' => 'Team Time', 'icon' => 'calendar', 'color' => '#2E9BF6', 'url' => '/timesheets/approvals', 'perm' => 'attendance.timesheets.approve', 'hide_if' => 'attendance.track', 'section' => 'work', 'order' => 3],
     ['label' => 'My Attendance', 'icon' => 'clock', 'color' => '#FF6F59', 'url' => '/attendance', 'perm' => 'attendance.track', 'section' => 'me', 'order' => 2],
     ['label' => 'Team Attendance', 'icon' => 'activity', 'color' => '#2E9BF6', 'url' => '/attendance/team', 'perm' => 'attendance.view_all', 'section' => 'hr', 'order' => 2],
   ],
@@ -37,12 +37,14 @@ return [
     $r->post('/time/consent', [TimeController::class, 'consent'], $t);
     $r->post('/time/consent/revoke', [TimeController::class, 'revokeConsent'], $t);
     $r->post('/time/tokens/{id}/revoke', [TimeController::class, 'revokeToken'], $t);
+    $r->get('/time/daily', [HubController::class, 'daily'], ['attendance.track', 'attendance.view_all']);
+    $r->get('/time/monthly', [HubController::class, 'monthly'], ['attendance.track', 'attendance.view_all']);
     $r->get('/time/screenshots', [ScreenshotController::class, 'index'], ['attendance.track', 'attendance.screenshots.view']);
     $r->get('/time/screenshots/{id}/image', [ScreenshotController::class, 'image'], ['attendance.track', 'attendance.screenshots.view']);
     $r->get('/timesheets', [TimesheetController::class, 'index'], $ts);
     $r->post('/timesheets/resubmit', [TimesheetController::class, 'resubmit'], $t);
     $r->get('/timesheets/approvals', [TimesheetController::class, 'approvals'], 'attendance.timesheets.approve');
-    $r->get('/timesheets/user/{user_id}', [TimesheetController::class, 'person'], 'attendance.timesheets.approve');
+    $r->get('/timesheets/user/{user_id}', [TimesheetController::class, 'person'], ['attendance.timesheets.approve', 'attendance.view_all']);
     $r->get('/timesheets/{id}', [TimesheetController::class, 'show'], $ts);
     $r->post('/timesheets/{id}/approve', [TimesheetController::class, 'approve'], 'attendance.timesheets.approve');
     $r->post('/timesheets/{id}/reject', [TimesheetController::class, 'reject'], 'attendance.timesheets.approve');
@@ -78,5 +80,7 @@ return [
     'screenshot_cleanup' => ['feature' => 'attendance', 'daily' => '03:40', 'run' => [Monitoring::class, 'cleanup']],
     'tracker_mirror' => ['feature' => 'attendance', 'every' => 30, 'run' => [DesktopApp::class, 'cron']],
   ],
+  'topbar' => static fn (array $user): string => feature_on('attendance') && Core\Gate::allows('attendance.track', $user) && ($run = Modules\Attendance\Services\TimeService::running((int) $user['id'])) ? Core\View::partial('attendance::partials/topbar_live', ['run' => $run]) : '',
+  'global_scripts' => ['js/tt-live.js' => ['perm' => 'attendance.track', 'feature' => 'attendance']],
   'file_access' => [],
 ];

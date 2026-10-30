@@ -12,7 +12,7 @@ final class RoleController extends Controller {
     /* Permissions of switched-off features are hidden; their grants are kept through hidden inputs. */
     $byModule = []; $kept = [];
     foreach ($perms as $p) { if (\Core\Features::permEnabled($p['key']) && (!str_starts_with($p['key'], 'ai.') || feature_on('ai'))) { $byModule[$p['module']][] = $p; } else { $kept[] = $p['key']; } }
-    return $this->view('admin::roles/index', ['title' => 'Roles & Access', 'roles' => $roles, 'byModule' => $byModule, 'kept' => $kept, 'grants' => $grants, 'modules' => Modules::all(), 'styles' => ['css/admin.css'], 'scripts' => ['js/admin.js']]); }
+    return $this->view('admin::roles/index', ['title' => 'Roles & permissions', 'roles' => $roles, 'byModule' => $byModule, 'kept' => $kept, 'grants' => $grants, 'modules' => Modules::all(), 'styles' => ['css/admin.css'], 'scripts' => ['js/admin.js']]); }
 
   public function store(): Response {
     $d = $this->validate(['name' => 'required|max:100', 'description' => 'nullable|max:255']);

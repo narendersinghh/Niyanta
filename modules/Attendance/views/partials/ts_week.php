@@ -26,7 +26,7 @@ $range = fdate($ws, 'd M').' - '.fdate($we, 'd M Y');
     <?php if ($ws < $thisWeek): ?><a class="btn icon ghost" href="<?= e(url($nav.$sep.'week='.$next)) ?>" aria-label="Next week" title="Next week"><?= icon('chevron-right', 'sm') ?></a><?php endif ?>
   </div>
   <div class="ts-tools">
-    <?php if ($s['total'] || $ts): ?><span class="st<?= $rejected ? ' rej' : '' ?>"><?= icon($rejected ? 'alert' : 'check-circle', 'sm') ?> <?= $rejected ? 'Rejected' : 'Approved' ?></span><?php endif ?>
+    <?php if (($s['total'] || $ts) && ($rejected || !$own)): ?><span class="st<?= $rejected ? ' rej' : '' ?>"><?= icon($rejected ? 'alert' : 'check-circle', 'sm') ?> <?= $rejected ? 'Rejected' : 'Approved' ?></span><?php endif ?>
     <form method="get" action="<?= e(url(strtok($nav, '?'))) ?>"><input type="date" name="week" value="<?= e($ws) ?>" max="<?= e(date('Y-m-d')) ?>" data-autosubmit aria-label="Jump to week"></form>
     <?php if ($ws !== $thisWeek): ?><a class="btn sm ghost" href="<?= e(url($nav)) ?>">This week</a><?php endif ?>
   </div>
@@ -41,18 +41,19 @@ $range = fdate($ws, 'd M').' - '.fdate($we, 'd M Y');
   <?php if ($own && !$locked): ?><form method="post" action="<?= e(url('/timesheets/resubmit')) ?>" data-confirm="Resubmit this week? It will be approved again automatically."><?= csrf_field() ?><input type="hidden" name="week" value="<?= e($ws) ?>"><button class="btn primary"><?= icon('send', 'sm') ?> Resubmit</button></form><?php endif ?>
   <?php if ($canReview && !$locked): ?><form method="post" action="<?= e(url('/timesheets/'.$ts['id'].'/approve')) ?>"><?= csrf_field() ?><button class="btn mint"><?= icon('check', 'sm') ?> Approve</button></form><?php endif ?>
 </div>
-<?php elseif ($ts || $s['total']): ?>
+<?php elseif (($ts || $s['total']) && (!$own || ($ts && $ts['reviewed_by']))): ?>
 <div class="ts-banner ok">
   <span class="ic-wrap"><?= icon('check-circle', 'sm') ?></span>
   <div class="grow"><?php if ($ts && $ts['reviewed_by']): ?><b>Approved by <?= e($ts['reviewer'] ?? 'a reviewer') ?> on <?= e(fdatetime($ts['reviewed_at'])) ?></b><p><?= $ts['review_note'] ? e($ts['review_note']) : 'Entries count toward payroll and billing.' ?></p>
-    <?php else: ?><b>Approved automatically</b><p><?= $own ? 'Every entry counts as approved as soon as it is saved. Your manager can still reject the week if something needs fixing.' : 'Entries were approved as they were logged. Reject the week if something needs fixing.' ?></p><?php endif ?></div>
+    <?php else: ?><b>Approved automatically</b><p>Entries were approved as they were logged. Reject the week if something needs fixing.</p><?php endif ?></div>
   <?php if ($canReview && $ts && !$locked): ?><button type="button" class="btn danger" data-modal="reject-dialog" data-reject-url="<?= e(url('/timesheets/'.$ts['id'].'/reject')) ?>" data-reject-name="<?= e($person['name'].', '.$range) ?>"><?= icon('x', 'sm') ?> Reject week</button><?php endif ?>
 </div>
+<?php elseif ($ts || $s['total']): ?>
 <?php else: ?>
-<div class="ts-banner info"><span class="ic-wrap"><?= icon('clock', 'sm') ?></span><div class="grow"><b>Nothing tracked yet</b><p><?= $own ? 'Start the timer or add time. Everything you log is approved automatically.' : $first.' has not logged time in this week.' ?></p></div></div>
+<div class="ts-banner info"><span class="ic-wrap"><?= icon('clock', 'sm') ?></span><div class="grow"><b>Nothing tracked yet</b><p><?= $own ? 'Track your time with the Niyanta Tracker desktop app, or add time manually.' : $first.' has not logged time in this week.' ?></p></div></div>
 <?php endif ?>
 <?php if ($locked): ?><div class="ts-banner warn"><span class="ic-wrap"><?= icon('lock', 'sm') ?></span><div class="grow"><b>Payroll is finalized for this period</b><p>This week is read-only. Ask HR if something must change.</p></div></div><?php endif ?>
-<?php if ($s['running']): ?><div class="ts-banner info"><span class="ic-wrap"><?= icon('timer', 'sm') ?></span><div class="grow"><b>A timer is running in this week</b><p>Its time is shown live and is approved when the timer stops.</p></div></div><?php endif ?>
+<?php if ($s['running']): ?><div class="ts-banner info"><span class="ic-wrap"><?= icon('timer', 'sm') ?></span><div class="grow"><b>A timer is running in this week</b><p>Its time is shown live and counted when tracking pauses.</p></div></div><?php endif ?>
 
 <div class="grid g4 mb">
   <div class="tile bg-lav"><span class="tile-ic"><?= icon('clock') ?></span><div><div class="num"><?= e($h1($s['total'])) ?><small class="tile-unit">h</small></div><div class="lbl">Total tracked · <?= e(hours($s['total'])) ?></div></div></div>

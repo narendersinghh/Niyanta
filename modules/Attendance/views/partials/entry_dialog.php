@@ -2,7 +2,7 @@
 <dialog class="modal" id="entry-dialog"><form method="post" action="<?= e(url('/time/entries')) ?>" data-entry-form data-new-action="<?= e(url('/time/entries')) ?>"><?= csrf_field() ?>
   <div class="modal-head"><h3 data-entry-title>Add time</h3><button type="button" class="btn icon sm ghost" data-close aria-label="Close"><?= icon('x', 'sm') ?></button></div>
   <div class="modal-body form">
-    <p class="small muted mb0">Saved time is approved automatically. You can change the current and previous week.</p>
+    <p class="small muted mb0">You can add or change time in the current and previous week.</p>
     <div class="form-grid g3">
       <div class="field"><label>Date *</label><input type="date" name="date" value="<?= e($date ?? date('Y-m-d')) ?>" max="<?= e(date('Y-m-d')) ?>" required></div>
       <div class="field"><label>Start *</label><input type="time" name="start_time" required></div>

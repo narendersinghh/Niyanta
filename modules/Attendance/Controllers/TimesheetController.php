@@ -14,9 +14,13 @@ final class TimesheetController extends BaseController {
   public function index(): Response {
     $u = $this->user();
     $ws = $this->weekParam();
+    if (($other = $this->request->int('user')) && $other !== (int) $u['id']) { return $this->redirect('/timesheets/user/'.$other.'?week='.$ws); }
     $recent = DB::all('SELECT t.week_start, t.total_seconds, t.billable_seconds, t.status FROM timesheets t WHERE t.user_id=? ORDER BY t.week_start DESC LIMIT 8', [$u['id']]);
     $rejected = $this->can('attendance.timesheets.approve') ? $this->rejectedCount($u) : 0;
-    return $this->view('attendance::timesheets/index', ['title' => 'Timesheets', 'recent' => $recent, 'rejectedTeam' => $rejected, 'projects' => T::projects($u)] + $this->weekView($u, $ws, true)); }
+    return $this->view('attendance::timesheets/index', ['title' => 'Timesheets', 'recent' => $recent, 'rejectedTeam' => $rejected, 'projects' => T::projects($u), 'people' => $this->peers()] + $this->weekView($u, $ws, true)); }
+
+  /** Team members the viewer may switch to in the Weekly tab (attendance.view_all or approvers), self included. */
+  private function peers(): array { return $this->can('attendance.view_all') || $this->can('attendance.timesheets.approve') ? Team::people($this->user(), true) : []; }
 
   /** Owner resubmits a rejected week after fixing it: approved again automatically. */
   public function resubmit(): Response {
@@ -55,9 +59,9 @@ final class TimesheetController extends BaseController {
     $u = $this->user();
     if ($userId === (int) $u['id']) { return $this->redirect('/timesheets?week='.$this->weekParam()); }
     $p = DB::first('SELECT id, name, avatar, designation, manager_id FROM users WHERE id=? LIMIT 1', [$userId]) ?? $this->abort(404, 'Person not found.');
-    if (!($this->can('attendance.timesheets.approve') && Team::includes($u, $userId))) { Audit::log('access.denied', 'user', $userId, ['area' => 'timesheets']); $this->abort(403, 'You cannot view this timesheet.'); }
+    if (!(($this->can('attendance.timesheets.approve') || $this->can('attendance.view_all')) && Team::includes($u, $userId))) { Audit::log('access.denied', 'user', $userId, ['area' => 'timesheets']); $this->abort(403, 'You cannot view this timesheet.'); }
     $ws = $this->weekParam();
-    return $this->view('attendance::timesheets/show', ['title' => 'Timesheet: '.$p['name']] + $this->weekView($p, $ws, false)); }
+    return $this->view('attendance::timesheets/show', ['title' => 'Timesheet: '.$p['name'], 'people' => $this->peers()] + $this->weekView($p, $ws, false)); }
 
   public function show(int $id): Response {
     $t = DB::first('SELECT user_id, week_start FROM timesheets WHERE id=? LIMIT 1', [$id]) ?? $this->abort(404, 'Timesheet not found.');

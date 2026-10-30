@@ -1,23 +1,20 @@
 <?php
 namespace Modules\Attendance\Controllers;
 use Core\{Audit, DB, Response, Storage};
-use Modules\Attendance\Services\{Monitoring, Team};
+use Modules\Attendance\Services\Monitoring;
 
 /** Screenshot gallery and private image serving (owner, or permitted team lead). Captures arrive from the desktop tracker API. */
 final class ScreenshotController extends BaseController {
+  /** One day of screenshots grouped by hour and 10-minute slot, with the day summary. */
   public function index(): Response {
-    $u = $this->user();
-    $target = $this->request->int('user', (int) $u['id']);
-    if (!Monitoring::canView($u, $target)) { Audit::log('access.denied', 'screenshot', null, ['owner' => $target]); $this->abort(403, 'You cannot view this person\'s screenshots.'); }
-    $date = $this->dateParam('date', '');
-    $sql = 'SELECT s.id, s.taken_at, s.source, s.activity_pct, s.display_index, p.name AS project_name, te.description FROM screenshots s LEFT JOIN time_entries te ON te.id=s.time_entry_id LEFT JOIN projects p ON p.id=te.project_id WHERE s.user_id=?';
-    $p = [$target];
-    if ($date !== '') { $sql .= ' AND s.taken_at>=? AND s.taken_at<?'; array_push($p, $date.' 00:00:00', date('Y-m-d', strtotime($date.' +1 day')).' 00:00:00'); }
-    $page = DB::paginate($sql.' ORDER BY s.taken_at DESC', $p, 24);
-    $people = $this->can('attendance.screenshots.view') ? Team::people($u, true) : [];
-    if ($target !== (int) $u['id']) { Audit::log('monitoring.view', 'user', $target, ['date' => $date]); }
-    return $this->view('attendance::screenshots/index', ['title' => 'Screenshots', 'p' => $page, 'target' => $target, 'targetName' => DB::value('SELECT name FROM users WHERE id=?', [$target]), 'date' => $date, 'people' => $people,
-      'retention' => Monitoring::retention(), 'enabled' => Monitoring::enabled(), 'styles' => ['css/attendance.css'], 'scripts' => ['js/attendance.js']]); }
+    [$target, $name, $people] = $this->member('attendance.screenshots.view', 'screenshots');
+    $date = min(date('Y-m-d'), $this->dateParam('date', date('Y-m-d')));
+    $rows = DB::all('SELECT s.id, s.taken_at, s.source, s.activity_pct, s.display_index, p.name AS project_name, t.title AS task_title, te.description FROM screenshots s LEFT JOIN time_entries te ON te.id=s.time_entry_id LEFT JOIN projects p ON p.id=te.project_id LEFT JOIN tasks t ON t.id=te.task_id WHERE s.user_id=? AND s.taken_at>=? AND s.taken_at<? ORDER BY s.taken_at, s.display_index LIMIT 3000', [$target, $date.' 00:00:00', date('Y-m-d', strtotime($date.' +1 day')).' 00:00:00']);
+    $hours = [];
+    foreach ($rows as $r) { $t = strtotime($r['taken_at']); $hours[(int) date('G', $t)][intdiv((int) date('i', $t), 10)][] = $r; }
+    if ($target !== $this->uid()) { Audit::log('monitoring.view', 'user', $target, ['date' => $date]); }
+    return $this->view('attendance::screenshots/index', ['title' => 'Screenshots', 'hours' => $hours, 'count' => count($rows), 'date' => $date, 'target' => $target, 'targetName' => $name, 'people' => $people,
+      'retention' => Monitoring::retention(), 'enabled' => Monitoring::enabled(), 'styles' => ['css/attendance.css'], 'scripts' => ['js/attendance.js']] + self::day($target, $date)); }
 
   public function image(int $id): Response {
     $u = $this->user();

@@ -1,10 +1,8 @@
 <?php
-use Modules\Attendance\Services\{DesktopApp, TimeService};
-/* $st (Tracker::state), $app (DesktopApp::latest), $days, $ws, $weekTotal, $tokens, $monitoring, $consent, $policy, $retention, $shotsToday, $ts, $projects */
+use Modules\Attendance\Services\DesktopApp;
+/* $st (Tracker::state), $app (DesktopApp::latest), $tokens, $monitoring, $consent, $policy, $retention, $shotsToday */
 $hms = static fn (int $s): string => sprintf('%02d:%02d:%02d', intdiv($s, 3600), intdiv($s % 3600, 60), $s % 60);
 $size = static fn (int $b): string => $b >= 1048576 ? round($b / 1048576).' MB' : ($b > 0 ? max(1, (int) round($b / 1024)).' KB' : '');
-$prev = date('Y-m-d', strtotime($ws.' -7 days')); $next = date('Y-m-d', strtotime($ws.' +7 days'));
-$isThisWeek = $ws === TimeService::weekStart();
 $run = $st['running']; $tot = $st['totals'];
 $runElapsed = $run ? (int) $run['elapsed'] : 0;
 $chip = ['tracking' => ['dot-in pulse', 'live'], 'paused' => ['dot-break', 'idle'], 'stopped' => ['dot-break', 'idle'], 'ended' => ['dot-done', ''], 'not_started' => ['dot-out', '']][$st['state']];
@@ -13,9 +11,9 @@ $osIc = ['windows' => '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="c
   'linux' => '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2c-2.2 0-3.6 1.8-3.6 4.4 0 1.5-.3 2.4-1.2 3.6C5.9 11.7 5 13.6 5 15.6c0 .5 0 1 .1 1.4-.6.4-1.6.9-1.6 1.8 0 1.2 1.7 1.3 2.8 1.8 1.1.6 1.9 1.4 2.8 1.4.8 0 1.3-.5 1.6-1h2.6c.3.5.8 1 1.6 1 .9 0 1.7-.8 2.8-1.4 1.1-.5 2.8-.6 2.8-1.8 0-.9-1-1.4-1.6-1.8.1-.4.1-.9.1-1.4 0-2-.9-3.9-2.2-5.6-.9-1.2-1.2-2.1-1.2-3.6C15.6 3.8 14.2 2 12 2zm-1.5 4.2c.5 0 .8.6.8 1.2s-.3 1-.8 1-.8-.5-.8-1 .3-1.2.8-1.2zm3 0c.5 0 .8.6.8 1.2s-.3 1-.8 1-.8-.5-.8-1 .3-1.2.8-1.2zM12 9.2c.9 0 2 .5 2 .9s-1.1 1.1-2 1.1-2-.7-2-1.1 1.1-.9 2-.9z"/></svg>'];
 $osIc['deb'] = $osIc['linux'];
 $archLbl = ['arm64' => 'Apple silicon', 'x64' => 'Intel', 'universal' => 'Universal'];
-$actions = '<a class="btn ghost" href="'.e(url('/timesheets?week='.$ws)).'">'.icon('calendar', 'sm').' Timesheet</a>'.($monitoring || $shotsToday ? '<a class="btn ghost" href="'.e(url('/time/screenshots')).'">'.icon('image', 'sm').' My screenshots</a>' : '').'<a class="btn soft" href="#desktop">'.icon('download', 'sm').' Desktop app</a>';
 ?>
-<?= partial('partials/page_head', ['title' => 'Time Tracking', 'subtitle' => 'Your workday is tracked by the Niyanta Tracker desktop app. Here you see your live status, your time and your screenshots.', 'crumbs' => [['Work'], ['Time Tracking']], 'actions' => $actions]) ?>
+<?= partial('attendance::partials/hub', ['tab' => 'tracker', 'title' => 'Time tracking', 'subtitle' => 'Your workday is tracked by the Niyanta Tracker desktop app. Here you see your live status, today\'s time and the app downloads.',
+  'actions' => '<a class="btn soft" href="#desktop">'.icon('download', 'sm').' Desktop app</a>']) ?>
 <div class="grid g-side">
   <div class="stack">
     <div class="tt-card live-card<?= $st['state'] === 'tracking' ? ' running' : '' ?>" data-live-status data-state="<?= e($st['state']) ?>" aria-live="polite">
@@ -29,10 +27,10 @@ $actions = '<a class="btn ghost" href="'.e(url('/timesheets?week='.$ws)).'">'.ic
             <?php elseif ($st['state'] === 'paused'): ?>Paused since <b><?= e(ftime($st['day']['paused_since'])) ?></b>. Resume in the desktop app.
             <?php elseif ($st['state'] === 'stopped'): ?>Your day is open but nothing is being tracked. Is the desktop app running?
             <?php elseif ($st['state'] === 'ended'): ?>Day ended at <b><?= e(ftime($st['day']['clock_out'])) ?></b>. Nice work.
-            <?php else: ?>Not started yet. Open Niyanta Tracker and click <b>Start day</b>.<?php endif ?></div></div>
+            <?php else: ?>Not started yet. Open Niyanta Tracker and click <b>Start</b>.<?php endif ?></div></div>
         <div class="live-entry<?= $run ? '' : ' hide' ?>" data-ls-entry><span class="xs">Current entry</span><b data-tick data-ls-entry-t data-base="<?= $runElapsed ?>"<?= $run ? '' : ' data-paused' ?>><?= e($hms($runElapsed)) ?></b></div>
       </div>
-      <div class="tt-foot"><span><?= icon('monitor', 'sm') ?> Start, pause, switch project and end your day in the Niyanta Tracker app. This view refreshes every 30 seconds.</span><span class="xs" data-ls-updated></span></div>
+      <div class="tt-foot"><span><?= icon('monitor', 'sm') ?> Start, pause and switch projects in the Niyanta Tracker app. Your day closes by itself at midnight. This view refreshes every 30 seconds.</span><span class="xs" data-ls-updated></span></div>
     </div>
 
     <div class="card dl-card" id="desktop">
@@ -60,15 +58,6 @@ $actions = '<a class="btn ghost" href="'.e(url('/timesheets?week='.$ws)).'">'.ic
       </div>
     </div>
 
-    <div class="card wk-card">
-      <div class="card-head"><h3>Week entries</h3>
-        <div class="wk-nav"><a class="btn icon sm ghost" href="<?= e(url('/time?week='.$prev)) ?>" aria-label="Previous week"><?= icon('chevron-left', 'sm') ?></a><span class="range small"><?= e(fdate($ws, 'd M')) ?> - <?= e(fdate(date('Y-m-d', strtotime($ws.' +6 days')), 'd M Y')) ?></span><?php if (!$isThisWeek): ?><a class="btn icon sm ghost" href="<?= e(url('/time?week='.$next)) ?>" aria-label="Next week"><?= icon('chevron-right', 'sm') ?></a><?php endif ?>
-          <span class="pill pill-lav"><?= e(hours($weekTotal + ($isThisWeek ? $runElapsed : 0))) ?></span><?php if ($ts): ?><a href="<?= e(url('/timesheets?week='.$ws)) ?>"><?= $ts['status'] === 'rejected' ? badge('rejected', 'Week rejected') : badge('approved', 'Week approved') ?></a><?php endif ?>
-          <button class="btn sm ghost" data-modal="entry-dialog" data-entry-new><?= icon('plus', 'sm') ?> Add time manually</button></div></div>
-      <?php if ($ts && $ts['status'] === 'rejected'): ?><div class="alert error"><?= icon('alert', 'sm') ?><div class="grow">This week was rejected<?= $ts['review_note'] ? ': <b>'.e($ts['review_note']).'</b>' : '.' ?> Fix the entries, then <a href="<?= e(url('/timesheets?week='.$ws)) ?>"><b>resubmit the week</b></a>.</div></div><?php endif ?>
-      <?= partial('attendance::partials/entries', ['days' => $days, 'ws' => $ws, 'editable' => true]) ?>
-      <p class="xs muted mt mb0"><?= icon('info', 'sm') ?> Time you add by hand is labelled <b>Manual</b>. Like tracked time it is approved automatically and your manager can reject the week.</p>
-    </div>
   </div>
   <div class="stack">
     <div class="card">
@@ -106,4 +95,3 @@ $actions = '<a class="btn ghost" href="'.e(url('/timesheets?week='.$ws)).'">'.ic
     </div>
   </div>
 </div>
-<?= partial('attendance::partials/entry_dialog', ['projects' => $projects]) ?>

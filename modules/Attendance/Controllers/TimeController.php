@@ -10,14 +10,12 @@ use Modules\Attendance\Services\{DesktopApp, Monitoring, Timesheets, Tracker, Ti
 final class TimeController extends BaseController {
   public function index(): Response {
     $u = $this->user(); $uid = (int) $u['id'];
-    $ws = $this->weekParam();
     $tokens = DB::all('SELECT id, name, kind, device_os, app_version, created_at, last_used_at FROM agent_tokens WHERE user_id=? AND revoked_at IS NULL ORDER BY COALESCE(last_used_at, created_at) DESC', [$uid]);
     $shotsToday = Monitoring::enabled() ? (int) DB::value('SELECT COUNT(*) FROM screenshots WHERE user_id=? AND taken_at>=?', [$uid, date('Y-m-d 00:00:00')]) : 0;
-    $weekTotal = (int) DB::value('SELECT COALESCE(SUM(duration_seconds),0) FROM time_entries WHERE user_id=? AND is_running=0 AND started_at>=? AND started_at<?', [$uid, $ws.' 00:00:00', date('Y-m-d', strtotime($ws.' +7 days')).' 00:00:00']);
     $st = Tracker::state($uid);
-    return $this->view('attendance::time/index', ['title' => 'Time Tracking', 'st' => $st, 'projects' => T::projects($u), 'ws' => $ws, 'days' => T::weekEntries($uid, $ws), 'weekTotal' => $weekTotal,
+    return $this->view('attendance::time/index', ['title' => 'Time Tracking', 'st' => $st,
       'monitoring' => Monitoring::enabled(), 'consent' => Monitoring::consent($uid), 'policy' => Monitoring::policy(), 'retention' => Monitoring::retention(), 'shotsToday' => $shotsToday,
-      'tokens' => $tokens, 'ts' => Timesheets::find($uid, $ws), 'app' => DesktopApp::latest(),
+      'tokens' => $tokens, 'app' => DesktopApp::latest(),
       'styles' => ['css/attendance.css'], 'scripts' => ['js/attendance.js']]); }
 
   /** Live status for the page and the dashboard card (polled about every 30 s). */

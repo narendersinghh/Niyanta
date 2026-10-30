@@ -1,5 +1,6 @@
 <?php $colors = ['primary', 'lav', 'mint', 'lemon', 'peach', 'sky', 'pink']; $editable = array_filter($roles, static fn ($r) => $r['slug'] !== 'super_admin'); ?>
-<?= partial('partials/page_head', ['title' => 'Roles & Access', 'subtitle' => 'Granular permissions are enforced on every route on the server. Super Admin always has full access.', 'crumbs' => [['System'], ['Roles & Access']], 'actions' => '<button class="btn primary" data-modal="new-role">'.icon('plus', 'sm').' New role</button>']) ?>
+<?= partial('partials/page_head', ['title' => 'Users & access', 'subtitle' => 'Roles decide what people may do. Permissions are enforced on the server for every page. Super Admin always has full access.', 'crumbs' => [['System'], ['Users & access', '/admin/users'], ['Roles & permissions']], 'actions' => '<button class="btn primary" data-modal="new-role">'.icon('plus', 'sm').' New role</button>']) ?>
+<?= partial('admin::users/_tabs', ['active' => 'roles']) ?>
 <div class="role-cards mb">
 <?php foreach ($roles as $i => $r): ?>
   <div class="card role-card"><span class="ic-chip" style="--c:var(--<?= $colors[$i % 7] ?>)"><?= icon($r['slug'] === 'super_admin' ? 'shield' : 'key') ?></span><div class="grow"><b><?= e($r['name']) ?></b><div class="xs muted"><?= (int) $r['users'] ?> user<?= (int) $r['users'] === 1 ? '' : 's' ?><?= $r['is_system'] ? ' · system role' : '' ?></div></div>

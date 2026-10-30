@@ -233,3 +233,9 @@ input[type=file]::file-selector-button{font:inherit;font-weight:600;font-size:.8
 .err-msg{display:block;overflow-wrap:anywhere;font-size:.92rem}
 .err-body{padding:14px;display:flex;flex-direction:column;gap:12px}
 .err-pre{margin:0;max-height:260px;overflow:auto;background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:12px;font-size:.76rem;white-space:pre-wrap;overflow-wrap:anywhere}
+.set-nav{gap:0;padding:8px;scrollbar-width:none;overscroll-behavior:contain}
+.set-nav::-webkit-scrollbar{width:0;height:0}
+.set-nav:hover{scrollbar-width:thin}
+.set-nav:hover::-webkit-scrollbar{width:6px}
+.set-nav a{padding:5px 10px 5px 5px}
+.set-nav .grp{padding:11px 10px 4px}

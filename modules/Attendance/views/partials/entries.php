@@ -1,7 +1,7 @@
 <?php /* $days (date => entries), $ws, $editable (bool) */
 $srcIc = ['timer' => 'timer', 'manual' => 'edit', 'agent' => 'monitor', 'desktop' => 'monitor'];
 $srcLbl = ['timer' => 'Web timer', 'manual' => 'Manual', 'agent' => 'Agent', 'desktop' => 'Desktop app'];
-if (!$days): ?><?= empty_state('No time logged this week', $editable ? 'Track your day with the Niyanta Tracker desktop app. Tracked time is approved automatically.' : 'Nothing was tracked in this week.', 'clock-worker') ?><?php else: foreach ($days as $d => $list): $sum = 0; foreach ($list as $x) { $sum += \Modules\Attendance\Services\TimeService::elapsed($x); } ?>
+if (!$days): ?><?= empty_state('No time logged this week', $editable ? 'Track your day with the Niyanta Tracker desktop app.' : 'Nothing was tracked in this week.', 'clock-worker') ?><?php else: foreach ($days as $d => $list): $sum = 0; foreach ($list as $x) { $sum += \Modules\Attendance\Services\TimeService::elapsed($x); } ?>
 <div class="day-group">
   <div class="day-head"><b><?= e(fdate($d, 'l, d M')) ?></b><span class="pill pill-gray"><?= e(hours($sum)) ?></span></div>
   <?php foreach ($list as $en): $dur = \Modules\Attendance\Services\TimeService::elapsed($en); ?>

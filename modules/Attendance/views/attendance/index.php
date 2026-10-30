@@ -9,7 +9,7 @@ $leaveOn = feature_on('leave'); /* leave & holidays switched off: such days show
 $off = static fn (string $st): bool => !$leaveOn && in_array($st, ['leave', 'holiday'], true);
 $actions = (can('attendance.view_all') ? '<a class="btn ghost" href="'.e(url('/attendance/team')).'">'.icon('users', 'sm').' Team view</a>' : '').(can('attendance.track') ? '<a class="btn soft" href="'.e(url('/time')).'">'.icon('timer', 'sm').' Time Tracking</a>' : '');
 ?>
-<?= partial('partials/page_head', ['title' => 'Attendance', 'subtitle' => 'Your day starts and ends in the Niyanta Tracker desktop app. Only tracked time counts as worked time.', 'crumbs' => [['People'], ['Attendance']], 'actions' => $actions]) ?>
+<?= partial('partials/page_head', ['title' => 'Attendance', 'subtitle' => 'Your day starts in the Niyanta Tracker desktop app and closes by itself at midnight. Only tracked time counts as worked time.', 'crumbs' => [['People'], ['Attendance']], 'actions' => $actions]) ?>
 <?php if (can('attendance.track')): ?>
 <div class="card hero att-hero mb">
   <div>
@@ -25,7 +25,7 @@ $actions = (can('attendance.view_all') ? '<a class="btn ghost" href="'.e(url('/a
       <div><small>Timer</small><b><?php if ($running): ?><a href="<?= e(url('/time')) ?>"><?= e(str_limit(feature_on('projects') ? ($running['project_name'] ?? 'No project') : 'Tracking', 22)) ?></a><?php else: ?>Off<?php endif ?></b></div>
     </div>
     <div class="flex wrap">
-      <span class="small muted"><?= icon('monitor', 'sm') ?> <?= $state === 'done' ? 'Nice work today'.($today['note'] ? ' · '.e($today['note']) : '').'.' : 'Start, pause and end your day in the Niyanta Tracker app.' ?></span>
+      <span class="small muted"><?= icon('monitor', 'sm') ?> <?= $state === 'done' ? 'Nice work today'.($today['note'] ? ' · '.e($today['note']) : '').'.' : 'Start, pause and resume in the Niyanta Tracker app.' ?></span>
       <a class="btn sm ghost" href="<?= e(url('/time#desktop')) ?>"><?= icon('download', 'sm') ?> Desktop app</a>
     </div>
   </div>

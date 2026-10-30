@@ -431,3 +431,11 @@ html{scrollbar-color:color-mix(in srgb,var(--muted) 45%,transparent) transparent
 .spotlight{--surface:#211F45;--surface-2:#2A2853;--surface-3:#343163;--surface-hi:#2A2853;--text:#F4F3FF;--muted:#B3B0D6;--border:rgba(255,255,255,.1);--lav-s:rgba(167,157,255,.18);--mint-s:rgba(95,220,198,.16);--lemon-s:rgba(247,195,102,.16);--peach-s:rgba(255,155,138,.16);--sky-s:rgba(125,192,251,.16);--pink-s:rgba(247,139,177,.16);--red-s:rgba(248,113,113,.16);--gray-s:rgba(255,255,255,.08);--lav-d:#B7AEFF;--mint-d:#6FE3CE;--lemon-d:#F7C366;--peach-d:#FFA595;--sky-d:#8DC9FB;--pink-d:#F89BBE;--red-d:#FF8F8F;--gray-d:#C9C6E6;background:radial-gradient(120% 90% at 100% 0%,#3A2C8F 0%,transparent 55%),linear-gradient(160deg,#1E1A4A,#141233);color:var(--text);border-color:transparent;box-shadow:0 24px 44px -26px rgba(30,26,74,.9)}
 [data-theme=dark] .spotlight{--surface:#FFFFFF;--surface-2:#F4F3FB;--surface-3:#E9E7F5;--surface-hi:#F1EFFB;--text:#17162E;--muted:#6B6985;--border:#E3E1EF;--lav-s:#EEEBFF;--mint-s:#DDF6F1;--lemon-s:#FFF2DA;--peach-s:#FFEBE7;--sky-s:#E2F0FE;--pink-s:#FDE6EE;--red-s:#FEE9E9;--gray-s:#EFEEF6;--lav-d:#4335D6;--mint-d:#0A8573;--lemon-d:#A16200;--peach-d:#D4432C;--sky-d:#156DBF;--pink-d:#BF2E66;--red-d:#C42626;--gray-d:#5F5D78;background:linear-gradient(160deg,#FFFFFF,#EEEBFF);color:var(--text);box-shadow:0 24px 44px -26px rgba(0,0,0,.8)}
 .spotlight h3,.spotlight h4,.spotlight b{color:var(--text)}
+.tt-live{display:inline-flex;align-items:center;gap:.5rem;height:42px;padding:0 14px 0 12px;border-radius:99px;background:var(--surface);border:1.5px solid color-mix(in srgb,var(--mint) 55%,var(--border));color:var(--text);font-size:.86rem;max-width:240px;white-space:nowrap;transition:box-shadow .15s}
+.tt-live:hover{color:var(--text);box-shadow:0 8px 20px -12px color-mix(in srgb,var(--mint) 80%,transparent)}
+.tt-live b{font-variant-numeric:tabular-nums;font-weight:750}
+.tt-live .tt-what{color:var(--muted);font-weight:600;max-width:110px}
+.tt-dot{width:9px;height:9px;border-radius:50%;background:var(--mint);flex:none;box-shadow:0 0 0 0 color-mix(in srgb,var(--mint) 60%,transparent);animation:ttp 1.8s infinite}
+@keyframes ttp{70%{box-shadow:0 0 0 7px transparent}100%{box-shadow:0 0 0 0 transparent}}
+@media (prefers-reduced-motion:reduce){.tt-dot{animation:none}}
+@media (max-width:900px){.tt-live .tt-what{display:none}}

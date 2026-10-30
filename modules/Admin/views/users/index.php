@@ -2,9 +2,10 @@
 $manage = can('admin.users.manage'); $sa = (user()['role_slug'] ?? '') === 'super_admin';
 $filtered = $f['q'] !== '' || $f['role'] || $f['status'] !== '';
 $colors = ['super_admin' => 'primary', 'manager' => 'lav', 'hr' => 'mint', 'employee' => 'lemon'];
-$actions = ($sa ? '<a class="btn ghost" href="'.e(url('/admin/roles')).'">'.icon('key', 'sm').' Roles & access</a>' : '').($manage ? '<a class="btn primary" href="'.e(url('/admin/users/create')).'">'.icon('user-plus', 'sm').' Add user</a>' : '');
+$actions = ($manage ? '<a class="btn primary" href="'.e(url('/admin/users/create')).'">'.icon('user-plus', 'sm').' Add user</a>' : '');
 ?>
-<?= partial('partials/page_head', ['title' => 'Users', 'subtitle' => 'Everyone who can sign in to your workspace, their role and reporting line.', 'crumbs' => [['System'], ['Users']], 'actions' => $actions]) ?>
+<?= partial('partials/page_head', ['title' => $sa ? 'Users & access' : 'Users', 'subtitle' => 'Everyone who can sign in to your workspace, their role and reporting line'.($sa ? ', and what each role may do.' : '.'), 'crumbs' => [['System'], ['Users & access']], 'actions' => $actions]) ?>
+<?= partial('admin::users/_tabs', ['active' => 'users']) ?>
 <nav class="role-chips" aria-label="Filter by role">
   <a class="role-chip<?= !$f['role'] ? ' on' : '' ?>" href="<?= e(url('/admin/users').query_merge(['role' => null, 'page' => null])) ?>"><span class="ic-chip sm" style="--c:var(--sky)"><?= icon('users', 'sm') ?></span>All <b><?= array_sum(array_column($roleStats, 'n')) ?></b></a>
   <?php foreach ($roleStats as $r): ?><a class="role-chip<?= (int) $f['role'] === (int) $r['id'] ? ' on' : '' ?>" href="<?= e(url('/admin/users').query_merge(['role' => $r['id'], 'page' => null])) ?>"><span class="ic-chip sm" style="--c:var(--<?= e($colors[$r['slug']] ?? 'pink') ?>)"><?= icon($r['slug'] === 'super_admin' ? 'shield' : ($r['slug'] === 'hr' ? 'id-card' : ($r['slug'] === 'manager' ? 'briefcase' : 'user')), 'sm') ?></span><?= e($r['name']) ?> <b><?= (int) $r['n'] ?></b></a><?php endforeach ?>

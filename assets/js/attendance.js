@@ -12,7 +12,7 @@ if(LS.length){const dots={tracking:"dot-in pulse",paused:"dot-break",stopped:"do
 const hm=s=>{s=Math.max(0,+s||0);const h=Math.floor(s/3600),m=Math.floor(s%3600/60);return h?h+"h "+pad(m)+"m":m+"m"};
 const tm=iso=>iso?new Date(iso).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}):"";
 const line=(j,side)=>{const r=j.running;if(r)return(side?(r.device?"On <b>"+esc(r.device)+"</b> · ":""):"Tracking"+(r.device?" on <b>"+esc(r.device)+"</b>":"")+" · ")+"<b>"+esc(r.project||(j.projects===false?"Tracked time":"No project"))+"</b>"+(r.task&&!side?" · "+esc(r.task):"");
-return{paused:side?"Paused in the desktop app":"Paused since <b>"+tm(j.day.paused_since)+"</b>. Resume in the desktop app.",stopped:side?"Day open, not tracking":"Your day is open but nothing is being tracked. Is the desktop app running?",ended:side?"Day ended":"Day ended at <b>"+tm(j.day.clock_out)+"</b>. Nice work.",not_started:side?"Start your day in Niyanta Tracker":"Not started yet. Open Niyanta Tracker and click <b>Start day</b>."}[j.state]||""};
+return{paused:side?"Paused in the desktop app":"Paused since <b>"+tm(j.day.paused_since)+"</b>. Resume in the desktop app.",stopped:side?"Day open, not tracking":"Your day is open but nothing is being tracked. Is the desktop app running?",ended:side?"Day ended":"Day ended at <b>"+tm(j.day.clock_out)+"</b>. Nice work.",not_started:side?"Start your day in Niyanta Tracker":"Not started yet. Open Niyanta Tracker and click <b>Start</b>."}[j.state]||""};
 const paint=j=>LS.forEach(c=>{const run=j.state==="tracking",side=c.classList.contains("side-timer");c.dataset.state=j.state;c.classList.toggle("running",run);
 const ch=$("[data-ls-chip]",c);if(ch){ch.classList.toggle("live",run);ch.classList.toggle("idle",!side&&(j.state==="paused"||j.state==="stopped"));const dt=$(".dotc",ch);if(dt)dt.className="dotc "+dots[j.state]}
 const lb=$("[data-ls-label]",c);if(lb)lb.textContent=j.label;rebase($("[data-ls-total]",c),j.totals.tracked,run);
@@ -43,4 +43,11 @@ $("[data-att-title]",af).textContent=j?"Edit · "+j.name:"Add attendance record"
 /* shared reject dialog: [data-reject-url][data-reject-name] buttons fill the form before core opens the modal */
 const rf=$("[data-reject-form]");
 if(rf)d.addEventListener("click",e=>{const b=e.target.closest("[data-reject-url]");if(!b)return;rf.action=b.dataset.rejectUrl;rf.reset();const n=$("[data-reject-name]",rf);if(n)n.textContent=b.dataset.rejectName||"";setTimeout(()=>{const t=rf.elements.note;if(t)t.focus()},60)},true);
+/* screenshot viewer: [data-shots] cards (JSON list of {src,t,a,d}) open #shot-viewer with prev/next and thumbnails */
+const SV=d.getElementById("shot-viewer");
+if(SV){let L=[],i=0;const img=$("[data-sv-img]",SV),lk=$("[data-sv-link]",SV),mt=$("[data-sv-meta]",SV),th=$("[data-sv-thumbs]",SV);
+const show=n=>{i=(n+L.length)%L.length;const s=L[i];img.src=s.src;img.alt="Screenshot "+s.t;lk.href=s.src;mt.textContent=s.t+(s.d?" · screen "+s.d:"")+(s.a!=null?" · "+s.a+"% activity":"")+" · "+(i+1)+" of "+L.length;$$("button",th).forEach((b,k)=>b.classList.toggle("on",k===i))};
+d.addEventListener("click",e=>{const c=e.target.closest("[data-shots]");if(c){L=JSON.parse(c.dataset.shots);$("[data-sv-title]",SV).textContent=c.dataset.shotsTitle||"Screenshots";th.innerHTML=L.length>1?L.map((s,k)=>'<button type="button" data-sv-go="'+k+'" aria-label="Screenshot '+N().esc(s.t)+'"><img src="'+N().esc(s.src)+'" alt="" loading="lazy"></button>').join(""):"";$$(".sv-prev,.sv-next",SV).forEach(b=>b.hidden=L.length<2);show(0);SV.showModal();return}
+const g=e.target.closest("[data-sv-go]");if(g){show(+g.dataset.svGo);return}const st=e.target.closest("[data-sv-step]");if(st)show(i+ +st.dataset.svStep)});
+SV.addEventListener("keydown",e=>{if(e.key==="ArrowLeft")show(i-1);else if(e.key==="ArrowRight")show(i+1)})}
 })();
