@@ -1,7 +1,7 @@
 {
   "name": "niyanta-tracker",
   "productName": "Niyanta Tracker",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Niyanta desktop time tracker: day tracking, project switching, activity levels and consent-based screenshots synced with your Niyanta workspace.",
   "main": "src/main/main.js",
   "author": "Niyanta",
