@@ -17,7 +17,7 @@ return [
     'projects.reports.approve' => ['label' => 'Review & approve work reports', 'roles' => ['manager']],
   ],
   'nav' => [
-    ['label' => 'My Tasks', 'icon' => 'check-square', 'color' => '#12B5A0', 'url' => '/tasks', 'perm' => 'projects.view', 'section' => 'main', 'order' => 2],
+    ['label' => 'My Tasks', 'icon' => 'check-square', 'color' => '#12B5A0', 'url' => '/tasks', 'perm' => 'projects.view', 'hide_if' => 'todos.use', 'section' => 'main', 'order' => 2],
     ['label' => 'Projects', 'icon' => 'folder', 'color' => '#7C5CFF', 'url' => '/projects', 'perm' => 'projects.view', 'section' => 'work', 'order' => 1],
     ['label' => 'Work Reports', 'icon' => 'clipboard', 'color' => '#F0508A', 'url' => '/work-reports', 'perm' => ['projects.reports.submit', 'projects.reports.approve'], 'section' => 'work', 'order' => 4],
   ],

@@ -14,20 +14,21 @@ final class DemoData {
   public const PASSWORD = 'Demo@12345';
   /** Delete order (children before parents). Primary key column when not "id". */
   private const ORDER = ['notifications', 'task_comments', 'time_entries', 'timesheets', 'attendance', 'work_reports', 'payslips', 'payroll_runs', 'reimbursements', 'pay_components', 'compensations', 'leave_requests', 'holidays',
-    'files', 'company_documents', 'payments', 'invoice_items', 'invoices', 'quotation_items', 'quotations', 'client_activities', 'client_contacts', 'change_requests', 'tasks', 'milestones', 'projects', 'clients', 'tags', 'employee_profiles', 'users'];
+    'files', 'company_documents', 'payments', 'invoice_items', 'invoices', 'quotation_items', 'quotations', 'client_activities', 'client_contacts', 'change_requests', 'tasks', 'milestones', 'projects', 'todos', 'todo_series', 'clients', 'tags', 'employee_profiles', 'users'];
   private const PK = ['employee_profiles' => 'user_id'];
   /** table => [label, icon, colour] for the Demo data page. */
   public const LABELS = ['users' => ['Users', 'users', 'lav'], 'employee_profiles' => ['Employee profiles', 'id-card', 'mint'], 'holidays' => ['Holidays', 'umbrella', 'sky'], 'leave_requests' => ['Leave requests', 'calendar', 'lemon'],
     'company_documents' => ['Company documents', 'book', 'pink'], 'files' => ['Files', 'paperclip', 'sky'], 'clients' => ['Clients', 'briefcase', 'peach'], 'client_contacts' => ['Contacts', 'user', 'peach'], 'client_activities' => ['Journey entries', 'history', 'peach'],
     'tags' => ['Tags', 'tag', 'lav'], 'quotations' => ['Quotations', 'file-text', 'lemon'], 'quotation_items' => ['Quotation lines', 'list', 'lemon'], 'invoices' => ['Invoices', 'receipt', 'mint'], 'invoice_items' => ['Invoice lines', 'list', 'mint'], 'payments' => ['Payments', 'wallet', 'mint'],
     'projects' => ['Projects', 'folder', 'lav'], 'milestones' => ['Milestones', 'flag', 'lav'], 'tasks' => ['Tasks', 'check-square', 'sky'], 'task_comments' => ['Task comments', 'message', 'sky'], 'change_requests' => ['Change requests', 'git', 'pink'], 'work_reports' => ['Work reports', 'clipboard', 'lemon'],
+    'todos' => ['Tasks & routines', 'check-square', 'mint'], 'todo_series' => ['Routines', 'refresh', 'mint'],
     'attendance' => ['Attendance days', 'clock', 'mint'], 'time_entries' => ['Time entries', 'timer', 'mint'], 'timesheets' => ['Timesheets', 'calendar', 'mint'], 'compensations' => ['Compensations', 'wallet', 'pink'], 'pay_components' => ['Pay components', 'sliders', 'pink'],
     'payroll_runs' => ['Payroll runs', 'rupee', 'pink'], 'payslips' => ['Payslips', 'file-text', 'pink'], 'reimbursements' => ['Reimbursements', 'receipt', 'lemon'], 'notifications' => ['Notifications', 'bell', 'sky']];
 
   /** table => feature it belongs to (rows of switched-off features are not listed). */
   public const FEATURE = ['employee_profiles' => 'employees', 'holidays' => 'leave', 'leave_requests' => 'leave', 'company_documents' => 'company_docs', 'clients' => 'clients', 'client_contacts' => 'clients', 'client_activities' => 'clients', 'tags' => 'clients',
     'quotations' => 'quotations', 'quotation_items' => 'quotations', 'invoices' => 'invoices', 'invoice_items' => 'invoices', 'payments' => 'invoices', 'projects' => 'projects', 'milestones' => 'projects', 'tasks' => 'projects', 'task_comments' => 'projects',
-    'change_requests' => 'projects', 'work_reports' => 'work_reports', 'attendance' => 'attendance', 'time_entries' => 'attendance', 'timesheets' => 'attendance', 'compensations' => 'payroll', 'pay_components' => 'payroll', 'payroll_runs' => 'payroll', 'payslips' => 'payroll', 'reimbursements' => 'reimbursements'];
+    'change_requests' => 'projects', 'work_reports' => 'work_reports', 'todos' => 'todos', 'todo_series' => 'todos', 'attendance' => 'attendance', 'time_entries' => 'attendance', 'timesheets' => 'attendance', 'compensations' => 'payroll', 'pay_components' => 'payroll', 'payroll_runs' => 'payroll', 'payslips' => 'payroll', 'reimbursements' => 'reimbursements'];
 
   private array $rec = [];
   private array $files = [];
@@ -115,6 +116,7 @@ final class DemoData {
     $P = self::on('projects', 'projects') ? $this->projects($U, $C) : ['projects' => [], 'tasks' => []];
     if ($C) { $this->finance($U, $C, $P['projects']); }
     if (self::on('work_reports', 'work_reports')) { $this->reports($U, $P['projects']); }
+    if (self::on('todos', 'todo_series')) { $this->todos($U); }
     if (self::on('attendance', 'attendance')) { $this->attendance($U, $P, $hol); }
     if (self::on('payroll', 'compensations')) { $this->payroll($U); }
     if (self::on('reimbursements', 'reimbursements')) { $this->reimbursements($U); }
@@ -491,6 +493,23 @@ final class DemoData {
     foreach ($rows as [$u, $t, $amt, $at, $st, $rev]) {
       $this->add('reimbursements', ['user_id' => $U[$u], 'title' => $t, 'amount' => $amt, 'expense_date' => self::d($at), 'description' => 'Demo claim.', 'status' => $st, 'payslip_id' => null, 'reviewed_by' => $rev ? $U[$rev] : null, 'reviewed_at' => $rev ? date('Y-m-d H:i:s', strtotime(($at + 2).' days')) : null,
         'review_note' => $st === 'rejected' ? 'Please use the company devices instead.' : null, 'created_at' => date('Y-m-d H:i:s', strtotime(($at + 1).' days'))]); } }
+
+  /** A handful of one-time tasks (open, overdue, done) and two routines with their recent occurrences. */
+  private function todos(array $U): void {
+    $one = [['aarav', 'ananya', 'Share moodboard for the festive campaign', 'high', 1, null], ['aarav', 'vikram', 'Renew SSL certificates on client servers', 'high', -1, null], ['rohan', 'karan', 'Draft the December blog calendar', 'medium', 5, null],
+      ['priya', 'meera', 'Submit signed NDA copy', 'medium', 0, null], ['vikram', 'vikram', 'Clean up local dev setup', 'low', null, null], ['aarav', 'sneha', 'Fix footer links on staging', 'medium', -2, -1], ['priya', 'priya', 'Plan the team lunch', 'low', 3, null]];
+    foreach ($one as [$by, $to, $title, $prio, $due, $done]) {
+      $this->add('todos', ['title' => $title, 'description' => null, 'priority' => $prio, 'assignee_id' => $U[$to], 'created_by' => $U[$by], 'due_date' => $due === null ? null : self::d($due), 'status' => $done === null ? 'open' : 'done',
+        'completed_at' => $done === null ? null : self::d($done).' 17:20:00', 'created_at' => date('Y-m-d H:i:s', strtotime('-4 days')), 'updated_at' => $this->now]); }
+    if (!class_exists(\Modules\Todos\Services\Todos::class)) { return; }
+    $series = [['aarav', 'sneha', 'Check the uptime dashboard', 'Note anything red in the team channel.', 'high', 'daily', 1, null, null], ['rohan', 'karan', 'Publish the weekly SEO report', null, 'medium', 'weekly', 0, '1,4', null]];
+    $ids = [];
+    foreach ($series as [$by, $to, $title, $desc, $prio, $freq, $wd, $days, $md]) {
+      $row = ['title' => $title, 'description' => $desc, 'priority' => $prio, 'assignee_id' => $U[$to], 'created_by' => $U[$by], 'frequency' => $freq, 'workdays_only' => $wd, 'weekdays' => $days, 'month_day' => $md, 'start_date' => self::d(-14), 'end_date' => null, 'active' => 1, 'last_generated' => self::d(0), 'created_at' => $this->now, 'updated_at' => $this->now];
+      $ids[] = $id = $this->add('todo_series', $row);
+      \Modules\Todos\Services\Todos::generate($row + ['id' => $id], self::d(-6), self::d(0)); }
+    DB::query("UPDATE todos SET status='done', completed_at=CONCAT(due_date, ' 10:30:00') WHERE series_id IN ".DB::in($ids).' AND due_date<?', [...$ids, self::d(-1)]);
+    $this->collect('todos', 'series_id', $ids); }
 
   private function notifications(array $U): void {
     /* Each sample notification is created only when the page it links to is switched on. */

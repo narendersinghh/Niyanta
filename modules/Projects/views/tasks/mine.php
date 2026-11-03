@@ -9,6 +9,7 @@ $dueWeek = count($groups['overdue']) + count($groups['today']) + count($groups['
 $wp = $doneWeek + $dueWeek ? (int) round($doneWeek / ($doneWeek + $dueWeek) * 100) : 0;
 ?>
 <div class="pj">
+<?php if (feature_on('todos') && can('todos.use')): ?><nav class="tabs mb" aria-label="Task lists"><a href="<?= e(url('/todos')) ?>"><?= icon('check-square', 'sm') ?> Tasks &amp; routines</a><a href="<?= e(url('/tasks')) ?>" class="active" aria-current="page"><?= icon('kanban', 'sm') ?> Project tasks</a></nav><?php endif ?>
 <?= partial('partials/page_head', ['title' => $team ? 'Team tasks' : 'My tasks', 'subtitle' => $team ? 'Open tasks across the projects you manage, grouped by due date.' : 'Everything assigned to you, grouped by when it is due.', 'crumbs' => [['Work'], [$team ? 'Team tasks' : 'My tasks']], 'actions' => $actions]) ?>
 <div class="grid g4 mb">
   <div class="tile bg-lav"><span class="tile-ic"><?= icon('check-square') ?></span><div><div class="num"><?= (int) $total ?></div><div class="lbl">Open tasks</div></div></div>

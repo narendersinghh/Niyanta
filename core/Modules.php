@@ -61,7 +61,8 @@ final class Modules {
         if (!empty($n['perm']) && !Gate::any((array) $n['perm'])) { continue; }
         if (!empty($n['feature']) && !array_filter((array) $n['feature'], [Features::class, 'enabled'])) { continue; }
         if (!empty($n['hide_if']) && Gate::any((array) $n['hide_if']) && !Auth::isSuperAdmin()) { continue; }
-        if (!empty($n['hide_if']) && Auth::isSuperAdmin()) { continue; }
+        /* super admin holds everything: hide_if entries stay hidden unless the hiding permission's feature is switched off */
+        if (!empty($n['hide_if']) && Auth::isSuperAdmin() && array_filter((array) $n['hide_if'], [Features::class, 'permEnabled'])) { continue; }
         $sec = $n['section'] ?? ($legacy[$n['group'] ?? 'Main'] ?? 'work');
         $out[$sec][] = $n + ['order' => 50, 'module' => $k, 'color' => '#8B85C9']; } }
     foreach ($out as &$g) { usort($g, static fn ($a, $b) => $a['order'] <=> $b['order']); }

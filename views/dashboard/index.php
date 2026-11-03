@@ -1,6 +1,6 @@
 <?php $u = user(); $h = (int) date('G'); $greet = $h < 12 ? 'Good morning' : ($h < 17 ? 'Good afternoon' : 'Good evening');
 $quick = array_filter([
-  can('projects.tasks.manage') ? ['/tasks', 'check-square', 'My tasks'] : (can('projects.view') ? ['/tasks', 'check-square', 'My tasks'] : null),
+  can('todos.use') ? ['/todos', 'check-square', 'My tasks'] : (can('projects.view') ? ['/tasks', 'check-square', 'My tasks'] : null),
   can('attendance.track') ? ['/time', 'timer', 'Time tracking'] : null,
   can('crm.finance.manage') ? ['/invoices/create', 'receipt', 'New invoice'] : null,
   can('crm.clients.manage') ? ['/clients/create', 'briefcase', 'New client'] : null,
