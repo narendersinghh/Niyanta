@@ -48,8 +48,8 @@ final class Modules {
   public static function registerRoutes(Router $r): void {
     foreach (self::$manifests as $k => $m) { if (isset($m['routes'])) { $r->group(['module' => empty($m['core']) ? $k : null], $m['routes']); } } }
 
-  /** Sidebar sections (label null = no header; collapsible sections start closed unless they hold the active page). */
-  public const SECTIONS = ['main' => [null, false], 'work' => ['Work', false], 'clients' => ['Clients', false], 'me' => ['My HR', true], 'hr' => ['HR Admin', true], 'system' => ['System', true]];
+  /** Sidebar sections (label null = no header). Every section is always listed in full; nothing collapses. */
+  public const SECTIONS = ['main' => [null, false], 'work' => ['Work', false], 'clients' => ['Clients', false], 'me' => ['My HR', false], 'hr' => ['HR Admin', false], 'system' => ['System', false]];
 
   /** Navigation entries visible to the current user grouped by section. */
   public static function nav(): array {
