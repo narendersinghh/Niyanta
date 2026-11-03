@@ -58,7 +58,8 @@ $newBtn = $canCreate ? '<button type="button" class="btn primary" data-modal="ta
       <span class="td-title"><?= e($s['title']) ?></span>
       <div class="td-meta">
         <span class="pill pill-lav td-rp"><?= e(T::repeatLabel($s)) ?></span>
-        <span class="td-who"><?= avatar($s['assignee'], $s['assignee_avatar'], 'sm') ?> <?= (int) $s['assignee_id'] === $uid ? 'Me' : e($s['assignee']) ?></span>
+        <?php if ($s['project_id']): ?><span class="td-proj"><?= icon('folder', 'sm') ?> <?= route_on('/projects') ? '<a href="'.e(url('/projects/'.(int) $s['project_id'].'?tab=board')).'">'.e($s['project']).'</a>' : e($s['project']) ?></span><?php endif ?>
+        <?php if ($s['assignee_id']): ?><span class="td-who"><?= avatar($s['assignee'], $s['assignee_avatar'], 'sm') ?> <?= (int) $s['assignee_id'] === $uid ? 'Me' : e($s['assignee']) ?></span><?php else: ?><span><?= icon('user', 'sm') ?> Unassigned</span><?php endif ?>
         <span><?= icon('calendar', 'sm') ?> <?= $next ? 'Next '.e(T::due($next)[0]) : ($state === 'active' ? 'No upcoming date' : '-') ?></span>
         <?php if ($s['end_date']): ?><span>until <?= e(fdate($s['end_date'])) ?></span><?php endif ?>
       </div>
@@ -88,11 +89,19 @@ $newBtn = $canCreate ? '<button type="button" class="btn primary" data-modal="ta
 <?php endif ?>
 </div>
 <?php if ($canCreate): ?><?= partial('partials/task_dialog', ['return' => $return, 'open' => $newOpen]) ?><?php endif ?>
-<?php if ($edit): $k = 'todo-edit'; $o = $oldForm === $k; $as = $assignees + [(int) $edit['assignee_id'] => $edit['assignee']]; ?>
-<?= partial('todos::partials/form', ['id' => $k, 'heading' => 'Edit task', 'mode' => 'todo', 'action' => '/todos/'.$edit['id'], 'return' => $return, 'assignees' => $as, 'submit' => 'Save', 'open' => true,
-  'v' => $o ? ['title' => old('title'), 'description' => old('description'), 'assignee_id' => old('assignee_id'), 'priority' => old('priority'), 'due_date' => old('due_date'), 'occurrence' => $edit['occurrence']] : $edit]) ?>
+<?php
+$keys = ['title', 'description', 'assignee_id', 'priority', 'status', 'start_date', 'due_date', 'estimated_hours', 'milestone_id', 'billable', 'repeat', 'workdays_only', 'weekdays', 'month_day', 'end_date'];
+$olds = static function () use ($keys): array { $r = []; foreach ($keys as $x) { $r[$x] = old($x, $x === 'weekdays' ? [] : ''); } return $r; };
+$showProj = feature_on('projects') && Modules\Todos\Services\TaskDialog::projects(Core\Auth::user()) !== [];
+?>
+<?php if ($edit): $k = 'todo-edit'; $as = $assignees + [(int) $edit['assignee_id'] => $edit['assignee']]; ?>
+<?= partial('todos::partials/form', ['id' => $k, 'heading' => 'Edit task', 'mode' => 'todo', 'action' => '/todos/'.$edit['id'], 'return' => $return, 'assignees' => $as, 'submit' => 'Save', 'open' => true, 'showProject' => $showProj,
+  'repeatText' => $edit['series_id'] && $edit['frequency'] ? 'Part of a routine: '.T::repeatLabel($edit) : ($edit['occurrence'] ? 'Part of a routine' : 'Once'),
+  'v' => ['occurrence' => $edit['occurrence']] + ($oldForm === $k ? $olds() : ['status' => $edit['status'] === 'done' ? 'done' : ($edit['stage'] ?: 'todo'), 'estimated_hours' => $edit['estimate_hours'] === null ? '' : (float) $edit['estimate_hours']] + $edit)]) ?>
 <?php endif ?>
-<?php if ($editSeries): $k = 'routine-edit'; $o = $oldForm === $k; $as = $assignees + [(int) $editSeries['assignee_id'] => $editSeries['assignee']]; ?>
+<?php if ($editSeries): $k = 'routine-edit'; $sp = (int) $editSeries['project_id'];
+  $as = ($sp ? $editSeries['team'] : $assignees) + ($editSeries['assignee_id'] ? [(int) $editSeries['assignee_id'] => $editSeries['assignee']] : []); ?>
 <?= partial('todos::partials/form', ['id' => $k, 'heading' => 'Edit routine', 'mode' => 'series', 'action' => '/todos/routines/'.$editSeries['id'], 'return' => '/todos?view=routines', 'assignees' => $as, 'submit' => 'Save routine', 'open' => true,
-  'v' => $o ? ['title' => old('title'), 'description' => old('description'), 'assignee_id' => old('assignee_id'), 'priority' => old('priority'), 'repeat' => old('repeat'), 'workdays_only' => old('workdays_only'), 'weekdays' => old('weekdays', []), 'month_day' => old('month_day'), 'start_date' => old('start_date'), 'end_date' => old('end_date')] : ['repeat' => $editSeries['frequency']] + $editSeries]) ?>
+  'pid' => $sp, 'project' => $sp ? $editSeries['project'] : null, 'milestones' => $editSeries['milestones'] ?? [], 'showProject' => $showProj || $sp,
+  'v' => $oldForm === $k ? $olds() : ['repeat' => $editSeries['frequency'], 'estimated_hours' => $editSeries['estimate_hours'] === null ? '' : (float) $editSeries['estimate_hours']] + $editSeries]) ?>
 <?php endif ?>

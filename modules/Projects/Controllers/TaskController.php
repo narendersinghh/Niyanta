@@ -213,11 +213,13 @@ final class TaskController extends Controller {
     $canEdit = PA::canEditTask($u, $t);
     $canManage = PA::canManageTasks($u, (int) $t['project_id']);
     $data = ['title' => $t['title'], 't' => $t, 'subs' => $subs, 'deps' => $deps, 'blocking' => $blocking, 'comments' => $comments, 'files' => Storage::files('task', $id), 'sec' => $own, 'subSec' => $subSec,
-      'canEdit' => $canEdit, 'canManage' => $canManage, 'styles' => ['css/projects.css'], 'scripts' => ['js/projects.js']];
+      'canEdit' => $canEdit, 'canManage' => $canManage, 'styles' => ['css/projects.css', 'css/todos.css'], 'scripts' => ['js/projects.js']];
     if ($canManage) {
       $data['candidates'] = DB::pairs('SELECT id, title FROM tasks WHERE project_id=? AND id<>? AND id NOT IN (SELECT depends_on_id FROM task_dependencies WHERE task_id=?) ORDER BY parent_id IS NOT NULL, title LIMIT 300', [(int) $t['project_id'], $id, $id]);
       $data['assignees'] = PS::team((int) $t['project_id']);
-      $data['milestoneOpts'] = DB::pairs('SELECT id, title FROM milestones WHERE project_id=? ORDER BY due_date IS NULL, due_date, position', [(int) $t['project_id']]); }
+      $data['milestoneOpts'] = DB::pairs('SELECT id, title FROM milestones WHERE project_id=? ORDER BY due_date IS NULL, due_date, position', [(int) $t['project_id']]);
+      $s = DB::first('SELECT s.frequency, s.workdays_only, s.weekdays, s.month_day FROM todo_series_tasks l JOIN todo_series s ON s.id=l.series_id WHERE l.task_id=?', [$id]);
+      $data['routine'] = $s ? \Modules\Todos\Services\Todos::repeatLabel($s) : null; }
     return $this->view('projects::tasks/show', $data); }
 
   /** My Tasks (assigned to me) or Team view (projects I manage / all for unrestricted users). */

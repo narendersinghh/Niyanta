@@ -27,6 +27,12 @@ function todo_project(int $mgr, array $members, string $name, array $extra = [])
   \Modules\Projects\Services\ProjectAccess::flush();
   return $id; }
 
+/** Field names of a dialog / form in a page, in document order (hidden _token / _form / return left out). */
+function todo_fields(string $body, string $id): array {
+  if (!preg_match('#<dialog[^>]* id="'.preg_quote($id, '#').'".*?</dialog>#s', $body, $m)) { return []; }
+  preg_match_all('#\bname="([^"]+)"#', $m[0], $n);
+  return array_values(array_unique(array_diff($n[1], ['_token', '_csrf', '_form', 'return']))); }
+
 /** Run a request as AJAX (JSON response). */
 function todo_ajax(string $path, array $post = []): Core\Response {
   $_SERVER['HTTP_X_REQUESTED_WITH'] = 'XMLHttpRequest';
@@ -245,7 +251,7 @@ return [
     $r = todo_ajax('/projects/'.$pid.'/tasks', ['title' => 'Board quick add', 'status' => 'review', 'priority' => 'medium']);
     assert_true(str_contains((string) (json_decode($r->body(), true)['html'] ?? ''), 'Board quick add'), 'board quick add still returns the card');
     $body = http('GET', '/projects/'.$pid.'?tab=board')->body();
-    assert_true(str_contains($body, 'id="task-new"') && str_contains($body, 'data-mode="project"') && str_contains($body, 'projects/'.$pid.'/tasks" data-task-form') && str_contains($body, 'value="'.$pid.'" selected'), 'project page: same dialog with the project preselected');
+    assert_true(str_contains($body, 'id="task-new"') && str_contains($body, 'data-mode="project"') && str_contains($body, 'action="'.url('/todos').'" data-task-form') && str_contains($body, 'value="'.$pid.'" selected'), 'project page: same dialog with the project preselected, posted to /todos');
     assert_true(!str_contains($body, 'id="tn-title"'), 'old project dialog gone');
     $r = http('POST', '/todos', ['title' => 'Dialog plain todo', 'priority' => 'low', 'assignee_id' => $emp, 'repeat' => 'once', 'project_id' => '', 'return' => '/projects/'.$pid.'?tab=board']);
     assert_true(str_ends_with($r->headers()['Location'] ?? '', '/projects/'.$pid.'?tab=board'), 'no project: to-do, back to the project page');
@@ -254,7 +260,7 @@ return [
     Features::set('feature:todos', false); \Core\Gate::flush();
     try {
       $body = http('GET', '/projects/'.$pid.'?tab=board')->body();
-      assert_true(str_contains($body, 'id="task-new"') && !str_contains($body, 'No project') && !str_contains($body, 'name="repeat"'), 'Tasks & routines off: project-only dialog'); }
+      assert_true(str_contains($body, 'id="task-new"') && !str_contains($body, 'No project') && !str_contains($body, 'name="repeat"') && str_contains($body, 'projects/'.$pid.'/tasks" data-task-form'), 'Tasks & routines off: project-only dialog posted to the project'); }
     finally { Features::set('feature:todos', true); \Core\Gate::flush(); }
     Features::set('feature:projects', false); \Core\Gate::flush();
     try {
@@ -268,6 +274,120 @@ return [
     $body = http('GET', '/todos')->body();
     assert_true(str_contains($body, 'id="task-new"') && !str_contains($body, 'data-task-project'), 'employee: dialog without the project select');
     assert_true(str_contains(http('GET', '/tasks')->body(), 'id="task-new"'), '/tasks has the same dialog'); },
+
+  'one task form: the same fields in the same order on /todos, /tasks, a project page and in the edit dialogs' => function () {
+    ['emp' => $emp, 'mgr' => $mgr] = todo_fx();
+    $pid = todo_project($mgr, [$emp], 'Same form project');
+    act_as($mgr);
+    $want = ['title', 'description', 'project_id', 'assignee_id', 'priority', 'status', 'start_date', 'due_date', 'estimated_hours', 'milestone_id', 'billable', 'repeat', 'workdays_only', 'weekdays[]', 'month_day', 'end_date'];
+    $todos = http('GET', '/todos')->body(); $tasks = http('GET', '/tasks')->body(); $proj = http('GET', '/projects/'.$pid.'?tab=board')->body();
+    assert_eq($want, todo_fields($todos, 'task-new'), '/todos');
+    assert_eq($want, todo_fields($tasks, 'task-new'), '/tasks');
+    assert_eq($want, todo_fields($proj, 'task-new'), 'project page');
+    preg_match('#<dialog[^>]* id="task-new".*?</dialog>#s', $todos, $a); preg_match('#<dialog[^>]* id="task-new".*?</dialog>#s', $proj, $b);
+    assert_true(str_contains($a[0], 'data-needs-project disabled') && str_contains($a[0], 'Choose a project first'), 'no project: milestone / billable visible but disabled with a hint');
+    assert_true(!str_contains($b[0], 'data-needs-project disabled') && str_contains($b[0], 'value="'.$pid.'" selected'), 'project page: enabled, project preselected');
+    foreach (['To do', 'In progress', 'In review', 'Done', 'Urgent', 'Estimate (hours)', 'Billable to client', 'Weekdays only'] as $l) { assert_true(str_contains($a[0], $l) && str_contains($b[0], $l), "label $l on both"); }
+    $tid = todo_add($mgr, $mgr, 'Same form todo');
+    $sid = todo_series($emp, $mgr, ['title' => 'Same form routine']);
+    $pt = DB::insert('tasks', ['project_id' => $pid, 'title' => 'Same form ptask', 'status' => 'todo', 'priority' => 'medium', 'created_by' => $mgr, 'created_at' => date('Y-m-d H:i:s')]);
+    $common = array_slice($want, 0, 11);
+    $common = array_values(array_diff($common, ['project_id']));
+    assert_eq($common, todo_fields(http('GET', '/todos?edit='.$tid)->body(), 'todo-edit'), 'to-do edit (project shown read-only)');
+    assert_eq(array_merge($common, ['repeat', 'workdays_only', 'weekdays[]', 'month_day', 'end_date']), todo_fields(http('GET', '/todos?view=routines&edit_routine='.$sid)->body(), 'routine-edit'), 'routine edit');
+    assert_eq($common, todo_fields(http('GET', '/tasks/'.$pt)->body(), 'task-edit'), 'project task edit');
+    DB::delete('todos', 'id=?', [$tid]); DB::delete('todo_series', 'id=?', [$sid]); },
+
+  'to-do from the task form: start date, estimate and status saved; Done completes it; edit keeps the open/done logic' => function () {
+    ['emp' => $emp, 'mgr' => $mgr] = todo_fx();
+    act_as($mgr);
+    $r = http('POST', '/todos', ['_form' => 'task-new', 'title' => 'Form fields todo', 'priority' => 'urgent', 'status' => 'in_progress', 'assignee_id' => $emp, 'start_date' => '2026-11-10', 'due_date' => '2026-11-12', 'estimated_hours' => '3.5', 'milestone_id' => '99', 'billable' => '1', 'repeat' => 'once', 'project_id' => '']);
+    assert_eq(302, $r->status());
+    $t = DB::first("SELECT * FROM todos WHERE title='Form fields todo'");
+    assert_true($t && $t['status'] === 'open' && $t['stage'] === 'in_progress' && $t['start_date'] === '2026-11-10' && $t['due_date'] === '2026-11-12' && (float) $t['estimate_hours'] === 3.5 && $t['priority'] === 'urgent', 'start, estimate, stage, urgent priority stored');
+    $body = http('GET', '/todos?view=assigned')->body();
+    assert_true(str_contains($body, 'In progress') && str_contains($body, '3.5h'), 'stage and estimate shown in the row');
+    assert_true(str_contains(http('GET', '/todos?view=assigned&edit='.$t['id'])->body(), 'value="2026-11-10"'), 'edit dialog shows the start date');
+    http('POST', '/todos', ['title' => 'Form done todo', 'priority' => 'low', 'status' => 'done', 'repeat' => 'once']);
+    $d = DB::first("SELECT * FROM todos WHERE title='Form done todo'");
+    assert_true($d['status'] === 'done' && $d['completed_at'] !== null, 'Done creates the to-do as done');
+    http('POST', '/todos', ['title' => 'Form bad range', 'priority' => 'low', 'repeat' => 'once', 'start_date' => '2026-11-10', 'due_date' => '2026-11-01']);
+    assert_eq(0, (int) DB::value("SELECT COUNT(*) FROM todos WHERE title='Form bad range'"), 'due before start rejected');
+    http('POST', '/todos/'.$t['id'], ['title' => 'Form fields todo', 'priority' => 'high', 'status' => 'done', 'assignee_id' => $emp, 'start_date' => '', 'due_date' => '2026-11-12', 'estimated_hours' => '2']);
+    $t2 = DB::find('todos', (int) $t['id']);
+    assert_true($t2['status'] === 'done' && $t2['completed_at'] && (float) $t2['estimate_hours'] === 2.0 && $t2['start_date'] === null, 'edit to Done completes it');
+    http('POST', '/todos/'.$t['id'], ['title' => 'Form fields todo', 'priority' => 'high', 'status' => 'review', 'assignee_id' => $emp]);
+    $t3 = DB::find('todos', (int) $t['id']);
+    assert_true($t3['status'] === 'open' && $t3['stage'] === 'review' && $t3['completed_at'] === null, 'edit back to In review reopens it');
+    http('POST', '/todos', ['title' => 'Form repeat done', 'priority' => 'low', 'status' => 'done', 'repeat' => 'daily']);
+    assert_eq(0, (int) DB::value("SELECT COUNT(*) FROM todo_series WHERE title='Form repeat done'"), 'a repeating task cannot start as Done');
+    http('POST', '/todos', ['title' => 'Form routine est', 'priority' => 'low', 'status' => 'review', 'repeat' => 'daily', 'start_date' => date('Y-m-d'), 'estimated_hours' => '1.25', 'due_date' => '2026-12-31']);
+    $s = DB::first("SELECT * FROM todo_series WHERE title='Form routine est'");
+    assert_true($s && $s['status'] === 'review' && (float) $s['estimate_hours'] === 1.25 && $s['project_id'] === null && (int) $s['billable'] === 0, 'routine keeps status and estimate');
+    assert_eq(date('Y-m-d'), (string) DB::value('SELECT due_date FROM todos WHERE series_id=?', [(int) $s['id']]), 'repeat: due date = occurrence, the due date field is ignored');
+    DB::delete('todo_series', 'id=?', [(int) $s['id']]); },
+
+  'repeating project task: a project routine creates project tasks once per day, only while allowed' => function () {
+    ['emp' => $emp, 'mgr' => $mgr, 'other' => $other] = todo_fx();
+    $pid = todo_project($mgr, [$emp], 'Routine project', ['billing_type' => 'hourly']);
+    $ms = DB::insert('milestones', ['project_id' => $pid, 'title' => 'Sprint']);
+    $today = date('Y-m-d');
+    act_as($mgr);
+    $n0 = (int) DB::value('SELECT COUNT(*) FROM notifications WHERE user_id=?', [$emp]);
+    $r = http('POST', '/todos', ['_form' => 'task-new', 'project_id' => $pid, 'title' => 'Daily project check', 'description' => 'Look at the board', 'priority' => 'high', 'status' => 'todo', 'assignee_id' => $emp, 'milestone_id' => $ms, 'billable' => '1', 'estimated_hours' => '1.5', 'repeat' => 'daily', 'start_date' => $today, 'return' => '/projects/'.$pid.'?tab=board']);
+    assert_eq(302, $r->status());
+    assert_true(str_ends_with($r->headers()['Location'] ?? '', '/projects/'.$pid.'?tab=board'), 'back to the project page');
+    $s = DB::first("SELECT * FROM todo_series WHERE title='Daily project check'");
+    assert_true($s && (int) $s['project_id'] === $pid && (int) $s['milestone_id'] === $ms && (int) $s['billable'] === 1 && (float) $s['estimate_hours'] === 1.5 && (int) $s['assignee_id'] === $emp, 'project routine stored');
+    $t = DB::first('SELECT * FROM tasks WHERE project_id=? AND title=?', [$pid, 'Daily project check']);
+    assert_true($t && $t['status'] === 'todo' && $t['due_date'] === $today && $t['start_date'] === $today && (int) $t['assignee_id'] === $emp && (int) $t['milestone_id'] === $ms && (int) $t['billable'] === 1 && (float) $t['estimated_hours'] === 1.5 && $t['priority'] === 'high' && $t['description'] === 'Look at the board' && (int) $t['created_by'] === $mgr, 'today\'s project task created right away');
+    assert_eq((int) $t['id'], (int) DB::value('SELECT task_id FROM todo_series_tasks WHERE series_id=? AND occurrence=?', [(int) $s['id'], $today]), 'linked to the routine');
+    assert_eq(0, (int) DB::value("SELECT COUNT(*) FROM todos WHERE title='Daily project check'"), 'no to-do rows');
+    assert_eq($n0 + 1, (int) DB::value('SELECT COUNT(*) FROM notifications WHERE user_id=?', [$emp]), 'assignee notified once');
+    assert_true((bool) DB::value("SELECT 1 FROM audit_logs WHERE action='todos.routine.create' AND entity_id=?", [(int) $s['id']]), 'audited');
+    $body = http('GET', '/todos?view=routines')->body();
+    assert_true(str_contains($body, 'Daily project check') && str_contains($body, '>Routine project<'), 'Routines tab shows the project');
+    $ed = http('GET', '/todos?view=routines&edit_routine='.$s['id'])->body();
+    assert_true(str_contains($ed, 'id="routine-edit"') && str_contains($ed, 'Routine project') && str_contains($ed, '>Sprint<'), 'routine edit with the project team and milestones');
+    assert_true(str_contains(http('GET', '/tasks/'.$t['id'])->body(), 'Part of a routine: Every day'), 'project task edit shows the routine');
+    $sid = todo_series($emp, $mgr, ['title' => 'Catch-up project routine', 'project_id' => $pid, 'start_date' => '2026-10-01', 'billable' => 0]);
+    T::generateDue('2026-10-10');
+    $cnt = static fn () => (int) DB::value('SELECT COUNT(*) FROM tasks WHERE project_id=? AND title=?', [$pid, 'Catch-up project routine']);
+    assert_eq(8, $cnt(), 'catch-up: today plus 7 days back');
+    DB::update('todo_series', ['last_generated' => null], 'id=?', [$sid]);
+    T::generateDue('2026-10-10');
+    assert_eq(0, T::generate(DB::find('todo_series', $sid), '2026-10-03', '2026-10-10'), 'second run creates nothing');
+    assert_eq(8, $cnt(), 'idempotent per series and date');
+    DB::delete('tasks', 'project_id=? AND title=? AND due_date=?', [$pid, 'Catch-up project routine', '2026-10-05']);
+    assert_eq(0, T::generate(DB::find('todo_series', $sid), '2026-10-05', '2026-10-05'), 'a deleted occurrence is not generated again');
+    T::generateDue('2026-10-11');
+    assert_eq(8, $cnt(), 'next day adds one');
+    DB::update('projects', ['status' => 'completed'], 'id=?', [$pid]);
+    T::generateDue('2026-10-12');
+    assert_eq(8, $cnt(), 'skipped while the project is completed');
+    DB::update('projects', ['status' => 'active'], 'id=?', [$pid]);
+    DB::delete('project_members', 'project_id=? AND user_id=?', [$pid, $emp]);
+    T::generateDue('2026-10-13');
+    assert_eq(8, $cnt(), 'skipped when the assignee left the team');
+    assert_true(str_contains((string) T::projectBlock(DB::find('todo_series', $sid)), 'no longer on the project team'));
+    DB::insert('project_members', ['project_id' => $pid, 'user_id' => $emp]);
+    $own = todo_series($emp, $emp, ['title' => 'Employee project routine', 'project_id' => $pid, 'start_date' => '2026-10-01']);
+    T::generateDue('2026-10-14');
+    assert_eq(9, $cnt(), 'allowed again');
+    assert_eq(0, (int) DB::value("SELECT COUNT(*) FROM tasks WHERE title='Employee project routine'"), 'creator without projects.tasks.manage: nothing generated');
+    http('POST', '/todos', ['project_id' => $pid, 'title' => 'Outsider routine', 'priority' => 'low', 'status' => 'todo', 'assignee_id' => $other, 'repeat' => 'daily']);
+    assert_eq(0, (int) DB::value("SELECT COUNT(*) FROM todo_series WHERE title='Outsider routine'"), 'assignee must be on the project team');
+    http('POST', '/todos/routines/'.$s['id'], ['title' => 'Daily project check v2', 'priority' => 'urgent', 'status' => 'in_progress', 'assignee_id' => '', 'repeat' => 'weekly', 'weekdays' => ['1'], 'start_date' => $today, 'milestone_id' => '', 'billable' => '0']);
+    $s2 = DB::find('todo_series', (int) $s['id']);
+    assert_true($s2['title'] === 'Daily project check v2' && $s2['assignee_id'] === null && $s2['frequency'] === 'weekly' && $s2['milestone_id'] === null && (int) $s2['billable'] === 0 && (int) $s2['project_id'] === $pid, 'project routine edited (unassigned allowed)');
+    act_as($emp);
+    assert_eq(404, http('POST', '/todos', ['project_id' => $pid, 'title' => 'Emp routine post', 'priority' => 'low', 'status' => 'todo', 'repeat' => 'daily'])->status(), 'employees cannot create project routines');
+    act_as($mgr);
+    http('POST', '/todos/routines/'.$sid.'/delete', ['purge' => '1']);
+    assert_eq(0, $cnt(), 'delete with purge removes the open (To do) project tasks');
+    DB::delete('projects', 'id=?', [$pid]);
+    assert_eq(null, DB::find('todo_series', (int) $s['id']), 'project routines go with the project');
+    DB::delete('todo_series', 'id=?', [$own]); },
 
   'assigned by me: one-time, routine and project tasks given to others, never self-assigned; manager, HR and super admin' => function () {
     ['emp' => $emp, 'mgr' => $mgr, 'hr' => $hr, 'other' => $other] = todo_fx();

@@ -70,13 +70,16 @@
 .td-days span{display:inline-grid;place-items:center;min-width:48px;padding:7px 10px;border-radius:12px;border:1px solid var(--border);background:var(--surface-2);font-weight:650;font-size:.82rem;color:var(--muted)}
 .td-days input:checked+span{background:var(--lav-s);border-color:var(--lav);color:var(--lav-d)}
 .td-form .td-rep{display:none;margin-bottom:14px}
-.td-form:has([name=repeat][value=once]:checked) [data-rep~=once],.td-form:has([name=repeat][value=daily]:checked) [data-rep~=daily],.td-form:has([name=repeat][value=weekly]:checked) [data-rep~=weekly],.td-form:has([name=repeat][value=monthly]:checked) [data-rep~=monthly],.td-fixed .td-rep[data-rep~=once]{display:block}
-.td-form:has([name=repeat]:not([value=once]):checked) .td-rep.form-grid{display:grid}
-.td-form[data-repeat=once] [data-rep~=once],.td-form[data-repeat=daily] [data-rep~=daily],.td-form[data-repeat=weekly] [data-rep~=weekly],.td-form[data-repeat=monthly] [data-rep~=monthly]{display:block}
-.td-form[data-repeat=daily] .td-rep.form-grid,.td-form[data-repeat=weekly] .td-rep.form-grid,.td-form[data-repeat=monthly] .td-rep.form-grid{display:grid}
 .td-form .form-grid+.td-fs,.td-form .form-grid+.td-rep{margin-top:14px}
+.td-form:has([name=repeat][value=daily]:checked) [data-rep~=daily],.td-form:has([name=repeat][value=weekly]:checked) [data-rep~=weekly],.td-form:has([name=repeat][value=monthly]:checked) [data-rep~=monthly]{display:block}
+.td-form[data-repeat=daily] [data-rep~=daily],.td-form[data-repeat=weekly] [data-rep~=weekly],.td-form[data-repeat=monthly] [data-rep~=monthly]{display:block}
 .tk-form [hidden]{display:none!important}
-.tk-fs{border:0;padding:0;margin:0;min-width:0}
+.tk-form .field select:disabled,.tk-form .field input:disabled{opacity:.55;cursor:not-allowed}
+.tk-ro{display:flex;align-items:center;gap:.4rem;min-height:42px;padding:8px 12px;border-radius:12px;border:1px dashed var(--border);color:var(--muted);font-weight:600;font-size:.88rem;overflow-wrap:anywhere}
+.tk-ro .ic{width:15px;height:15px;flex:none}
+.tk-due-hint{display:none}
+.tk-form[data-repeat=daily] .tk-due-hint,.tk-form[data-repeat=weekly] .tk-due-hint,.tk-form[data-repeat=monthly] .tk-due-hint{display:block}
+.td-proj a{color:inherit;font-weight:650}
 .td-widget .td-row{padding:9px 0}
 .td-widget .td-row:hover{background:none}
 .td-widget .card-head+.td-row{border-top:0}

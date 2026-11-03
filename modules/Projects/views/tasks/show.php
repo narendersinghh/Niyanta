@@ -156,22 +156,11 @@ $more = ($canManage ? '<button type="button" data-modal="task-edit">'.icon('edit
   </aside>
 </div>
 <?php if ($canManage): ?>
-<dialog class="modal" id="task-edit" aria-labelledby="task-edit-title">
+<dialog class="modal tk-dialog" id="task-edit" aria-labelledby="task-edit-title">
   <div class="modal-head"><h3 id="task-edit-title">Edit task</h3><button type="button" class="btn icon sm ghost" data-close aria-label="Close"><?= icon('x', 'sm') ?></button></div>
-  <form class="modal-body form" method="post" action="<?= e(url('/tasks/'.$id)) ?>"><?= csrf_field() ?>
-    <div class="field"><label for="te-title">Title *</label><input id="te-title" type="text" name="title" required maxlength="255" value="<?= e($t['title']) ?>"></div>
-    <div class="field"><label for="te-desc">Description</label><textarea id="te-desc" name="description" rows="3"><?= e($t['description']) ?></textarea></div>
-    <div class="field"><label>Project</label><div class="small"><?= e($t['project_name']) ?></div></div>
-    <div class="form-grid">
-      <div class="field"><label for="te-assignee">Assign to</label><select id="te-assignee" name="assignee_id"><option value="">Unassigned</option><?php foreach ($assignees as $uid => $un): ?><option value="<?= (int) $uid ?>"<?= selected($uid, $t['assignee_id']) ?>><?= e($un) ?></option><?php endforeach ?></select><div class="hint">Project members and the manager.</div></div>
-      <div class="field"><label for="te-prio">Priority</label><select id="te-prio" name="priority"><?php foreach (PS::PRIORITIES as $k => $l): ?><option value="<?= e($k) ?>"<?= selected($k, $t['priority']) ?>><?= e($l) ?></option><?php endforeach ?></select></div>
-      <div class="field"><label for="te-status">Status</label><select id="te-status" name="status"><?php foreach (PS::TASK_STATUSES as $k => $l): ?><option value="<?= e($k) ?>"<?= selected($k, $t['status']) ?>><?= e($l) ?></option><?php endforeach ?></select></div>
-      <div class="field"><label for="te-ms">Milestone</label><select id="te-ms" name="milestone_id"><option value="">None</option><?php foreach ($milestoneOpts as $mid => $mt): ?><option value="<?= (int) $mid ?>"<?= selected($mid, $t['milestone_id']) ?>><?= e($mt) ?></option><?php endforeach ?></select></div>
-      <div class="field"><label for="te-start">Start date</label><input id="te-start" type="date" name="start_date" value="<?= e($t['start_date']) ?>"></div>
-      <div class="field"><label for="te-due">Due date</label><input id="te-due" type="date" name="due_date" value="<?= e($t['due_date']) ?>"></div>
-      <div class="field"><label for="te-est">Estimate (hours)</label><input id="te-est" type="number" name="estimated_hours" step="0.25" min="0" value="<?= e($t['estimated_hours']) ?>"></div>
-      <div class="field"><label>Billing</label><label class="check"><input type="checkbox" name="billable" value="1"<?= checked($t['billable']) ?>> Billable to client</label></div>
-    </div>
+  <form class="modal-body form td-form tk-form" method="post" action="<?= e(url('/tasks/'.$id)) ?>"><?= csrf_field() ?>
+    <?= partial('partials/task_fields', ['p' => 'te', 'v' => ['estimated_hours' => $t['estimated_hours'] === null ? '' : (float) $t['estimated_hours']] + $t, 'f' => static fn (string $k) => error_for($k), 'projectName' => $t['project_name'], 'pid' => (int) $t['project_id'],
+      'people' => $assignees, 'unassigned' => true, 'milestones' => $milestoneOpts, 'repeat' => 'fixed', 'repeatText' => $routine ? 'Part of a routine: '.$routine : 'Once', 'descMax' => 20000]) ?>
     <div class="form-actions"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary"><?= icon('check', 'sm') ?> Save task</button></div>
   </form>
 </dialog>

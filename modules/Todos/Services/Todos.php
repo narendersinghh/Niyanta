@@ -1,6 +1,7 @@
 <?php
 namespace Modules\Todos\Services;
 use Core\{DB, Gate, Settings, View};
+use Modules\Projects\Services\{ProjectAccess as PA, ProjectService as PS};
 
 /**
  * Tasks & routines: record-level access, recurrence maths and occurrence generation.
@@ -8,14 +9,18 @@ use Core\{DB, Gate, Settings, View};
  * cron job and right away when a routine is created, edited or resumed. UNIQUE(series_id, occurrence) keeps it idempotent.
  */
 final class Todos {
-  public const PRIORITIES = ['high' => 'High', 'medium' => 'Medium', 'low' => 'Low'];
-  public const PRIO_PILL = ['high' => 'peach', 'medium' => 'lemon', 'low' => 'sky'];
+  public const PRIORITIES = ['low' => 'Low', 'medium' => 'Medium', 'high' => 'High', 'urgent' => 'Urgent'];
+  public const PRIO_PILL = ['urgent' => 'red', 'high' => 'peach', 'medium' => 'lemon', 'low' => 'sky'];
+  /** Status in the task form: open to-dos keep the chosen stage (todos.stage), Done completes it. Same keys as project task statuses. */
+  public const STAGES = ['todo' => 'To do', 'in_progress' => 'In progress', 'review' => 'In review'];
+  /** ORDER BY fragment for priority (alias t). */
+  public const PRIO_ORDER = "FIELD(t.priority,'urgent','high','medium','low')";
   public const FREQ = ['daily' => 'Daily', 'weekly' => 'Weekly', 'monthly' => 'Monthly'];
   public const DAYS = [1 => 'Mon', 2 => 'Tue', 3 => 'Wed', 4 => 'Thu', 5 => 'Fri', 6 => 'Sat', 7 => 'Sun'];
   /** The generator never goes further back than this many days (missed cron runs). */
   public const CATCH_UP_DAYS = 7;
   /** Columns of a todo row joined with its creator, assignee and routine (alias t, c, a, s). */
-  public const ROW_SQL = 'SELECT t.id, t.title, t.description, t.priority, t.assignee_id, t.created_by, t.due_date, t.status, t.completed_at, t.series_id, t.occurrence, c.name AS creator, a.name AS assignee, a.avatar AS assignee_avatar, s.frequency, s.workdays_only, s.weekdays, s.month_day FROM todos t JOIN users c ON c.id=t.created_by JOIN users a ON a.id=t.assignee_id LEFT JOIN todo_series s ON s.id=t.series_id';
+  public const ROW_SQL = 'SELECT t.id, t.title, t.description, t.priority, t.assignee_id, t.created_by, t.due_date, t.start_date, t.estimate_hours, t.status, t.stage, t.completed_at, t.series_id, t.occurrence, c.name AS creator, a.name AS assignee, a.avatar AS assignee_avatar, s.frequency, s.workdays_only, s.weekdays, s.month_day FROM todos t JOIN users c ON c.id=t.created_by JOIN users a ON a.id=t.assignee_id LEFT JOIN todo_series s ON s.id=t.series_id';
 
   private static ?array $weekend = null;
   private static bool $css = false;
@@ -73,12 +78,44 @@ final class Todos {
 
   /** Create the routine's occurrences between $from and $to (inclusive). Idempotent. Returns the number of rows created. */
   public static function generate(array $s, string $from, string $to): int {
+    if (!empty($s['project_id'])) { return self::generateTasks($s, $from, $to); }
     $n = 0; $now = date('Y-m-d H:i:s'); $wk = self::weekend();
     for ($d = max($from, $s['start_date']); $d <= $to; $d = self::next($d)) {
       if (!empty($s['end_date']) && $d > $s['end_date']) { break; }
       if (!self::occursOn($s, $d, $wk)) { continue; }
-      $n += DB::query("INSERT IGNORE INTO todos (title, description, priority, assignee_id, created_by, due_date, status, series_id, occurrence, created_at, updated_at) VALUES (?,?,?,?,?,?,'open',?,?,?,?)",
-        [$s['title'], $s['description'], $s['priority'], (int) $s['assignee_id'], (int) $s['created_by'], $d, (int) $s['id'], $d, $now, $now])->rowCount(); }
+      $n += DB::query("INSERT IGNORE INTO todos (title, description, priority, assignee_id, created_by, due_date, start_date, estimate_hours, status, series_id, occurrence, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,'open',?,?,?,?)",
+        [$s['title'], $s['description'], $s['priority'], (int) $s['assignee_id'], (int) $s['created_by'], $d, $d, $s['estimate_hours'] ?? null, (int) $s['id'], $d, $now, $now])->rowCount(); }
+    return $n; }
+
+  /** Why a project routine may not create tasks right now (null = it may): Projects off, project finished, creator lost access, assignee left the team. */
+  public static function projectBlock(array $s): ?string {
+    $pid = (int) $s['project_id'];
+    if (!feature_on('projects')) { return 'Projects is switched off'; }
+    $st = DB::value('SELECT status FROM projects WHERE id=?', [$pid]);
+    if ($st === null || in_array($st, ['completed', 'cancelled'], true)) { return 'the project is '.($st ?: 'gone'); }
+    PA::flush();
+    $c = DB::first("SELECT u.id, u.role_id, r.slug AS role_slug FROM users u JOIN roles r ON r.id=u.role_id WHERE u.id=? AND u.status='active'", [(int) $s['created_by']]);
+    if (!$c || !PA::canManageTasks($c, $pid)) { return 'the creator can no longer add tasks to the project'; }
+    if (!empty($s['assignee_id']) && !isset(PS::team($pid)[(int) $s['assignee_id']])) { return 'the assignee is no longer on the project team'; }
+    return null; }
+
+  /** Project routine: one project task per occurrence day, claimed in todo_series_tasks first (idempotent, also under concurrent runs). */
+  private static function generateTasks(array $s, string $from, string $to): int {
+    if (self::projectBlock($s) !== null) { return 0; }
+    $n = 0; $wk = self::weekend(); $pid = (int) $s['project_id']; $sid = (int) $s['id'];
+    for ($d = max($from, $s['start_date']); $d <= $to; $d = self::next($d)) {
+      if (!empty($s['end_date']) && $d > $s['end_date']) { break; }
+      if (!self::occursOn($s, $d, $wk)) { continue; }
+      $tid = DB::transaction(static function () use ($s, $d, $pid, $sid): int {
+        $now = date('Y-m-d H:i:s');
+        if (!DB::query('INSERT IGNORE INTO todo_series_tasks (series_id, occurrence, created_at) VALUES (?,?,?)', [$sid, $d, $now])->rowCount()) { return 0; }
+        $ms = $s['milestone_id'] && DB::value('SELECT 1 FROM milestones WHERE id=? AND project_id=?', [(int) $s['milestone_id'], $pid]) ? (int) $s['milestone_id'] : null;
+        $tid = DB::insert('tasks', ['project_id' => $pid, 'milestone_id' => $ms, 'title' => $s['title'], 'description' => $s['description'], 'status' => 'todo', 'priority' => $s['priority'], 'assignee_id' => $s['assignee_id'] ? (int) $s['assignee_id'] : null,
+          'start_date' => $d, 'due_date' => $d, 'estimated_hours' => $s['estimate_hours'], 'billable' => (int) $s['billable'], 'position' => (int) DB::value("SELECT IFNULL(MAX(position),0)+1 FROM tasks WHERE project_id=? AND status='todo'", [$pid]), 'created_by' => (int) $s['created_by'], 'created_at' => $now, 'updated_at' => $now]);
+        DB::update('todo_series_tasks', ['task_id' => $tid], 'series_id=? AND occurrence=?', [$sid, $d]);
+        return $tid; });
+      if ($tid) { $n++; \Core\Audit::log('projects.task.create', 'task', $tid, ['project_id' => $pid, 'title' => $s['title'], 'series_id' => $sid], (int) $s['created_by']); } }
+    if ($n) { PS::recalcProgress($pid); DB::update('projects', ['updated_at' => date('Y-m-d H:i:s')], 'id=?', [$pid]); }
     return $n; }
 
   /** After create / edit / resume: today's occurrence right away, no back-fill of earlier days. */
@@ -161,7 +198,7 @@ final class Todos {
   /** Dashboard: my open tasks due today or overdue (two queries). */
   public static function widget(array $u): string {
     $uid = (int) $u['id']; $today = date('Y-m-d');
-    $rows = DB::all(self::ROW_SQL." WHERE t.assignee_id=? AND t.status='open' AND t.due_date<=? ORDER BY t.due_date, FIELD(t.priority,'high','medium','low'), t.id LIMIT 5", [$uid, $today]);
+    $rows = DB::all(self::ROW_SQL." WHERE t.assignee_id=? AND t.status='open' AND t.due_date<=? ORDER BY t.due_date, ".self::PRIO_ORDER.", t.id LIMIT 5", [$uid, $today]);
     $total = count($rows) < 5 ? count($rows) : (int) DB::value("SELECT COUNT(*) FROM todos WHERE assignee_id=? AND status='open' AND due_date<=?", [$uid, $today]);
     return View::partial('todos::widgets/today', ['rows' => $rows, 'total' => $total, 'uid' => $uid, 'css' => self::css()]); }
 

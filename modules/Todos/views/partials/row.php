@@ -13,6 +13,9 @@ $editUrl = url('/todos?'.http_build_query(['view' => $mode === 'assigned' ? 'ass
     <span class="td-title"><?= e($t['title']) ?></span>
     <div class="td-meta">
       <?php if ($isDone && $t['completed_at']): ?><span><?= icon('check-circle', 'sm') ?> Done <?= e(ago($t['completed_at'])) ?></span><?php elseif ($dl): ?><span class="td-due <?= e($tone) ?>"><?= icon('calendar', 'sm') ?> <?= e($dl) ?></span><?php endif ?>
+      <?php if (!$isDone && !empty($t['stage']) && $t['stage'] !== 'todo'): ?><span class="pill pill-<?= $t['stage'] === 'review' ? 'lav' : 'sky' ?> td-rp"><?= e(T::STAGES[$t['stage']] ?? '') ?></span><?php endif ?>
+      <?php if (!$isDone && !empty($t['start_date']) && $t['start_date'] !== $t['due_date']): ?><span title="Start date"><?= icon('play', 'sm') ?> Starts <?= e(T::due($t['start_date'], 'done')[0]) ?></span><?php endif ?>
+      <?php if (($t['estimate_hours'] ?? null) !== null): ?><span title="Estimate"><?= icon('clock', 'sm') ?> <?= e(rtrim(rtrim(number_format((float) $t['estimate_hours'], 2, '.', ''), '0'), '.')) ?>h</span><?php endif ?>
       <?php if ($routine): ?><span class="pill pill-lav td-rp" title="Routine"><?= icon('refresh', 'sm') ?> <?= e(T::repeatLabel($t)) ?></span><?php endif ?>
       <?php if ($mode === 'assigned'): ?><span class="td-who"><?= avatar($t['assignee'], $t['assignee_avatar'], 'xs') ?> <?= e($t['assignee']) ?></span><?php if ((int) $t['created_by'] !== (int) $uid): ?><span>by <?= e($t['creator']) ?></span><?php endif ?>
       <?php elseif ((int) $t['created_by'] !== (int) $t['assignee_id']): ?><span><?= icon('user', 'sm') ?> From <?= e($t['creator']) ?></span><?php endif ?>

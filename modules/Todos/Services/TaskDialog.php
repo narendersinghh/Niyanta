@@ -5,7 +5,8 @@ use Modules\Projects\Services\{ProjectAccess as PA, ProjectService as PS};
 
 /**
  * The one "New task" dialog (views/partials/task_dialog.php) used on /todos, /tasks and project pages.
- * "No project" creates a to-do or routine (POST /todos); a chosen project creates a project task (POST /projects/{id}/tasks).
+ * Same fields in the same order everywhere (views/partials/task_fields.php). Posted to /todos when Tasks & routines is on: no project =
+ * to-do or routine, a project = project task (Once) or project routine (repeating). Without Tasks & routines it posts to /projects/{id}/tasks.
  */
 final class TaskDialog {
   /** May the user create a to-do / routine (Tasks & routines feature on)? */
@@ -26,7 +27,9 @@ final class TaskDialog {
 
   /**
    * View data for the dialog, or null when the user cannot create anything.
-   * $o: project (preselected id), status (preselected project status), return (local path), open (bool).
+   * $o: project (preselected id), status (preselected status), return (local path), open (bool).
+   * The field set never depends on the page or the chosen project: only the options (assignees, milestones) and which
+   * project-only fields are enabled do.
    */
   public static function vars(array $u, array $o = []): ?array {
     $todo = self::todos($u);
@@ -37,13 +40,11 @@ final class TaskDialog {
     if (!$todo && !$projects) { return null; }
     if ($pid && !isset($projects[$pid])) { $pid = 0; }
     if (!$pid && !$todo) { $pid = (int) array_key_first($projects); }
-    $today = date('Y-m-d');
-    $v = ['assignee_id' => (int) $u['id'], 'priority' => 'medium', 'repeat' => 'once', 'weekdays' => [(int) date('N')], 'month_day' => (int) date('j'), 'start_date' => $today, 'status' => $o['status'] ?? 'todo', 'passignee_id' => ''];
+    $people = $todo ? Todos::assignable($u) : [];
+    $v = ['assignee_id' => $pid ? '' : (int) $u['id'], 'priority' => 'medium', 'status' => $o['status'] ?? 'todo', 'repeat' => 'once', 'weekdays' => [(int) date('N')], 'month_day' => (int) date('j'), 'start_date' => '', 'due_date' => '', 'end_date' => '', 'estimated_hours' => '', 'milestone_id' => '', 'workdays_only' => 0];
     if ($re) {
-      foreach (['title', 'description', 'priority', 'repeat', 'due_date', 'workdays_only', 'weekdays', 'month_day', 'start_date', 'end_date', 'status', 'milestone_id', 'estimated_hours', 'billable'] as $k) { $v[$k] = old($k, $k === 'weekdays' ? [] : ''); }
-      $v[$pid ? 'passignee_id' : 'assignee_id'] = old('assignee_id');
-      $v = array_merge($v, ['priority' => $v['priority'] ?: 'medium', 'repeat' => $v['repeat'] ?: 'once', 'status' => $v['status'] ?: 'todo']); }
-    $pd = $pid ? self::projectData($pid) : ['team' => [], 'milestones' => [], 'billable' => true];
+      foreach (['title', 'description', 'assignee_id', 'priority', 'status', 'repeat', 'start_date', 'due_date', 'estimated_hours', 'milestone_id', 'billable', 'workdays_only', 'weekdays', 'month_day', 'end_date'] as $k) { $v[$k] = old($k, $k === 'weekdays' ? [] : ''); }
+      $v = array_merge($v, ['priority' => $v['priority'] ?: 'medium', 'repeat' => $todo ? ($v['repeat'] ?: 'once') : 'once', 'status' => $v['status'] ?: 'todo']); }
+    $pd = $pid ? self::projectData($pid) : ['team' => [], 'milestones' => [], 'billable' => false];
     $v['billable'] = $re ? (bool) $v['billable'] : $pd['billable'];
-    $v['pstart_date'] = $re && $pid ? $v['start_date'] : ''; $v['pdue_date'] = $re && $pid ? ($v['due_date'] ?? '') : '';
-    return ['todo' => $todo, 'projects' => $projects, 'pid' => $pid, 'pd' => $pd, 'assignees' => $todo ? Todos::assignable($u) : [], 'v' => $v, 'open' => $re || !empty($o['open']), 'return' => (string) ($o['return'] ?? '/todos')]; } }
+    return ['todo' => $todo, 'projects' => $projects, 'pid' => $pid, 'pd' => $pd, 'people' => $people, 'v' => $v, 'open' => $re || !empty($o['open']), 'return' => (string) ($o['return'] ?? '/todos')]; } }
