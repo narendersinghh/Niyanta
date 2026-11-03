@@ -309,3 +309,6 @@ button.crm-go{border:0;background:none;cursor:pointer;font:inherit;padding:0}
 @media (max-width:560px){.crm-metric:last-child:nth-child(odd){grid-column:1/-1}.crm .tile>div{padding-right:0}.crm .tile .num{font-size:1.45rem;margin-top:46px}.crm .tile{min-height:0}.crm-cards{padding:12px;grid-template-columns:1fr}.crm-tl{padding-left:44px}.crm-tl::before{left:15px}.crm-tl-item>.crm-ic{left:-44px;width:34px;height:34px;border-radius:11px}.crm-day{margin-left:-44px;padding-left:44px}.crm-day::before{left:10px}.crm-kv{grid-template-columns:100px 1fr}.crm-status-pick{grid-template-columns:1fr 1fr}.crm-bars,.crm-pairs{gap:4px}.crm-bars .bar small,.crm-pair small{font-size:.56rem}.crm-bars .bar i[data-v]::after{display:none}.crm-tip .illus{width:72px}}
 @media print{.crm-stage{background:none;border:0;padding:0}.crm-paper{box-shadow:none;max-width:none}.crm-actionbar,.crm-bal,.page-head .flex{display:none!important}}
 .crm-stabs{padding:10px 12px;gap:4px}.crm-stabs a{padding:8px 14px;border-radius:10px;border-bottom:0;margin:0}.crm-stabs a:not(.active):hover{background:var(--surface-3)}
+.crm-upload{align-self:start;align-content:start;display:flex;flex-direction:column;gap:14px}
+.crm-upload .crm-sec-h{align-items:center;margin-bottom:4px}
+.crm-upload .btn.primary{align-self:stretch;justify-content:center}

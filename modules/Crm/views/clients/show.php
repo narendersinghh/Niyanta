@@ -212,7 +212,7 @@ $moreMenu = Ui::more([
       <?php endif ?>
     </div>
     <?php if ($docManage): ?>
-    <form class="card form" method="post" action="<?= e(url($base.'/documents')) ?>" enctype="multipart/form-data"><?= csrf_field() ?>
+    <form class="card form crm-upload" method="post" action="<?= e(url($base.'/documents')) ?>" enctype="multipart/form-data"><?= csrf_field() ?>
       <div class="crm-sec-h"><span class="crm-ic crm-c-sky"><?= icon('upload', 'sm') ?></span><div class="grow"><h3>Upload</h3><p>Visible to everyone who can see this client.</p></div></div>
       <label class="crm-drop"><input type="file" name="file" required accept=".<?= e(implode(',.', \Core\Storage::DOCS)) ?>"><span><span class="crm-ic solid crm-c-lav"><?= icon('cloud') ?></span><b>Choose a file</b><small class="muted">PDF, Office, images or ZIP · max <?= (int) setting('storage.max_upload_mb', 10) ?> MB</small></span></label>
       <?= error_for('file') ?>
