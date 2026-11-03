@@ -90,10 +90,14 @@ always at least `idle_minutes` + 1), `auto_pause_on_lock`, `screenshots_enabled`
 
 ## Activity, idle and stale entries
 
-**Activity.** A second is active when there was keyboard or mouse input in it. The app uses a global input hook
+**Activity.** Tracked seconds are grouped in 10-second windows (from the slot start); a window is fully active when there was
+keyboard or mouse input in it or less than 3 s before it began (input carries activity for a short grace period), otherwise
+inactive. This reflects the pace of active work (reading and short pauses between typing count, like other trackers) while
+an occasional touch of the mouse stays low (one input a minute is about 20%); the constants are in `desktop/src/main/meter.js`
+and `desktop/scripts/simulate.js` shows the results for typical input patterns. The app uses a global input hook
 (`uiohook-napi`) and counts keystrokes (key presses) and mouse events (clicks, wheel, moves at most 4 per second), never which
 keys or where. Where the hook is unavailable (Wayland, macOS without the Accessibility permission, the module failed to load)
-it samples `powerMonitor.getSystemIdleTime()` every second (active when the last input was at most 1 s ago) and sends the
+it reads `powerMonitor.getSystemIdleTime()` every second for the time of the last input (same windows) and sends the
 counts as `null`. Seconds are summed per slot of `screenshot_interval_seconds`, counted from the workspace's midnight:
 `POST /api/agent/activity` with `slots: [{slot_start (ISO 8601), slot_seconds (tracked seconds in the slot, paused time
 excluded, 1 to 3600), active_seconds, keystrokes, mouse_events}]`. Stored in `activity_slots` (one row per user and

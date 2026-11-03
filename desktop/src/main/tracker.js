@@ -5,12 +5,15 @@
  *   not_started --start--> tracking --pause--> paused --resume--> tracking   (switch: tracking -> tracking, no gap)
  * There is no "end day": the day ends at midnight (workspace time zone). A running entry is closed at 00:00 and tracking
  * continues in the new day on the same project/task; a paused day simply ends and the next Start begins the new day.
- * Activity (activity.js): every second is active when there was keyboard or mouse input in it. Seconds are summed per slot
- * (the screenshot interval, aligned to the workspace's midnight): activity % = active / tracked seconds of the slot (paused
- * time excluded); each slot is reported to /api/agent/activity and the screenshot taken at its end carries that %.
+ * Activity (activity.js + meter.js): tracked seconds are grouped in 10-second windows, a window is active when it had keyboard
+ * or mouse input (or input a few seconds before it began). Seconds are summed per slot (the screenshot interval, aligned to the
+ * workspace's midnight): activity % = active / tracked seconds of the slot (paused time excluded); each slot is reported to
+ * /api/agent/activity and the screenshot taken at its end carries that %.
  * Idle: after idle_minutes without input the person is idle from the last input; the timer keeps running and the span is saved
  * as idle time automatically (heartbeat idle_seconds + idle_spans). Idle up to idle_auto_pause_minutes (from the last input)
  * pauses tracking at last input + that maximum; on return a short message offers Resume. Nothing is ever asked.
+ * Pomodoro (pomodoro.js, optional, local only): after N minutes tracked without a break a reminder offers a break (pause +
+ * countdown, "Break over" offers Resume) or a 10-minute snooze.
  * Heartbeats (at most every 60 s) keep the running entry alive on the server; the local session (tracking or not, last alive
  * time, the open slot) is saved every 15 s so a crash or power cut is recovered on the next start (see recover()).
  */
@@ -24,6 +27,8 @@ const toast = require('./toast');
 const store = require('./store');
 const { Updater } = require('./updater');
 const { Activity } = require('./activity');
+const meter = require('./meter');
+const { Pomodoro } = require('./pomodoro');
 const errors = require('./errors');
 
 const ACTIONS = { start: 'day/start', pause: 'pause', resume: 'resume', switch: 'switch' };
@@ -49,7 +54,10 @@ class Tracker extends EventEmitter {
     this.spans = [];           /* closed idle spans [{from, to}] (ISO) for the next heartbeat */
     this.idlePause = null;     /* {at, minutes, back}: tracking was paused automatically after the maximum idle time */
     this.activity = new Activity(errors.log);
-    this.slot = null;          /* {start, len, tracked, active, keys, mouse, counted}: the open activity slot */
+    this.pomo = new Pomodoro(store.get('pomodoro'));
+    this.pomo.on('due', m => { errors.log(`pomodoro: break reminder (${m} min)`); this.emit('pomodoro', 'due', m); this.changed(); });
+    this.pomo.on('over', m => { if (this.state === 'tracking') return; this.emit('pomodoro', 'over', m); this.changed(); });
+    this.slot = null;          /* {start, len, tracked, active, keys, mouse, counted, w, pend, on}: the open activity slot (w/pend/on: meter.js window) */
     this.lastSlot = null;
     this.activityApi = true;   /* false when the server has no /api/agent/activity (older workspace) */
     this.trackingSince = 0;
@@ -195,7 +203,8 @@ class Tracker extends EventEmitter {
     this.snap = JSON.parse(JSON.stringify(state));
     this.snapAt = cached ? Date.parse(state.server_time || '') || Date.now() : Date.now();
     if (this.state !== 'tracking' && this.idleFrom) this.closeIdle(Date.now());
-    if (was !== 'tracking' && this.state === 'tracking') this.trackingSince = Date.now();
+    if (was !== 'tracking' && this.state === 'tracking') { this.trackingSince = Date.now(); this.pomo.resumed(); }
+    else if (was === 'tracking' && this.state !== 'tracking') this.pomo.rest();
     if (this.state !== 'paused') this.idlePause = null;
     if (was !== this.state) this.saveSession(true);
     this.changed(); }
@@ -374,7 +383,8 @@ class Tracker extends EventEmitter {
     if (this.idlePause && !this.idlePause.back && idleSec < 3) { this.idlePause.back = true; this.changed(); this.emit('idle-return', this.idlePause); }
     const tracking = this.state === 'tracking';
     this.slotTick(now, tracking && gap <= 30 ? dt : 0, input);
-    if (!tracking) return;
+    if (!tracking) { this.pomo.tick(now, 0); return; }
+    if (this.pomo.brk) this.pomo.resumed();
     if (!this.idleFrom && this.idleArmed && idleSec >= thr) {
       /* no input for the threshold: idle since the last input (not before tracking started); those seconds move to idle */
       this.idleFrom = Math.max(now - idleSec * 1000, this.trackingSince || 0);
@@ -384,11 +394,15 @@ class Tracker extends EventEmitter {
     else if (this.idleFrom && idleSec < thr) this.closeIdle(now - idleSec * 1000);
     if (this.idleFrom && now - this.idleFrom >= this.maxIdle() * 1000) { this.autoPauseIdle(); return; }
     this.hb[this.idleFrom ? 'i' : 'a'] += dt;
+    /* pomodoro: only time worked counts; idle at least as long as the break is a break */
+    if (this.idleFrom && now - this.idleFrom >= this.pomo.prefs.brk * 60000) this.pomo.rest();
+    this.pomo.tick(now, this.idleFrom || gap > 30 ? 0 : dt);
     if (now >= this.nextHeartbeat) this.flushHeartbeat(); }
 
   /** The event loop did not run (sleep, hibernate): an open idle span ends where the sleep began; wait for input again. */
   onWake(sleptAt) {
     if (this.idleFrom) this.closeIdle(sleptAt);
+    if (Date.now() - sleptAt >= this.pomo.prefs.brk * 60000) this.pomo.rest();
     this.idleArmed = false;
     this.nextHeartbeat = 0; }
 
@@ -443,7 +457,7 @@ class Tracker extends EventEmitter {
       if (!this.slot) this.slot = { start, len: this.slotLen(), tracked: 0, active: 0, keys: 0, mouse: 0, counted: true };
       const s = this.slot;
       s.tracked = Math.min(s.len, s.tracked + dt);
-      if (input.active) s.active = Math.min(s.tracked, s.active + dt);
+      meter.credit(s, now, dt, input.last);
       if (input.keys === null) s.counted = false; else { s.keys += input.keys; s.mouse += input.mouse; } }
     if (this.slot && now >= this.slot.start + this.slot.len * 1000) this.closeSlot(true); }
 
@@ -509,6 +523,23 @@ class Tracker extends EventEmitter {
     if (job.type === 'action') { this.flash(err.message, 'error'); this.refreshState(); return; }
     if (job.type !== 'error' && !/too quickly|only accepted while/i.test(err.message)) this.report('sync', err, { path: job.path, status: err.status }, 'warning'); }
 
+  /* ---------- pomodoro break reminder ---------- */
+
+  /** Save the reminder settings (this device only). */
+  setPomodoro(p) { const prefs = this.pomo.configure(p); store.set('pomodoro', prefs); this.changed(); return { ok: true, prefs }; }
+
+  /** "Take a break": pause now and count the break down; "Break over" then offers Resume (never resumes by itself). */
+  async takeBreak() {
+    if (this.state !== 'tracking') return { ok: false };
+    this.pomo.takeBreak(Date.now());
+    const r = await this.action('pause');
+    this.changed();
+    return r; }
+
+  snoozeBreak() { this.pomo.snooze(Date.now()); this.changed(); return { ok: true }; }
+
+  dismissBreakOver() { this.pomo.dismissOver(); this.changed(); return { ok: true }; }
+
   /* ---------- power events ---------- */
 
   onPower(kind) {
@@ -556,7 +587,7 @@ class Tracker extends EventEmitter {
 
   /* ---------- UI ---------- */
 
-  flash(text, kind = 'info') { this.notice = { text, kind, id: Date.now() }; this.changed(); }
+  flash(text, kind = 'info') { this.notice = { text, kind, id: Date.now() }; this.emit('alert', kind); this.changed(); }
 
   changed() {
     if (this._t) return;
@@ -587,7 +618,8 @@ class Tracker extends EventEmitter {
       settings: this.settings, consent: this.boot ? { given: !!this.boot.consent, needed: this.consentNeeded(), policy: this.boot.policy } : null,
       monitoring: { on: !!this.settings.screenshots_enabled && !!(this.boot && this.boot.consent), interval: this.settings.screenshot_interval_seconds, permission: this.permission },
       idlePause: this.idlePause, activity: { source: this.activity.source, counting: this.activity.counting, slot: this.slotPct(), last: this.lastSlot }, update: this.updateUi(),
-      prefs: { launchAtLogin: store.get('launchAtLogin', true), notify: this.notifyOn(), notifyAllowed: !!this.settings.screenshot_notify_user_can_disable, tokenProtected: store.tokenProtected() },
+      prefs: { launchAtLogin: store.get('launchAtLogin', true), notify: this.notifyOn(), notifyAllowed: !!this.settings.screenshot_notify_user_can_disable, tone: store.get('alertTone', true), tokenProtected: store.tokenProtected() },
+      pomodoro: this.pomo.view(),
       at: Date.now() }; } }
 
 function osName() { return { win32: 'Windows', darwin: 'macOS', linux: 'Linux' }[process.platform] || process.platform; }

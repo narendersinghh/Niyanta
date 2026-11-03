@@ -13,14 +13,17 @@ so nothing is compiled (`build.npmRebuild` is `false`; electron-builder unpacks 
 If it cannot load or run on a computer, the app falls back to the system idle time (see *Activity and idle*).
 
 ```
-src/main/      main.js (lifecycle, tray, window, IPC, auto-launch), tracker.js (state machine, activity slots, idle,
-               heartbeats, screenshots, power events), activity.js (keyboard/mouse input hook or idle-time fallback), api.js (HTTP client), queue.js (offline queue), capture.js (screenshots),
+src/main/      main.js (lifecycle, tray, window, IPC, auto-launch, notifications), tracker.js (state machine, activity slots,
+               idle, heartbeats, screenshots, power events), activity.js (keyboard/mouse input hook or idle-time fallback),
+               meter.js (activity windows and grace period), pomodoro.js (break reminder), api.js (HTTP client),
+               queue.js (offline queue), capture.js (screenshots),
                toast.js (capture notice), store.js (prefs + encrypted token), errors.js (error reporting),
                updater.js (electron-updater against the workspace)
 src/preload/   contextIsolation bridge (window.tracker) and the notice window bridge
 src/renderer/  index.html / app.js / styles.css (380 x 640 window), toast.html (capture notice)
 build/         icon.png (1024, converted by electron-builder), icons/ (Linux), tray/ (tray states), mac entitlements
-scripts/       icons.js (regenerate icons from the logo), check.js (syntax check)
+scripts/       icons.js (regenerate icons from the logo), check.js (syntax check + simulation), simulate.js (activity and
+               pomodoro simulation on fake input timelines)
 ```
 
 ## Develop
@@ -29,7 +32,8 @@ scripts/       icons.js (regenerate icons from the logo), check.js (syntax check
 cd desktop
 npm install
 npm start                      # opens the app; sign in with your workspace URL, email and password
-npm run check                  # node --check on every JS file
+npm run check                  # node --check on every JS file, then the simulation below
+npm run simulate               # activity % for typical input patterns (old vs new rule) and the pomodoro checks
 NIYANTA_TRACKER_PROFILE=/tmp/tracker-2 npm start   # a second, separate profile (another user)
 NIYANTA_NO_INPUT_HOOK=1 npm start                  # force the idle-time fallback (no input hook)
 ```
@@ -122,10 +126,14 @@ first time). To sign in CI add these repository secrets; the workflow passes the
   server closes the running entry and the old day at 00:00 and continues on the same project/task in the new day (the app sends
   a heartbeat at once; no click needed). Asleep across midnight: the old entry ends at its last heartbeat and tracking resumes
   in the new day on waking. Paused at midnight: the old day ends; Start begins the new one.
-- **Activity**: a second counts as active when there was keyboard or mouse input in it. With the input hook (Windows, macOS
-  with Accessibility, Linux X11) the app also counts keystrokes (key presses, auto-repeat ignored) and mouse events (clicks,
-  wheel, moves at most 4 per second), never which keys or where; otherwise (fallback) `powerMonitor.getSystemIdleTime()` is
-  read every second, active when the last input was at most 1 s ago, and the counts are unknown. If the hook stops reporting
+- **Activity**: tracked time is measured in 10-second windows: a window is fully active when there was keyboard or mouse
+  input in it, or less than 3 s before it began (a short grace period), otherwise it is inactive. Counting only the exact
+  seconds with input read 75-80% for focused work (reading, thinking, pauses between typing); with windows the same work reads
+  about 90%, like other trackers, while occasional input stays low (one input a minute about 20%, away 0%). `WINDOW_S` and
+  `GRACE_S` are in `src/main/meter.js`; `npm run simulate` prints the result for typical input patterns. With the input hook
+  (Windows, macOS with Accessibility, Linux X11) the app also counts keystrokes (key presses, auto-repeat ignored) and mouse
+  events (clicks, wheel, moves at most 4 per second), never which keys or where; otherwise (fallback)
+  `powerMonitor.getSystemIdleTime()` gives the last input every second (same windows) and the counts are unknown. If the hook stops reporting
   input while the system still sees input for 30 s, the app switches to the fallback. Seconds are summed per **slot** = the
   screenshot interval (`screenshot_interval_seconds`, e.g. 180 s), counted from the workspace's midnight: activity % =
   active seconds / tracked seconds of the slot (paused time excluded). Every slot is sent to `/api/agent/activity` (also
@@ -146,6 +154,15 @@ first time). To sign in CI add these repository secrets; the workflow passes the
   resumes automatically with a note; after longer, the server closes the entry at its last heartbeat (at most a minute is lost,
   the time the computer was off is never counted) and the app shows the normal not-tracking state with a note, so nobody is
   tracked by surprise hours later (Resume, or Start in a new day). The server's stale job does the same if the app never returns.
+- **Settings (gear icon)**: *Pomodoro break* (off by default; *Notify after working* 120 minutes, *Break interval* 5
+  minutes, Save): after that much tracked time without a break, pause or resume (idle time does not count; idle or sleep at
+  least as long as the break resets it), a system notification and a banner say "Time for a 5-minute break" with **Take a
+  break** (pauses and counts the break down, then "Break over" with **Resume**; tracking never resumes by itself) and
+  **Snooze 10 min**. Pausing resets the counter. Stored only on this device (`config.json` > `pomodoro`), nothing is sent to
+  the server; notification buttons are on macOS, elsewhere the notification opens the window with the buttons.
+  *Preferences*: **Screenshot alert** (the capture notice; locked when the workspace does not let people turn it off),
+  **Launch at startup** (on by default; Login Items / Run key / `~/.config/autostart`) and **Message alert tone** (on by
+  default: a short chime with the app's own messages, reminders and notifications, never with the screenshot notice).
 - **Screenshots**: only with monitoring enabled, the person's consent (the app shows the notice and records consent via the
   API before the first capture) and while tracking. One capture at the end of each activity slot, all displays, max 1920 px
   wide, JPEG quality 60, uploaded with that slot's activity percentage, keystrokes and mouse events. They are not shown in the app (only the small capture notice, if enabled); people see them on

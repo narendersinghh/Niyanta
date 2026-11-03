@@ -63,9 +63,33 @@ function idleReturn(p) {
   if (focused || !Notification.isSupported()) return;
   try {
     if (idleNote) idleNote.close();
+    tone();
     idleNote = new Notification({ title: 'Niyanta Tracker', body: `Tracking paused after ${p.minutes} min idle. Resume when you are back.`, silent: true });
     idleNote.on('click', () => showWindow());
     idleNote.show(); }
+  catch (e) { errors.report('notification', e, {}, 'warning'); } }
+
+/** "Message alert tone" (on by default): a short chime played by the window with the app's own banners and notifications
+    (not with the screenshot notice). System notifications are always silent so the tone plays once. */
+function tone() { if (store.get('alertTone', true) !== false && win && !win.isDestroyed()) win.webContents.send('tracker:tone'); }
+
+/**
+ * Pomodoro reminder / break over: banner in the window plus a system notification (click opens the window; on macOS the
+ * notification also has the buttons, elsewhere they are in the window).
+ */
+let pomoNote = null;
+function pomodoroNote(kind, minutes) {
+  tone();
+  if (!Notification.isSupported()) return;
+  try {
+    if (pomoNote) pomoNote.close();
+    const due = kind === 'due';
+    const mac = process.platform === 'darwin';
+    const actions = !mac ? [] : (due ? ['Take a break', 'Snooze 10 min'] : ['Resume']).map(text => ({ type: 'button', text }));
+    pomoNote = new Notification({ title: due ? `Time for a ${minutes}-minute break` : 'Break over', body: due ? `You have tracked ${tracker.pomo.prefs.work} minutes without a break.` : 'Resume tracking when you are ready.', silent: true, actions });
+    pomoNote.on('click', () => showWindow());
+    pomoNote.on('action', (_e, i) => { if (!due) tracker.action('resume', {}); else if (i === 0) tracker.takeBreak(); else tracker.snoozeBreak(); });
+    pomoNote.show(); }
   catch (e) { errors.report('notification', e, {}, 'warning'); } }
 
 /* ---------- tray ---------- */
@@ -155,8 +179,15 @@ function registerIpc() {
   h('pref', ({ key, value }) => {
     if (key === 'launchAtLogin') setLaunchAtLogin(value);
     if (key === 'notify' && tracker.settings.screenshot_notify_user_can_disable) store.set('notifyScreenshots', !!value);
+    if (key === 'tone') store.set('alertTone', !!value);
     tracker.changed();
     return { ok: true }; });
+  h('pomodoro', ({ op, prefs }) => {
+    if (op === 'save') return tracker.setPomodoro(prefs);
+    if (op === 'break') return tracker.takeBreak();
+    if (op === 'snooze') return tracker.snoozeBreak();
+    if (op === 'dismiss') return tracker.dismissBreakOver();
+    return { ok: false }; });
   h('open', what => { openTarget(what); return { ok: true }; });
   h('updates', () => tracker.checkUpdates(true));
   h('installUpdate', () => ({ ok: restartToUpdate() }));
@@ -203,6 +234,8 @@ app.whenReady().then(async () => {
   errors.attach(tracker);
   tracker.on('change', push);
   tracker.on('idle-return', p => idleReturn(p));
+  tracker.on('pomodoro', (kind, m) => pomodoroNote(kind, m));
+  tracker.on('alert', () => tone());
   tracker.on('consent-needed', () => showWindow());
   tracker.on('update-ready', v => { if (tray && process.platform === 'win32') tray.displayBalloon({ title: 'Niyanta Tracker', content: `Version ${v} is ready. Restart the app to install it, or it installs when you quit.` }); });
   registerIpc();

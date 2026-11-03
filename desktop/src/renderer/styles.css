@@ -91,6 +91,17 @@ input:focus,select:focus{border-color:var(--primary);box-shadow:0 0 0 3px color-
 .switch-row input::after{content:"";position:absolute;top:3px;left:3px;width:17px;height:17px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25);transition:transform .15s}
 .switch-row input:checked{background:var(--mint)}.switch-row input:checked::after{transform:translateX(17px)}.switch-row input:disabled{opacity:.5}
 .set-block{display:grid;gap:6px;border-top:1px solid var(--border);padding-top:11px}
+.set-card{display:grid;gap:11px;background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:12px 13px;margin:0}
+.set-card h3{margin:0;font-size:.74rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+.pomo-fields{display:grid;gap:8px;padding-top:9px;border-top:1px solid var(--border);transition:opacity .15s}.set-card.off .pomo-fields{opacity:.55}
+.num{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:.82rem;font-weight:600}
+.num .unit{display:inline-flex;align-items:center;gap:7px;color:var(--muted);font-size:.78rem;font-weight:500}
+.num input{width:74px;padding:6px 8px;border-radius:10px;text-align:center;font-variant-numeric:tabular-nums}
+input[aria-invalid=true]{border-color:var(--red)}
+.nowrap{flex-wrap:nowrap}#pomo-msg{min-width:0}
+.switch-row.locked{cursor:default}.switch-row small .ic{vertical-align:-2px;margin-right:2px}
+.alert.stack{flex-direction:column;gap:8px}.alert.stack>div:first-child{display:flex;gap:8px;align-items:flex-start}.alert.stack .ic{margin-top:2px}
+.acts{display:flex;gap:6px;flex-wrap:wrap}
 .modal-card{background:var(--surface);border-radius:22px;padding:18px;width:100%;max-width:350px;max-height:100%;overflow-y:auto;display:grid;gap:10px;box-shadow:var(--shadow);text-align:center;animation:up .18s ease-out}
 .m-art{display:grid;place-items:center}.m-art .bubble{width:54px;height:54px;border-radius:17px;display:grid;place-items:center;color:#fff;background:linear-gradient(135deg,var(--lemon),var(--peach))}.m-art .bubble.lav{background:linear-gradient(135deg,var(--primary),var(--primary-2))}.m-art .ic{width:26px;height:26px}
 .m-body{font-size:.85rem;color:var(--muted);text-align:left;display:grid;gap:6px}.m-body.center{text-align:center}.m-body .note{font-size:.76rem}

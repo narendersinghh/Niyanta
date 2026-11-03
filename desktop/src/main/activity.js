@@ -1,12 +1,14 @@
 'use strict';
 /*
  * Keyboard and mouse activity, sampled once per second by the tracker. Only counts are kept, never which keys or where.
- * Source "hook": a global input hook (uiohook-napi, prebuilt N-API binaries for Windows, macOS and Linux X11). A second is
- * active when a key was pressed or the mouse moved, clicked or scrolled in it; keystrokes (key presses, auto-repeat ignored)
- * and mouse events (clicks, wheel and moves, at most one move per 250 ms) are counted.
+ * Each sample gives the time of the last input; meter.js turns that into active seconds (10-second windows with a short grace
+ * period, the same rule for both sources).
+ * Source "hook": a global input hook (uiohook-napi, prebuilt N-API binaries for Windows, macOS and Linux X11): a key press or
+ * a mouse move, click or scroll is input; keystrokes (key presses, auto-repeat ignored) and mouse events (clicks, wheel and
+ * moves, at most one move per 250 ms) are counted.
  * Source "idle-time": fallback when the hook cannot run (module missing or failed to load, Wayland, no X display, macOS
- * Accessibility not granted, or the hook stopped reporting): powerMonitor.getSystemIdleTime() each second, active when the
- * last input was at most 1 s ago; counts are unknown (null).
+ * Accessibility not granted, or the hook stopped reporting): powerMonitor.getSystemIdleTime() each second gives the last
+ * input (whole seconds, so the middle of that second is used); counts are unknown (null).
  * On macOS the Accessibility prompt is shown once (ever); the fallback is used meanwhile and the hook starts as soon as the
  * permission is granted (checked every minute).
  */
@@ -74,19 +76,19 @@ class Activity {
     this.hook = null; this.down.clear(); }
 
   /**
-   * One sample per tick: {active, idle (seconds since the last input), keys, mouse} for the time since the previous sample
-   * (keys/mouse are null without the hook). The hook is dropped for the fallback when the system reports input for 30 s
-   * while the hook saw none (e.g. permission revoked while running).
+   * One sample per tick: {active (input since the previous sample), last (ms of the last input), idle (seconds since the last
+   * input), keys, mouse} for the time since the previous sample (keys/mouse are null without the hook). The hook is dropped
+   * for the fallback when the system reports input for 30 s while the hook saw none (e.g. permission revoked while running).
    */
   sample(now = Date.now()) {
     let sys = 0;
     try { sys = powerMonitor.getSystemIdleTime(); } catch (e) { sys = 0; }
     if (!this.hook && this.source !== 'hook' && now >= this.recheckAt && /permission/.test(this.reason || '')) this.start();
-    if (!this.hook) { if (sys <= 1) this.last = Math.max(this.last, now - sys * 1000); return { active: sys <= 1, idle: sys, keys: null, mouse: null }; }
+    if (!this.hook) { const last = now - sys * 1000 - 500; if (sys <= 1) this.last = Math.max(this.last, last); return { active: sys <= 1, last, idle: sys, keys: null, mouse: null }; }
     const active = this.seen; const keys = this.keys; const mouse = this.mouse;
     this.seen = false; this.keys = 0; this.mouse = 0;
     if (active) this.silent = 0;
-    else if (sys <= 1 && ++this.silent >= WATCHDOG_S) { this.stop(); this.use('idle-time', 'the input hook stopped reporting input'); return { active: true, idle: sys, keys: null, mouse: null }; }
-    return { active, idle: Math.min(sys, Math.max(0, Math.floor((now - this.last) / 1000))), keys, mouse }; } }
+    else if (sys <= 1 && ++this.silent >= WATCHDOG_S) { this.stop(); this.use('idle-time', 'the input hook stopped reporting input'); return { active: true, last: now - sys * 1000 - 500, idle: sys, keys: null, mouse: null }; }
+    return { active, last: this.last, idle: Math.min(sys, Math.max(0, Math.floor((now - this.last) / 1000))), keys, mouse }; } }
 
 module.exports = { Activity };
