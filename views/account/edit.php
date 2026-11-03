@@ -16,7 +16,8 @@
       <div class="card-head"><div><h3>Profile</h3><p class="small muted mb0">How colleagues see you.</p></div></div>
       <div class="form-grid">
         <div class="field"><label for="a-name">Full name</label><input id="a-name" type="text" name="name" value="<?= e(old('name', $u['name'])) ?>" required><?= error_for('name') ?></div>
-        <div class="field"><label for="a-phone">Phone</label><input id="a-phone" type="tel" name="phone" value="<?= e(old('phone', $u['phone'])) ?>"><?= error_for('phone') ?></div>
+        <div class="field"><label for="a-phone">Contact number</label><input id="a-phone" type="tel" name="phone" value="<?= e(old('phone', $u['phone'])) ?>"><?= error_for('phone') ?></div>
+        <div class="field"><label for="a-wa">WhatsApp number</label><input id="a-wa" type="tel" name="whatsapp" value="<?= e(old('whatsapp', $u['whatsapp'] ?? '')) ?>" placeholder="Same as contact number"><?= error_for('whatsapp') ?></div>
         <div class="field"><label>Email</label><input type="email" value="<?= e($u['email']) ?>" disabled><div class="hint">Ask an administrator to change your sign-in email.</div></div>
         <div class="field"><label>Role</label><input type="text" value="<?= e($u['role_name']) ?>" disabled></div>
       </div>

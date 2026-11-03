@@ -12,7 +12,7 @@ final class EmployeeController extends Controller {
   public function index(): Response {
     if (!$this->can('hr.employees.view')) { return $this->directory(); }
     $q = $this->request->str('q'); $dept = $this->request->str('department'); $status = $this->request->str('status'); $type = $this->request->str('type');
-    $sql = 'SELECT u.id, u.name, u.email, u.phone, u.avatar, u.status, u.designation, u.department, u.employee_code, u.joined_on, m.name AS manager_name, p.employment_type, p.exit_date FROM users u LEFT JOIN users m ON m.id=u.manager_id LEFT JOIN employee_profiles p ON p.user_id=u.id WHERE 1=1';
+    $sql = 'SELECT u.id, u.name, u.email, u.phone, u.whatsapp, u.avatar, u.status, u.designation, u.department, u.employee_code, u.joined_on, m.name AS manager_name, p.employment_type, p.exit_date FROM users u LEFT JOIN users m ON m.id=u.manager_id LEFT JOIN employee_profiles p ON p.user_id=u.id WHERE 1=1';
     $p = [];
     if ($q !== '') { $sql .= ' AND (u.name LIKE ? OR u.email LIKE ? OR u.employee_code LIKE ? OR u.designation LIKE ?)'; array_push($p, DB::like($q), DB::like($q), DB::like($q), DB::like($q)); }
     if ($dept !== '') { $sql .= ' AND u.department=?'; $p[] = $dept; }
@@ -32,7 +32,7 @@ final class EmployeeController extends Controller {
 
   private function directory(): Response {
     $q = $this->request->str('q'); $dept = $this->request->str('department');
-    $sql = "SELECT id, name, email, phone, avatar, designation, department FROM users WHERE status='active'";
+    $sql = "SELECT id, name, email, phone, whatsapp, avatar, designation, department FROM users WHERE status='active'";
     $p = [];
     if ($q !== '') { $sql .= ' AND (name LIKE ? OR designation LIKE ? OR department LIKE ? OR email LIKE ?)'; array_push($p, DB::like($q), DB::like($q), DB::like($q), DB::like($q)); }
     if ($dept !== '') { $sql .= ' AND department=?'; $p[] = $dept; }

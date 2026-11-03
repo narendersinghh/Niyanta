@@ -24,7 +24,7 @@ $icons = ['overview' => 'user', 'schedule' => 'clock', 'leave' => 'umbrella', 'd
     </div>
     <div class="hr-contact">
       <a class="btn sm soft" href="mailto:<?= e($emp['email']) ?>"><?= icon('mail', 'sm') ?> Email</a>
-      <?php if ($emp['phone']): ?><a class="btn sm ghost" href="tel:<?= e(preg_replace('/[^\d+]/', '', $emp['phone'])) ?>"><?= icon('phone', 'sm') ?> Call</a><a class="btn sm ghost" href="<?= e(wa_link($emp['phone'])) ?>" target="_blank" rel="noopener"><?= icon('whatsapp', 'sm') ?> WhatsApp</a><?php endif ?>
+      <?php if ($emp['phone']): ?><a class="btn sm ghost" href="tel:<?= e(preg_replace('/[^\d+]/', '', $emp['phone'])) ?>" title="<?= e($emp['phone']) ?>"><?= icon('phone', 'sm') ?> Call</a><?php endif ?><?php if ($wa = wa_number($emp)): ?><a class="btn sm ghost" href="<?= e(wa_link($wa)) ?>" target="_blank" rel="noopener" title="<?= e($wa) ?>"><?= icon('whatsapp', 'sm') ?> WhatsApp</a><?php endif ?>
     </div>
   </div>
   <div class="hr-facts">

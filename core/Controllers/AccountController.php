@@ -6,7 +6,7 @@ final class AccountController extends Controller {
   public function edit(): Response { return $this->view('account/edit', ['title' => 'My account', 'u' => $this->user()]); }
 
   public function update(): Response {
-    $d = $this->validate(['name' => 'required|max:150', 'phone' => 'nullable|phone']);
+    $d = $this->validate(['name' => 'required|max:150', 'phone' => 'nullable|phone', 'whatsapp' => 'nullable|phone'], ['whatsapp' => 'WhatsApp number']);
     DB::update('users', $d + ['updated_at' => date('Y-m-d H:i:s')], 'id=?', [$this->uid()]);
     Audit::log('account.update', 'user', $this->uid());
     $this->flash('Profile updated.');

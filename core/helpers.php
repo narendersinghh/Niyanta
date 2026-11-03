@@ -79,6 +79,8 @@ function pager(array $p): string {
 function empty_state(string $title, string $text = '', string $illus = 'empty-box', string $actionHtml = ''): string {
   return '<div class="empty">'.illus($illus, 'empty-illus').'<h3>'.e($title).'</h3>'.($text ? '<p class="muted">'.e($text).'</p>' : '').$actionHtml.'</div>'; }
 
+/** WhatsApp number of a person row: their own WhatsApp number, else their phone. */
+function wa_number(array $u): ?string { return ($u['whatsapp'] ?? null) ?: ($u['phone'] ?? null); }
 function wa_link(?string $phone, string $text = ''): string { $d = preg_replace('/\D+/', '', (string) $phone); return 'https://wa.me/'.$d.($text ? '?text='.rawurlencode($text) : ''); }
 function str_limit(?string $s, int $n = 80): string { $s = (string) $s; return mb_strlen($s) > $n ? mb_substr($s, 0, $n - 1).'…' : $s; }
 function query_merge(array $add): string { return '?'.http_build_query(array_merge($_GET, $add)); }

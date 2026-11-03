@@ -32,11 +32,11 @@ final class UserController extends Controller {
     if (($u && (int) $u['role_id'] === $sa) || $roleId === $sa) { $this->abort(403, 'Only a Super Admin can manage Super Admin accounts.'); } }
 
   private function rules(?int $id): array {
-    return ['name' => 'required|max:150', 'email' => 'required|email|max:190|unique:users,email'.($id ? ",$id" : ''), 'phone' => 'nullable|phone', 'role_id' => 'required|integer|exists:roles,id', 'status' => 'required|in:active,inactive',
+    return ['name' => 'required|max:150', 'email' => 'required|email|max:190|unique:users,email'.($id ? ",$id" : ''), 'phone' => 'nullable|phone', 'whatsapp' => 'nullable|phone', 'role_id' => 'required|integer|exists:roles,id', 'status' => 'required|in:active,inactive',
       'designation' => 'nullable|max:120', 'department' => 'nullable|max:120', 'manager_id' => 'nullable|integer|exists:users,id', 'employee_code' => 'nullable|max:40|unique:users,employee_code'.($id ? ",$id" : ''), 'joined_on' => 'nullable|date']; }
 
   public function store(): Response {
-    $d = $this->validate($this->rules(null), ['role_id' => 'Role', 'manager_id' => 'Reporting manager']);
+    $d = $this->validate($this->rules(null), ['role_id' => 'Role', 'manager_id' => 'Reporting manager', 'whatsapp' => 'WhatsApp number']);
     $this->guardTarget(null, (int) $d['role_id']);
     $pass = (string) $this->request->input('password', '');
     $invite = $pass === '';
@@ -50,7 +50,7 @@ final class UserController extends Controller {
 
   public function update(int $id): Response {
     $u = $this->findOr404('users', $id);
-    $d = $this->validate($this->rules($id), ['role_id' => 'Role', 'manager_id' => 'Reporting manager']);
+    $d = $this->validate($this->rules($id), ['role_id' => 'Role', 'manager_id' => 'Reporting manager', 'whatsapp' => 'WhatsApp number']);
     $this->guardTarget($u, (int) $d['role_id']);
     if ($id === Auth::id() && ((int) $d['role_id'] !== (int) $u['role_id'] || $d['status'] !== 'active')) { $this->abort(422, 'You cannot change your own role or deactivate yourself.'); }
     if ((int) $d['manager_id'] === $id) { $d['manager_id'] = null; }

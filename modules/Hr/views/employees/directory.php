@@ -16,7 +16,7 @@
     <div class="small muted"><?= e($u['designation'] ?: 'Team member') ?><?= $u['department'] ? ' · '.e($u['department']) : '' ?></div>
     <div class="hr-contact">
       <a class="btn sm soft" href="mailto:<?= e($u['email']) ?>" title="<?= e($u['email']) ?>"><?= icon('mail', 'sm') ?> Email</a>
-      <?php if ($u['phone']): ?><a class="btn sm ghost" href="tel:<?= e(preg_replace('/[^\d+]/', '', $u['phone'])) ?>" title="<?= e($u['phone']) ?>" aria-label="Call <?= e($u['name']) ?>"><?= icon('phone', 'sm') ?></a><a class="btn sm ghost" href="<?= e(wa_link($u['phone'])) ?>" target="_blank" rel="noopener" title="WhatsApp" aria-label="WhatsApp <?= e($u['name']) ?>"><?= icon('whatsapp', 'sm') ?></a><?php endif ?>
+      <?php if ($u['phone']): ?><a class="btn sm ghost" href="tel:<?= e(preg_replace('/[^\d+]/', '', $u['phone'])) ?>" title="<?= e($u['phone']) ?>" aria-label="Call <?= e($u['name']) ?>"><?= icon('phone', 'sm') ?></a><?php endif ?><?php if ($wa = wa_number($u)): ?><a class="btn sm ghost" href="<?= e(wa_link($wa)) ?>" target="_blank" rel="noopener" title="WhatsApp <?= e($wa) ?>" aria-label="WhatsApp <?= e($u['name']) ?>"><?= icon('whatsapp', 'sm') ?></a><?php endif ?>
     </div>
   </div>
   <?php endforeach ?>
