@@ -28,7 +28,7 @@ final class Monitoring {
       'You can always see your own screenshots. Your manager or HR may view them if they hold monitoring access.',
       'Images are stored privately and deleted automatically after '.self::retention().' days.',
       'You can revoke consent at any time in the web app. Capture stops immediately.']]; }
-  public static function retention(): int { return max(1, (int) Settings::get('attendance.screenshot_retention_days', 30)); }
+  public static function retention(): int { return max(1, (int) Settings::get('attendance.screenshot_retention_days', 60)); }
 
   public static function consent(int $uid): ?array { return DB::first('SELECT * FROM monitoring_consents WHERE user_id=? AND revoked_at IS NULL AND policy_version=? ORDER BY id DESC LIMIT 1', [$uid, self::POLICY_VERSION]); }
 
