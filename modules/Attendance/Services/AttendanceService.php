@@ -16,6 +16,12 @@ final class AttendanceService {
   public static function offDays(?int $uid = null): array {
     $uid ??= Auth::id();
     return $uid && self::hr() ? \Modules\Hr\Services\LeaveService::scheduleFor((int) $uid)['off_days'] : self::weekendDays(); }
+  /** Share of a working day for the user on a date (0 off, 0.5 half day, 1 full), before holidays and leave. */
+  public static function dayWeight(?int $uid, string $date): float {
+    $uid ??= Auth::id();
+    if ($uid && self::hr()) { $s = \Modules\Hr\Services\LeaveService::scheduleFor((int) $uid); return \Core\WorkWeek::weight($date, $s['off_days'], $s['saturday']); }
+    return \Core\WorkWeek::weight($date, self::weekendDays(), \Core\WorkWeek::companyRule()); }
+
   public static function lock(int $uid): void { DB::value('SELECT id FROM users WHERE id=? FOR UPDATE', [$uid]); }
 
   public static function today(int $uid, ?string $date = null): ?array {
@@ -206,7 +212,7 @@ final class AttendanceService {
       elseif ($r) { $st = $r['status']; }
       elseif (isset($hol[$d])) { $st = 'holiday'; }
       elseif (isset($leave[$d])) { $st = 'leave'; }
-      elseif (in_array((int) date('N', $t), $wk, true)) { $st = 'weekend'; }
+      elseif (self::dayWeight($uid, $d) <= 0) { $st = 'weekend'; }
       elseif ($d < $today && $d >= $start) { $st = 'absent'; }
       else { $st = ''; }
       $days[$d] = ['status' => $st, 'worked' => $worked, 'row' => $r, 'holiday' => $hol[$d] ?? null, 'leave' => $leave[$d] ?? null];

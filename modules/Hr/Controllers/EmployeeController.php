@@ -99,12 +99,14 @@ final class EmployeeController extends Controller {
     if (($in['hours_mode'] ?? 'default') === 'custom') {
       $h = (string) ($in['work_hours_per_day'] ?? '');
       if (!is_numeric($h) || (float) $h < 0.5 || (float) $h > 16) { $errors['work_hours_per_day'] = 'Enter working hours between 0.5 and 16.'; } else { $hours = round((float) $h * 4) / 4; } }
-    $days = null;
+    $days = null; $sat = null;
     if (($in['days_mode'] ?? 'default') === 'custom') {
       $raw = array_map('intval', (array) ($in['off_days'] ?? []));
       if (array_diff($raw, range(1, 7))) { $errors['off_days'] = 'Choose valid weekdays.'; }
       elseif (count(array_unique($raw)) > 6) { $errors['off_days'] = 'At least one working day per week is required.'; }
-      else { $days = implode(',', LeaveService::parseDays(implode(',', $raw))); } }
+      else { $days = implode(',', LeaveService::parseDays(implode(',', $raw))); }
+      $sat = (string) ($in['saturday_rule'] ?? 'full');
+      if (!\Core\WorkWeek::valid($sat)) { $errors['saturday_rule'] = 'Choose a valid Saturday option.'; } }
     $types = DB::pairs('SELECT id, annual_quota FROM leave_types WHERE active=1');
     $over = [];
     foreach ((array) ($in['quota'] ?? []) as $tid => $v) {
@@ -115,8 +117,8 @@ final class EmployeeController extends Controller {
       $over[$tid] = round((float) $v * 2) / 2; }
     if ($errors) { throw new ValidationException($errors); }
     $year = (int) date('Y');
-    $changed = DB::transaction(function () use ($id, $hours, $days, $over, $types, $year): array {
-      $this->saveProfile($id, ['work_hours_per_day' => $hours, 'weekly_off_days' => $days]);
+    $changed = DB::transaction(function () use ($id, $hours, $days, $sat, $over, $types, $year): array {
+      $this->saveProfile($id, ['work_hours_per_day' => $hours, 'weekly_off_days' => $days, 'saturday_rule' => $days === null ? null : ($sat ?? 'full')]);
       $old = DB::pairs('SELECT leave_type_id, annual_quota FROM employee_leave_quotas WHERE user_id=?', [$id]);
       $log = [];
       foreach ($over as $tid => $q) {

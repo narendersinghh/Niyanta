@@ -137,10 +137,11 @@ final class Timesheets {
     $leave = AttendanceService::leaveMap([$uid], $ws, end($dates))[$uid] ?? [];
     $s['off'] = []; $s['expected'] = 0; $s['workdays'] = 0;
     foreach ($dates as $d) {
-      $isOff = in_array((int) date('N', strtotime($d)), $off, true) || isset($hol[$d]);
+      $w = AttendanceService::dayWeight($uid, $d);
+      $isOff = $w <= 0 || isset($hol[$d]);
       $s['off'][$d] = $isOff ? ($hol[$d] ?? 'Off') : null;
       if ($isOff) { continue; }
-      $f = max(0.0, 1 - (float) ($leave[$d] ?? 0));
+      $f = max(0.0, $w - (float) ($leave[$d] ?? 0));
       $s['expected'] += (int) round($perDay * $f);
       $s['workdays'] += $f; }
     $s['per_day'] = $perDay;

@@ -38,7 +38,7 @@ final class Todos {
     $ts = strtotime($date);
     $dow = (int) date('N', $ts);
     return match ($s['frequency']) {
-      'daily' => empty($s['workdays_only']) || !in_array($dow, $weekend ?? self::weekend(), true),
+      'daily' => empty($s['workdays_only']) || \Core\WorkWeek::weight($date, $weekend ?? self::weekend(), $weekend === null ? \Core\WorkWeek::companyRule() : 'full') > 0,
       'weekly' => in_array($dow, self::days($s['weekdays'] ?? ''), true),
       'monthly' => (int) date('j', $ts) === min(max(1, (int) $s['month_day']), (int) date('t', $ts)),
       default => false }; }

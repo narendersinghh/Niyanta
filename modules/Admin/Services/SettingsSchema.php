@@ -131,7 +131,8 @@ final class SettingsSchema {
         ['key' => 'email.notifications', 'label' => 'Send email copies of notifications', 'type' => 'toggle', 'default' => '1', 'section' => 'Delivery', 'span' => true]],
       'employees' => [
         ['key' => 'hr.work_hours_per_day', 'label' => 'Work hours per day', 'type' => 'number', 'rules' => 'required|numeric|min:1|max:24', 'step' => '0.5', 'section' => 'Work schedule', 'default' => '8', 'hint' => ($use = self::join([feature_on('attendance') ? 'attendance targets, timesheets' : null, feature_on('payroll') ? 'hourly payroll' : null])) ? 'Used for '.$use.'.' : 'The standard working day of the company.'],
-        ['key' => 'general.weekend_days', 'label' => 'Weekly off days', 'type' => 'days', 'hint' => 'Company default.'.(feature_on('employees') ? ' Override per employee on their profile (Work schedule'.(feature_on('leave') ? ' & leave' : '').').' : ''), 'span' => true, 'default' => '6,7']],
+        ['key' => 'general.weekend_days', 'label' => 'Weekly off days', 'type' => 'days', 'hint' => 'Company default.'.(feature_on('employees') ? ' Override per employee on their profile (Work schedule'.(feature_on('leave') ? ' & leave' : '').').' : ''), 'span' => true, 'default' => '6,7'],
+        ['key' => 'general.saturday_rule', 'label' => 'Saturdays', 'type' => 'select', 'options' => \Core\WorkWeek::RULES, 'rules' => 'required|in:'.implode(',', array_keys(\Core\WorkWeek::RULES)), 'default' => 'full', 'hint' => 'When Saturday is a working day: full day, half day, or alternate Saturdays off (the 2nd & 4th or 1st & 3rd of the month). Half days count as half a working day for leave, salary and attendance targets.']],
       'leave' => [
         $num('hr.optional_holidays_default', 'Optional holidays per year', 0, 60, 'Default yearly allowance of the Optional Holiday (OH) leave type. Can be changed per employee.', ['default' => '15', 'section' => 'Holidays'])],
       'attendance' => [

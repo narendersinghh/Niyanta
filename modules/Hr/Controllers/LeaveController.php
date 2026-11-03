@@ -32,7 +32,7 @@ final class LeaveController extends Controller {
     if ((strtotime($to) - strtotime($from)) / 86400 > 92) { return $this->json(['days' => 0, 'note' => 'Requests are limited to 3 months.']); }
     $hol = DB::column('SELECT name FROM holidays WHERE optional=0 AND holiday_date BETWEEN ? AND ? ORDER BY holiday_date', [$from, $to]);
     $days = LeaveService::requestDaysFor($this->uid(), $from, $to, $half && $from === $to);
-    $off = LeaveService::daysLabel(LeaveService::scheduleFor($this->uid())['off_days']);
+    $sc = LeaveService::scheduleFor($this->uid()); $off = LeaveService::daysLabel($sc['off_days'], $sc['saturday']);
     return $this->json(['days' => $days, 'note' => $days ? ($days == 1 ? '1 working day' : rtrim(rtrim(number_format($days, 1), '0'), '.').' working days').($hol ? ' (excludes '.implode(', ', $hol).')' : '') : 'No working days in this range, your weekly off: '.$off.'.']); }
 
   private function isDate(string $v): bool { $d = \DateTime::createFromFormat('Y-m-d', $v); return $d && $d->format('Y-m-d') === $v; }

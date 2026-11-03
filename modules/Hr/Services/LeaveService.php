@@ -1,6 +1,6 @@
 <?php
 namespace Modules\Hr\Services;
-use Core\{DB, Settings};
+use Core\{DB, Settings, WorkWeek};
 
 /**
  * Leave & calendar helpers shared with other modules (Payroll, Attendance).
@@ -32,7 +32,10 @@ final class LeaveService {
   public static function num(mixed $v): string { return rtrim(rtrim(number_format((float) $v, 1, '.', ''), '0'), '.'); }
 
   /** Human label for a set of off days, e.g. "Sat, Sun". */
-  public static function daysLabel(array $days): string { return $days ? implode(', ', array_map(static fn ($d) => self::DAY_NAMES[$d], $days)) : 'No weekly off'; }
+  public static function daysLabel(array $days, ?string $sat = null): string {
+    $l = $days ? implode(', ', array_map(static fn ($d) => self::DAY_NAMES[$d], $days)) : 'No weekly off';
+    $x = $sat ? WorkWeek::label($sat, $days) : '';
+    return $x === '' ? $l : ($days ? $l.' · '.$x : $x); }
 
   /**
    * Effective schedules of many users in one query (cached per request):
@@ -43,13 +46,13 @@ final class LeaveService {
     $missing = array_values(array_filter($userIds, static fn ($u) => !isset(self::$sched[$u])));
     if ($missing) {
       $rows = [];
-      try { foreach (DB::all('SELECT user_id, work_hours_per_day, weekly_off_days FROM employee_profiles WHERE user_id IN '.DB::in($missing), $missing) as $r) { $rows[(int) $r['user_id']] = $r; } }
+      try { foreach (DB::all('SELECT * FROM employee_profiles WHERE user_id IN '.DB::in($missing), $missing) as $r) { $rows[(int) $r['user_id']] = $r; } }
       catch (\Throwable $e) { error_log('LeaveService::schedules: '.$e->getMessage()); }
       foreach ($missing as $u) {
         $r = $rows[$u] ?? [];
         $h = isset($r['work_hours_per_day']) && $r['work_hours_per_day'] !== null && (float) $r['work_hours_per_day'] > 0;
         $d = isset($r['weekly_off_days']) && $r['weekly_off_days'] !== null;
-        self::$sched[$u] = ['hours_per_day' => $h ? (float) $r['work_hours_per_day'] : self::companyHours(), 'off_days' => $d ? self::parseDays($r['weekly_off_days']) : self::weekendDays(), 'custom_hours' => $h, 'custom_days' => $d]; } }
+        self::$sched[$u] = ['hours_per_day' => $h ? (float) $r['work_hours_per_day'] : self::companyHours(), 'off_days' => $d ? self::parseDays($r['weekly_off_days']) : self::weekendDays(), 'saturday' => $d && WorkWeek::valid($r['saturday_rule'] ?? null) ? $r['saturday_rule'] : ($d ? 'full' : WorkWeek::companyRule()), 'custom_hours' => $h, 'custom_days' => $d]; } }
     return array_intersect_key(self::$sched, array_flip($userIds)); }
 
   /** Effective work schedule of one user. */
@@ -62,7 +65,13 @@ final class LeaveService {
   public static function flush(): void { self::$holidays = []; self::$weekend = null; self::$sched = []; }
 
   /** True when the date falls on a company default weekly off day. */
-  public static function isWeekend(string $date): bool { return in_array((int) date('N', strtotime($date)), self::weekendDays(), true); }
+  public static function isWeekend(string $date): bool { return WorkWeek::weight($date, self::weekendDays(), WorkWeek::companyRule()) <= 0; }
+
+  /** Share of a working day the date counts for one employee (or the company): 0 off, 0.5 half day, 1 full; fixed holidays are 0. */
+  public static function weight(string $date, ?int $userId = null): float {
+    if (self::isHoliday($date)) { return 0.0; }
+    $s = $userId ? self::scheduleFor($userId) : ['off_days' => self::weekendDays(), 'saturday' => WorkWeek::companyRule()];
+    return WorkWeek::weight($date, $s['off_days'], $s['saturday']); }
 
   /** True when the date is a fixed (non-optional) holiday. */
   public static function isHoliday(string $date): bool { $t = strtotime($date); return $t !== false && isset(self::holidaysOf((int) date('Y', $t))[date('Y-m-d', $t)]); }
@@ -72,26 +81,27 @@ final class LeaveService {
 
   /** Working day for a specific employee (their own weekly off days + fixed holidays). */
   public static function isWorkingDayFor(int $userId, string $date): bool {
-    return !in_array((int) date('N', strtotime($date)), self::scheduleFor($userId)['off_days'], true) && !self::isHoliday($date); }
+    $s = self::scheduleFor($userId);
+    return WorkWeek::weight($date, $s['off_days'], $s['saturday']) > 0 && !self::isHoliday($date); }
 
-  /** Count dates in [from, to] that are not in $offDays and not fixed holidays. */
-  private static function countDays(string $from, string $to, array $offDays): float {
+  /** Working days in [from, to]: weekly off days, Saturday rule (off / half) and fixed holidays applied. */
+  private static function countDays(string $from, string $to, array $offDays, string $sat = 'full'): float {
     $a = strtotime($from); $b = strtotime($to);
     if ($a === false || $b === false || $b < $a) { return 0.0; }
     $n = 0; $guard = 0;
-    for ($t = $a; $t <= $b && $guard < 3700; $t = strtotime('+1 day', $t), $guard++) { if (!in_array((int) date('N', $t), $offDays, true) && !self::isHoliday(date('Y-m-d', $t))) { $n++; } }
+    for ($t = $a; $t <= $b && $guard < 3700; $t = strtotime('+1 day', $t), $guard++) { if (!self::isHoliday(date('Y-m-d', $t))) { $n += WorkWeek::weight($t, $offDays, $sat); } }
     return (float) $n; }
 
   /** Company working days between two dates inclusive (default weekly off days and fixed holidays excluded). */
-  public static function workingDays(string $from, string $to): float { return self::countDays($from, $to, self::weekendDays()); }
+  public static function workingDays(string $from, string $to): float { return self::countDays($from, $to, self::weekendDays(), WorkWeek::companyRule()); }
 
   /** Working days of one employee between two dates inclusive (their weekly off days and fixed holidays excluded). */
-  public static function workingDaysFor(int $userId, string $from, string $to): float { return self::countDays($from, $to, self::scheduleFor($userId)['off_days']); }
+  public static function workingDaysFor(int $userId, string $from, string $to): float { $s = self::scheduleFor($userId); return self::countDays($from, $to, $s['off_days'], $s['saturday']); }
 
   /** Bulk variant for payroll: [uid => working days]; users sharing a calendar are counted once. */
   public static function workingDaysMany(array $userIds, string $from, string $to): array {
     $out = []; $memo = [];
-    foreach (self::schedules($userIds) as $u => $s) { $k = implode(',', $s['off_days']); $out[$u] = $memo[$k] ??= self::countDays($from, $to, $s['off_days']); }
+    foreach (self::schedules($userIds) as $u => $s) { $k = implode(',', $s['off_days']).'|'.$s['saturday']; $out[$u] = $memo[$k] ??= self::countDays($from, $to, $s['off_days'], $s['saturday']); }
     return $out; }
 
   /** Days a request consumes on the company calendar: working days, or 0.5 for a half day on a working day. */
@@ -123,10 +133,11 @@ final class LeaveService {
   public static function portion(array $r, string $from, string $to): float {
     $days = (float) $r['days'];
     if ($r['start_date'] >= $from && $r['end_date'] <= $to) { return $days; }
-    $off = isset($r['user_id']) ? self::scheduleFor((int) $r['user_id'])['off_days'] : self::weekendDays();
-    $full = self::countDays($r['start_date'], $r['end_date'], $off);
+    $sc = isset($r['user_id']) ? self::scheduleFor((int) $r['user_id']) : ['off_days' => self::weekendDays(), 'saturday' => WorkWeek::companyRule()];
+    $off = $sc['off_days'];
+    $full = self::countDays($r['start_date'], $r['end_date'], $off, $sc['saturday']);
     if ($full <= 0) { return 0.0; }
-    $part = self::countDays(max($r['start_date'], $from), min($r['end_date'], $to), $off);
+    $part = self::countDays(max($r['start_date'], $from), min($r['end_date'], $to), $off, $sc['saturday']);
     return min($days, $days * $part / $full); }
 
   /** True when the user has approved leave covering the date. */

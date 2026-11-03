@@ -43,7 +43,7 @@ final class PayrollService {
     $out = [];
     for ($d = new \DateTimeImmutable($from), $end = new \DateTimeImmutable($to); $d <= $end; $d = $d->modify('+1 day')) {
       $k = $d->format('Y-m-d');
-      if (!in_array((int) $d->format('N'), $weekend, true) && !isset($hol[$k])) { $out[$k] = true; } }
+      if (\Core\WorkWeek::weight($k, $weekend, \Core\WorkWeek::companyRule()) > 0 && !isset($hol[$k])) { $out[$k] = true; } }
     return $cache["$from|$to"] = $out; }
 
   /** Approved unpaid leave days per user (prorated to the part of each request that overlaps the range). */

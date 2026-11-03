@@ -31,7 +31,7 @@ $icons = ['overview' => 'user', 'schedule' => 'clock', 'leave' => 'umbrella', 'd
     <div><span class="xs">Employee code</span><b><?= e($emp['employee_code'] ?: '-') ?></b></div>
     <div><span class="xs">Joined</span><b><?= fdate($emp['joined_on']) ?><?= $tenure && !$tenure->invert ? ' <span class="small muted">· '.e($tenure->y || $tenure->m ? ($tenure->y ? $tenure->y.'y ' : '').$tenure->m.'m' : $tenure->d.'d').'</span>' : '' ?></b></div>
     <div><span class="xs">Reports to</span><b><?= e($emp['manager_name'] ?? '-') ?></b></div>
-    <div><span class="xs">Work week</span><b><?= e(LS::num($schedule['hours_per_day'])) ?> h/day · off <?= e(LS::daysLabel($schedule['off_days'])) ?></b></div>
+    <div><span class="xs">Work week</span><b><?= e(LS::num($schedule['hours_per_day'])) ?> h/day · off <?= e(LS::daysLabel($schedule['off_days'], $schedule['saturday'] ?? null)) ?></b></div>
   </div>
 </div>
 <nav class="tabs mb hr-tabs" aria-label="Profile sections">

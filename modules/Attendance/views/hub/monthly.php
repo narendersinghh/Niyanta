@@ -16,7 +16,7 @@ $attLbl = ['leave' => 'Leave', 'holiday' => 'Holiday', 'absent' => 'Absent', 'ha
   <div class="mcal" role="grid" aria-label="<?= e(date('F Y', strtotime($m0))) ?>">
     <?php foreach (['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as $i => $dw): ?><div class="mcal-dw<?= in_array($i + 1, $weekend, true) ? ' we' : '' ?>" role="columnheader"><?= $dw ?></div><?php endforeach ?>
     <?php for ($i = 0; $i < $lead; $i++): ?><div class="mcal-d out" aria-hidden="true"></div><?php endfor ?>
-    <?php for ($d = 1; $d <= $n; $d++): $ds = sprintf('%s-%02d', $month, $d); $s = $days[$ds] ?? 0; $fut = $ds > $today; $we = in_array((int) date('N', strtotime($ds)), $weekend, true);
+    <?php for ($d = 1; $d <= $n; $d++): $ds = sprintf('%s-%02d', $month, $d); $s = $days[$ds] ?? 0; $fut = $ds > $today; $we = \Modules\Attendance\Services\AttendanceService::dayWeight($target, $ds) <= 0;
       $note = $hol[$ds] ?? (isset($att[$ds]) ? $attLbl[$att[$ds]] ?? '' : ''); ?>
     <<?= $fut ? 'div' : 'a href="'.e(url('/time/daily?date='.$ds.$uq)).'"' ?> class="mcal-d<?= $ds === $today ? ' today' : '' ?><?= $we ? ' we' : '' ?><?= $fut ? ' fut' : '' ?>" role="gridcell"<?= $fut ? '' : ' title="Open '.e(fdate($ds)).'"' ?>>
       <span class="mcal-n"><?= $d ?></span>
