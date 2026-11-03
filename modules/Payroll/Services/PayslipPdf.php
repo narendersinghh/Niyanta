@@ -23,12 +23,23 @@ final class PayslipPdf {
     $left = [['Employee', $s['name']], ['Employee code', $s['employee_code'] ?: '-'], ['Designation', $s['designation'] ?: '-'], ['Department', $s['department'] ?: '-']];
     $right = $s['pay_type'] === 'hourly'
       ? [['Pay period', $period], ['Pay type', 'Hourly'], ['Hourly rate', money($s['rate'])], ['Hours worked', number_format((float) $s['worked_hours'], 2).' h']]
-      : [['Pay period', $period], ['Working days', self::num($s['working_days'])], ['Paid days', self::num($s['paid_days'])], ...(($s['expected_hours'] ?? null) !== null ? [['Tracked hours', number_format((float) $s['worked_hours'], 2).' of '.number_format((float) $s['expected_hours'], 2).' h']] : []), ...(feature_on('leave') || (float) $s['unpaid_leave_days'] > 0 ? [['Unpaid leave (LOP)', self::num($s['unpaid_leave_days'])]] : [])];
+      : [['Pay period', $period], ['Working days', self::num($s['working_days'])], ['Paid days', self::num($s['paid_days'])], ...(feature_on('leave') || (float) $s['unpaid_leave_days'] > 0 ? [['Unpaid leave (LOP)', self::num($s['unpaid_leave_days'])]] : [])];
     foreach ([[$left, $L + 16], [$right, $L + 272]] as [$rows, $x]) {
       $yy = $y + 24;
       foreach ($rows as [$k, $v]) { $pdf->font(false, 8.5)->text($x, $yy, strtoupper($k), '#7b7b8c'); $pdf->font(true, 10)->text($x + 100, $yy, mb_substr((string) $v, 0, 34), '#16161d'); $yy += 22; } }
     $y += 136;
     $colW = ($R - $L - 16) / 2;
+    if ($hrs = PayrollService::hoursLines($s)) {
+      $rows = (int) ceil(count($hrs) / 2);
+      $pdf->rect($L, $y, $R - $L, 26, '#f4f1ff');
+      $pdf->font(true, 10)->text($L + 12, $y + 17, 'Hours & rate', '#4b3be8');
+      $pdf->font(true, 8.5)->text($R - 12, $y + 17, $s['pay_type'] === 'hourly' ? 'PAID BY THE HOUR' : 'SALARY FROM TRACKED TIME', '#4b3be8', 'right');
+      foreach (array_values($hrs) as $i => [$k, $v]) {
+        $x = $L + ($i % 2) * ($colW + 16); $yy = $y + 26 + intdiv($i, 2) * 22;
+        $pdf->font(false, 9)->text($x + 12, $yy + 15, $k, '#5e5e6e');
+        $pdf->font(true, 9.5)->text($x + $colW - 12, $yy + 15, $v, '#16161d', 'right');
+        $pdf->line($x, $yy + 22, $x + $colW, $yy + 22, '#eaeaf0'); }
+      $y += 26 + $rows * 22 + 20; }
     $endE = self::table($pdf, $L, $y, $colW, 'Earnings', $earn, 'Gross earnings', (float) $s['gross'], '#e2f8ee', '#13795b');
     $endD = self::table($pdf, $L + $colW + 16, $y, $colW, 'Deductions', $ded, 'Total deductions', (float) $s['total_deductions'], '#ffeaea', '#c22b2b');
     $y = max($endE, $endD) + 26;

@@ -79,8 +79,8 @@ final class SettingsSchema {
       'users' => ['Passwords & sessions' => 'Applies to every user the next time they sign in or change their password.'],
       'employees' => ['Work schedule' => 'Company defaults.'.(feature_on('employees') ? ' Hours per day and weekly offs can be overridden per employee on their HR profile.' : ''), 'Joining' => 'Defaults used when onboarding new employees.'],
       'leave' => ['Holidays' => 'Fixed holidays apply to everyone; optional holidays are a personal pool for festivals or personal needs.', 'Leave year' => 'Balances are allocated for this cycle.'],
-      'attendance' => ['Time tracking' => 'Applies to the Niyanta Tracker desktop app. Starting tracking clocks the person in; only tracked time counts as worked time.', 'Screenshot monitoring' => 'Only for people who accepted the monitoring notice, only while tracking. Screenshots older than the retention period are deleted nightly.', 'Payroll' => 'How tracked time feeds monthly salaries.'],
-      'payroll' => ['Payslips' => 'Shown on every payslip PDF.'],
+      'attendance' => ['Time tracking' => 'Applies to the Niyanta Tracker desktop app. Starting tracking clocks the person in; only tracked time counts as worked time.', 'Screenshot monitoring' => 'Only for people who accepted the monitoring notice, only while tracking. Screenshots older than the retention period are deleted nightly.', ],
+      'payroll' => ['Pay from working hours' => feature_on('attendance') ? 'Expected hours of a month = hours per day on the employee\'s schedule for each working day (weekly offs, Saturday half days and alternate Saturdays, fixed holidays applied) minus approved paid leave. Unpaid leave is not deducted from expected hours, so it lowers pay. Only approved tracked time counts as worked.' : 'Needs Attendance & time tracking, which is switched off: monthly salaries are paid in full, prorated by working days and unpaid leave, and hourly pay uses any approved time on record.', 'Overtime' => 'Hours worked beyond the expected hours, counted the same way as the flexible hours setting (per day, per week or over the month).', 'Payslips' => 'Shown on every payslip PDF.'],
       'invoicing' => ['Numbering' => 'New documents get the next number after the highest existing one with this prefix.', 'Tax & payment terms' => 'Defaults for new '.self::join([feature_on('invoices') ? 'invoices' : null, feature_on('quotations') ? 'quotations' : null]).'; editable per document.', 'Default terms' => 'Pre-filled on new documents.'],
       'retention' => ['Logs & activity' => 'Older rows are deleted permanently by the nightly cleanup job. 0 keeps them forever.', 'Files & sessions' => feature_on('attendance') ? 'Screenshot files and expired login sessions on disk.' : 'Expired login sessions on disk.', 'Uploads' => 'Largest file a user can upload anywhere in the app.', 'Backups' => 'Older automatic backups are removed after each new backup.'],
       'backups' => ['Schedule & retention' => 'Automatic backups run from the scheduler at this time (server time).'],
@@ -144,9 +144,9 @@ final class SettingsSchema {
         $num('attendance.screenshot_interval_seconds', 'Screenshot interval (seconds)', 10, 3600, 'Between 10 seconds and 1 hour, e.g. 180 = every 3 minutes.', ['default' => '180', 'unit' => 'sec']),
         $num('attendance.screenshot_retention_days', 'Keep screenshots for (days)', 1, 365, 'Also shown under System › Data retention.', ['default' => '60']),
         ['key' => 'attendance.screenshot_notify', 'label' => 'Show a small notice each time a screenshot is taken', 'type' => 'toggle', 'default' => '1', 'span' => true],
-        ['key' => 'attendance.screenshot_notify_optional', 'label' => 'People may turn the screenshot notice off in their app', 'type' => 'toggle', 'default' => '1', 'span' => true],
-        ['key' => 'payroll.salary_from_tracked_time', 'label' => 'Calculate monthly salary from tracked time', 'type' => 'toggle', 'default' => '1', 'section' => 'Payroll', 'span' => true, 'feature' => 'payroll', 'hint' => 'Monthly pay = salary × tracked approved hours ÷ expected hours (working days on the employee\'s schedule minus paid leave and holidays), capped at 100%. Hourly pay always uses tracked hours.']],
+        ['key' => 'attendance.screenshot_notify_optional', 'label' => 'People may turn the screenshot notice off in their app', 'type' => 'toggle', 'default' => '1', 'span' => true]],
       'payroll' => [
+        ...self::hoursFields(),
         ['key' => 'payroll.payslip_footer', 'label' => 'Payslip footer note', 'type' => 'textarea', 'rules' => 'nullable|max:500', 'span' => true, 'section' => 'Payslips', 'hint' => 'Printed at the bottom of every payslip.', 'feature' => 'payroll']],
       'invoicing' => [
         ['key' => 'crm.invoice_prefix', 'label' => 'Invoice number prefix', 'type' => 'text', 'rules' => 'nullable|max:10|regex:/^[A-Za-z0-9\/_\-]*$/', 'default' => 'INV-', 'section' => 'Numbering', 'hint' => 'e.g. INV- → INV-00042', 'feature' => 'invoices'],
@@ -179,6 +179,20 @@ final class SettingsSchema {
       default => [] };
     /* A field (or section) may declare 'feature' => name|[names]: it is shown and saved only while one of them is on. */
     return array_values(array_filter($fields, static fn ($f) => empty($f['feature']) || array_filter((array) $f['feature'], 'feature_on'))); }
+
+  /** Payroll tab: hours-based pay (salary from tracked time, flexible hours, overtime). Shown while payroll is on. */
+  private static function hoursFields(): array {
+    $att = feature_on('attendance');
+    $off = $att ? '' : ' Not applied right now: Attendance & time tracking is switched off.';
+    return [
+      ['key' => 'payroll.salary_from_tracked_time', 'label' => 'Calculate monthly salary from tracked time', 'type' => 'toggle', 'default' => '1', 'section' => 'Pay from working hours', 'span' => true, 'feature' => 'payroll',
+        'hint' => 'On: hourly rate of the month = monthly salary ÷ expected hours of that month, and pay = rate × payable hours worked (never more than the salary unless overtime is paid). Off: the monthly salary is paid in full, minus unpaid leave days.'.$off],
+      ['key' => 'payroll.flex_mode', 'label' => 'Flexible hours', 'type' => 'select', 'options' => \Modules\Payroll\Services\PayrollService::FLEX, 'rules' => 'required|in:monthly,weekly,daily', 'default' => 'monthly', 'span' => true, 'feature' => 'payroll',
+        'hint' => 'Caps the hours that are paid. Over the month: any hours up to the month\'s expected hours. Over the week: up to each week\'s expected hours (a week split by month end counts only its days in the month). Off: up to each day\'s expected hours. Applies to monthly salaries (when calculated from tracked time) and to hourly rates.'.$off],
+      ['key' => 'payroll.overtime_enabled', 'label' => 'Pay overtime for extra hours', 'type' => 'toggle', 'default' => '0', 'section' => 'Overtime', 'span' => true, 'feature' => 'payroll',
+        'hint' => 'Off (default): hours above the cap are not paid. On: they are paid at the hourly rate of the month times the multiplier below, as a separate earnings line.'.$off],
+      ['key' => 'payroll.overtime_rate', 'label' => 'Overtime pay rate', 'type' => 'select', 'options' => \Modules\Payroll\Services\PayrollService::OT_RATES, 'rules' => 'required|in:1,1.5,2,manual', 'default' => '1.5', 'feature' => 'payroll', 'when' => 'payroll.overtime_enabled'],
+      ['key' => 'payroll.overtime_manual', 'label' => 'Manual multiplier', 'type' => 'number', 'rules' => 'nullable|numeric|min:0.1|max:10', 'step' => '0.05', 'min' => 0, 'max' => 10, 'default' => '1.25', 'unit' => 'x', 'feature' => 'payroll', 'when' => 'payroll.overtime_rate=manual', 'hint' => 'e.g. 1.25 pays each overtime hour at 125% of the hourly rate.']]; }
 
   private static function sample(array $formats): array { $t = strtotime('2026-03-28 16:45'); $o = []; foreach ($formats as $f) { $o[$f] = date($f, $t); } return $o; }
 

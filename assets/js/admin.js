@@ -22,6 +22,10 @@ const set=(id,v)=>{const el=d.getElementById(id);if(el&&v!==null&&v!==undefined&
 if(fill){set("f-email-smtp_host",p.host);set("f-email-smtp_port",p.port||"");set("f-email-smtp_encryption",p.enc);const u=d.getElementById("f-email-smtp_username");if(u){if(p.user)u.value=p.user;else if(u.value==="apikey")u.value=""}}
 const u=$("[data-smtp-user]");if(u)u.placeholder=p.uh||"";$$("[data-cred-hint]").forEach(h=>{h.textContent=p[h.dataset.credHint]||""})};
 const cur=$("[data-provider]:checked");if(cur)provider(cur.value,false);
+/* dependent settings fields: [data-when="s[key]"] shows while that toggle is on, or with data-when-value while that field has the value; a field inside a hidden one stays hidden */
+const whenSync=()=>{for(let i=0;i<3;i++)$$("[data-when]").forEach(w=>{const f=w.closest("form"),els=f?[...f.elements].filter(x=>x.name===w.dataset.when):[];const el=els.find(x=>x.type!=="hidden")||els[0];if(!el)return;const host=el.closest("[data-when]"),v=el.type==="checkbox"?(el.checked?"1":""):el.value;
+w.classList.toggle("hide",!!(host&&host.classList.contains("hide"))||("whenValue" in w.dataset?v!==w.dataset.whenValue:v!=="1"))})};
+if($("[data-when]")){d.addEventListener("change",e=>{if(e.target.matches("input,select"))whenSync()});whenSync()}
 /* typed confirmation: form[data-typed="WORD"] enables its submit button only when [data-typed-input] equals WORD */
 $$("form[data-typed]").forEach(f=>{const i=$("[data-typed-input]",f),b=$("[type=submit]",f);if(!i||!b)return;const chk=()=>{b.disabled=i.value.trim()!==f.dataset.typed};i.addEventListener("input",chk);chk();
 f.addEventListener("submit",ev=>{if(i.value.trim()!==f.dataset.typed){ev.preventDefault();return}f.dataset.noLock="1";b.disabled=true;b.innerHTML='<span class="spinner"></span> Working… keep this tab open'})});

@@ -1,4 +1,5 @@
 <?php
+use Modules\Payroll\Services\PayrollService;
 $num = static fn ($v) => rtrim(rtrim(number_format((float) $v, 2), '0'), '.');
 ?>
 <?php $dn = [1 => 'Mon', 2 => 'Tue', 3 => 'Wed', 4 => 'Thu', 5 => 'Fri', 6 => 'Sat', 7 => 'Sun']; ?>
@@ -43,6 +44,27 @@ $num = static fn ($v) => rtrim(rtrim(number_format((float) $v, 2), '0'), '.');
     </div>
   </div>
   <div class="stack">
+    <?php if ($est): $hl = $est['expected_hours'] !== null; $hn = static fn ($v) => rtrim(rtrim(number_format((float) $v, 2, '.', ''), '0'), '.').' h'; $dn1 = static fn ($v) => rtrim(rtrim(number_format((float) $v, 1, '.', ''), '0'), '.'); ?>
+    <div class="card">
+      <div class="card-head"><h3>Pay calculation</h3><span class="muted small"><?= e(date('F Y')) ?> so far</span></div>
+      <div class="pay-calc">
+        <div class="pay-line"><span>Pay basis</span><span><?= $current['pay_type'] === 'hourly' ? 'Hourly rate × hours' : ($hl ? 'Salary from tracked time' : 'Monthly salary by days') ?></span></div>
+        <?php if ($hl): ?>
+        <div class="pay-line"><span>Flexible hours</span><span><?= e(PayrollService::FLEX_SHORT[$est['flex_mode']] ?? '') ?></span></div>
+        <div class="pay-line"><span>Overtime</span><span><?= ($m = PayrollService::overtimeMultiplier()) ? 'Paid at '.e(PayrollService::multLabel($m)) : 'Not paid' ?></span></div>
+        <div class="pay-line"><span>Expected hours</span><span><?= e($hn($est['expected_hours'])) ?></span></div>
+        <div class="pay-line"><span><?= $current['pay_type'] === 'hourly' ? 'Hourly rate' : 'Hourly rate this month' ?></span><span><?= e(money(round((float) $est['hour_rate'], 2))) ?></span></div>
+        <div class="pay-line"><span>Worked so far (approved)</span><span><?= e($hn($est['worked_hours'])) ?></span></div>
+        <div class="pay-line"><span>Payable so far</span><span><?= e($hn($est['payable_hours'])) ?><?= (float) $est['overtime_hours'] > 0 ? ' + '.e($hn($est['overtime_hours'])).' OT' : '' ?></span></div>
+        <?php else: ?>
+        <div class="pay-line"><span>Working days</span><span><?= e($dn1($est['working_days'])) ?></span></div>
+        <?php if ((float) $est['unpaid_leave_days'] > 0): ?><div class="pay-line"><span>Unpaid leave</span><span><?= e($dn1($est['unpaid_leave_days'])) ?> days</span></div><?php endif ?>
+        <?php endif ?>
+        <div class="pay-line total"><span>Base pay so far</span><span><?= e(money((float) $est['base_pay'] + (float) $est['overtime_pay'])) ?></span></div>
+      </div>
+      <p class="xs muted mt mb0"><?= $hl ? 'Expected hours: hours per day on the work schedule for each working day (Saturday rule and fixed holidays applied) minus approved paid leave. Allowances and deductions are added in the payroll run.' : (PayrollService::hoursPay() ? 'Salary from tracked time is off in Payroll settings: the salary is paid in full minus unpaid leave days.' : 'Attendance & time tracking is switched off: the salary is paid in full minus unpaid leave days.') ?><?php if (can('__super_admin')): ?> <a href="<?= e(url('/admin/settings/payroll')) ?>">Payroll settings</a><?php endif ?></p>
+    </div>
+    <?php endif ?>
     <div class="card">
       <div class="card-head"><h3>Recent payslips</h3></div>
       <?php if (!$slips): ?><p class="muted small mb0">No payslips yet.</p><?php else: ?><div class="list"><?php foreach ($slips as $s): ?>
@@ -54,8 +76,11 @@ $num = static fn ($v) => rtrim(rtrim(number_format((float) $v, 2), '0'), '.');
 <dialog class="modal" id="add-personal"><div class="modal-head"><h3>Add item for <?= e($emp['name']) ?></h3><button class="btn icon sm ghost" type="button" data-close aria-label="Close"><?= icon('x', 'sm') ?></button></div><div class="modal-body"><?= partial('payroll::components/_form', ['c' => null, 'uid' => (int) $emp['id']]) ?></div></dialog>
 <dialog class="modal" id="add-rev"<?= errors() && old('amount', null) !== null ? ' data-open' : '' ?>><div class="modal-head"><h3>New compensation revision</h3><button class="btn icon sm ghost" type="button" data-close aria-label="Close"><?= icon('x', 'sm') ?></button></div>
   <form class="modal-body form" method="post" action="<?= e(url('/payroll/employees/'.$emp['id'].'/compensation')) ?>"><?= csrf_field() ?>
-        <div class="field"><label for="pay_type">Pay type</label><select id="pay_type" name="pay_type"><option value="monthly"<?= selected('monthly', old('pay_type', $current['pay_type'] ?? 'monthly')) ?>>Monthly salary</option><option value="hourly"<?= selected('hourly', old('pay_type', $current['pay_type'] ?? '')) ?>>Hourly rate</option></select><?= error_for('pay_type') ?></div>
-        <div class="field"><label for="amount">Amount *</label><input id="amount" type="number" name="amount" step="0.01" min="0.01" value="<?= e(old('amount')) ?>" placeholder="<?= e($current ? $num($current['amount']) : '0.00') ?>" required><div class="hint">Gross monthly salary, or rate per approved hour.</div><?= error_for('amount') ?></div>
+        <?php $pt = old('pay_type', $current['pay_type'] ?? 'monthly') === 'hourly' ? 'hourly' : 'monthly'; $byHours = PayrollService::hoursPay(); ?>
+        <div class="field"><label for="pay_type">Pay type</label><select id="pay_type" name="pay_type" data-pay-type><option value="monthly"<?= selected('monthly', $pt) ?>>Monthly salary</option><option value="hourly"<?= selected('hourly', $pt) ?>>Hourly rate</option></select><?= error_for('pay_type') ?></div>
+        <div class="field"><label for="amount"><span data-pay-label="monthly"<?= $pt === 'hourly' ? ' class="hide"' : '' ?>>Monthly salary *</span><span data-pay-label="hourly"<?= $pt === 'monthly' ? ' class="hide"' : '' ?>>Hourly rate *</span></label><div class="pay-unit"><input id="amount" type="number" name="amount" step="0.01" min="0.01" value="<?= e(old('amount')) ?>" placeholder="<?= e($current ? $num($current['amount']) : '0.00') ?>" required><span data-pay-unit><?= $pt === 'hourly' ? 'per hour' : 'per month' ?></span></div>
+          <div class="hint<?= $pt === 'hourly' ? ' hide' : '' ?>" data-pay-label="monthly">Gross salary for a full month.<?= $byHours && PayrollService::trackedSalary() ? ' Each month it becomes an hourly rate (salary ÷ that month\'s expected hours), paid for the hours worked.' : ' Unpaid leave days are deducted.' ?></div>
+          <div class="hint<?= $pt === 'monthly' ? ' hide' : '' ?>" data-pay-label="hourly">Paid for each approved hour worked<?= $byHours ? ', up to the expected hours (overtime only when enabled in Payroll settings)' : '' ?>.</div><?= error_for('amount') ?></div>
         <div class="field"><label for="effective_from">Effective from *</label><input id="effective_from" type="date" name="effective_from" value="<?= e(old('effective_from', date('Y-m-01'))) ?>" required><?= error_for('effective_from') ?></div>
         <div class="field"><label for="note">Note</label><input id="note" type="text" name="note" value="<?= e(old('note')) ?>" maxlength="255" placeholder="e.g. Annual appraisal"><?= error_for('note') ?></div>
         <div class="form-actions"><button class="btn ghost" type="button" data-close>Cancel</button><button class="btn primary"><?= icon('check', 'sm') ?> Save revision</button></div>

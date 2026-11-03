@@ -4,7 +4,7 @@ use Modules\Admin\Services\{MailPresets, SettingsSchema};
 $oldS = old('s', []); $oldS = is_array($oldS) ? $oldS : []; $errs = errors(); $sections ??= []; $bar ??= true;
 $val = static fn (array $f) => array_key_exists($f['key'], $oldS) && (is_array($oldS[$f['key']]) === ($f['type'] === 'days')) ? $oldS[$f['key']] : SettingsSchema::value($f);
 $id = static fn (string $k) => 'f-'.str_replace('.', '-', $k);
-$groups = []; $cur = $title ?? '';
+$groups = []; $cur = $title ?? ''; $hidden = [];
 foreach ($fields as $f) { $cur = $f['section'] ?? $cur; $groups[$cur][] = $f; }
 ?>
 <form class="set-form" method="post" action="<?= e(url('/admin/settings/'.$tab)) ?>"<?= !empty($multipart) ? ' enctype="multipart/form-data"' : '' ?> data-dirty-watch><?= csrf_field() ?>
@@ -13,8 +13,13 @@ foreach ($fields as $f) { $cur = $f['section'] ?? $cur; $groups[$cur][] = $f; }
 <section class="card set-card"<?= $show ? ' data-show-when="'.e($show).'"' : '' ?>>
   <?php if ($section !== ''): ?><header class="set-card-head"><h3><?= e($section) ?></h3><?php if (!empty($sections[$section])): ?><p><?= e($sections[$section]) ?></p><?php endif ?></header><?php endif ?>
   <div class="form-grid">
-  <?php foreach ($list as $f): $k = $f['key']; $v = $val($f); $name = 's['.$k.']'; ?>
-  <div class="field<?= !empty($f['span']) || in_array($f['type'], ['textarea', 'provider'], true) ? ' full' : '' ?><?= isset($errs[$k]) ? ' has-error' : '' ?>">
+  <?php foreach ($list as $f): $k = $f['key']; $v = $val($f); $name = 's['.$k.']';
+    /* 'when' => 'other.key' (shown while that toggle is on) or 'other.key=value'; assets/js/admin.js keeps it in sync while editing */
+    [$wk, $wv] = isset($f['when']) ? array_pad(explode('=', $f['when'], 2), 2, null) : [null, null];
+    $wf = $wk ? (array_values(array_filter($fields, static fn ($x) => $x['key'] === $wk))[0] ?? null) : null;
+    $wcur = $wf ? (string) $val($wf) : ''; $whide = $wf && (isset($hidden[$wk]) || ($wv === null ? !in_array($wcur, ['1', 'on', 'true'], true) : $wcur !== $wv));
+    if ($whide) { $hidden[$k] = true; } ?>
+  <div class="field<?= !empty($f['span']) || in_array($f['type'], ['textarea', 'provider'], true) ? ' full' : '' ?><?= isset($errs[$k]) ? ' has-error' : '' ?><?= $whide ? ' hide' : '' ?>"<?= $wf ? ' data-when="'.e('s['.$wk.']').'"'.($wv !== null ? ' data-when-value="'.e($wv).'"' : '') : '' ?>>
   <?php if (!in_array($f['type'], ['toggle', 'provider'], true)): ?><label for="<?= e($id($k)) ?>"><?= e($f['label']) ?></label><?php endif ?>
   <?php switch ($f['type']):
     case 'select': ?><select id="<?= e($id($k)) ?>" name="<?= e($name) ?>"<?= !empty($f['preview']) ? ' data-preview="'.e($f['preview']).'"' : '' ?>><?php foreach ($f['options'] as $ok => $ol): ?><option value="<?= e($ok) ?>"<?= selected($ok, $v) ?>><?= e($ol) ?></option><?php endforeach ?></select><?php break;

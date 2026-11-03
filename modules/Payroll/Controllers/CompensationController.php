@@ -36,7 +36,9 @@ final class CompensationController extends Controller {
     $sched = self::schedules([$id])[$id] ?? null;
     $days = null;
     if ($sched) { $cls = 'Modules\\Hr\\Services\\LeaveService'; $days = ['own' => $cls::workingDaysFor($id, date('Y-m-01'), date('Y-m-t')), 'company' => $cls::workingDays(date('Y-m-01'), date('Y-m-t'))]; }
-    return $this->view('payroll::employees/show', ['title' => $emp['name'].' · Compensation', 'emp' => $emp, 'history' => $history, 'current' => $current, 'personal' => $personal, 'global' => $global, 'slips' => $slips, 'sched' => $sched, 'days' => $days, 'styles' => ['css/payroll.css']]); }
+    $est = null;
+    if ($current) { try { $est = \Modules\Payroll\Services\PayrollService::estimate($current, date('Y-m-01'), date('Y-m-t')); } catch (\Throwable $e) { error_log('Payroll: estimate failed: '.$e->getMessage()); } }
+    return $this->view('payroll::employees/show', ['title' => $emp['name'].' · Compensation', 'emp' => $emp, 'history' => $history, 'current' => $current, 'personal' => $personal, 'global' => $global, 'slips' => $slips, 'sched' => $sched, 'days' => $days, 'est' => $est, 'styles' => ['css/payroll.css'], 'scripts' => ['js/payroll.js']]); }
 
   public function storeCompensation(int $id): Response {
     $emp = $this->findOr404('users', $id);

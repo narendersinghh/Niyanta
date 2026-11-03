@@ -69,7 +69,113 @@ final class PayrollService {
     return array_map(static fn ($v) => round($v, 1), $out); }
 
   /** Is monthly salary paid from tracked time? (setting payroll.salary_from_tracked_time, default on, needs time tracking) */
-  public static function trackedSalary(): bool { return Settings::bool('payroll.salary_from_tracked_time', true) && feature_on('attendance') && self::att(); }
+  public static function trackedSalary(): bool { return Settings::bool('payroll.salary_from_tracked_time', true) && self::hoursPay(); }
+
+  /** Can pay follow tracked hours at all? Needs the Attendance feature (time tracking). Hourly pay is capped by schedule only then. */
+  public static function hoursPay(): bool { return feature_on('attendance') && self::att(); }
+
+  public const FLEX = ['monthly' => 'Flexible hours: over the month (default)', 'weekly' => 'Flexible hours: over the week', 'daily' => 'Off: fixed daily hours'];
+  public const FLEX_SHORT = ['monthly' => 'Flexible over the month', 'weekly' => 'Flexible over the week', 'daily' => 'Fixed daily hours'];
+  public const OT_RATES = ['1' => '1x hourly rate', '1.5' => '1.5x hourly rate', '2' => '2x hourly rate', 'manual' => 'Manual multiplier'];
+
+  /** Flexible hours mode (setting payroll.flex_mode): monthly (default), weekly or daily (no flexibility). */
+  public static function flexMode(): string { $m = (string) Settings::get('payroll.flex_mode', 'monthly'); return isset(self::FLEX[$m]) ? $m : 'monthly'; }
+
+  /** Overtime multiplier of the hourly rate, or null while overtime pay is off (default). */
+  public static function overtimeMultiplier(): ?float {
+    if (!Settings::bool('payroll.overtime_enabled', false)) { return null; }
+    $r = (string) Settings::get('payroll.overtime_rate', '1.5');
+    if ($r === 'manual') { $v = (float) Settings::get('payroll.overtime_manual', 1); return $v > 0 ? min(10.0, $v) : 1.0; }
+    return isset(self::OT_RATES[$r]) ? (float) $r : 1.5; }
+
+  /** "1.5x" style label of a multiplier. */
+  public static function multLabel(float $m): string { return rtrim(rtrim(number_format($m, 2, '.', ''), '0'), '.').'x'; }
+
+  /** Work schedules (hours per day, weekly off days, Saturday rule) from HR, else the company defaults. */
+  private static function scheduleMap(array $userIds): array {
+    $def = ['hours_per_day' => max(0.5, (float) Settings::get('hr.work_hours_per_day', 8) ?: 8.0), 'off_days' => array_map('intval', array_filter(explode(',', (string) Settings::get('general.weekend_days', '6,7')), 'is_numeric')), 'saturday' => \Core\WorkWeek::companyRule()];
+    $out = array_fill_keys($userIds, $def);
+    if ($userIds && self::hr('schedules')) {
+      try { foreach (call_user_func([self::LEAVE, 'schedules'], $userIds) as $u => $s) { $out[(int) $u] = ['hours_per_day' => (float) $s['hours_per_day'], 'off_days' => $s['off_days'], 'saturday' => $s['saturday'] ?? 'full']; } }
+      catch (\Throwable $e) { error_log('Payroll: LeaveService::schedules failed: '.$e->getMessage()); } }
+    return $out; }
+
+  /**
+   * Expected hours per user and date of [from, to] (one query per kind for all users):
+   * hours per day × day weight (weekly offs, Saturday half/alternate rule; fixed holidays 0) minus approved PAID leave
+   * (leave fraction × hours per day × weight). Unpaid leave does not reduce expected hours. Dates outside employment
+   * (before joining, after exit) are null. Returns [uid => ['days' => [Y-m-d => float|null], 'expected' => hours inside
+   * employment, 'expected_full' => hours of the whole period, 'scheduled_full' / 'scheduled_in' => hours before leave]].
+   */
+  public static function hoursPlan(array $userIds, string $from, string $to): array {
+    $userIds = array_values(array_unique(array_map('intval', $userIds)));
+    if (!$userIds) { return []; }
+    $sched = self::scheduleMap($userIds);
+    $hol = array_fill_keys(DB::column('SELECT holiday_date FROM holidays WHERE optional=0 AND holiday_date BETWEEN ? AND ?', [$from, $to]), true);
+    $emp = [];
+    foreach (DB::all('SELECT u.id, u.joined_on, ep.exit_date FROM users u LEFT JOIN employee_profiles ep ON ep.user_id=u.id WHERE u.id IN '.DB::in($userIds), $userIds) as $r) { $emp[(int) $r['id']] = [$r['joined_on'] ?: null, $r['exit_date'] ?: null]; }
+    $leave = [];
+    foreach (DB::all("SELECT lr.user_id, lr.start_date, lr.end_date, lr.half_day FROM leave_requests lr JOIN leave_types lt ON lt.id=lr.leave_type_id WHERE lr.status='approved' AND lt.paid=1 AND lr.start_date<=? AND lr.end_date>=? AND lr.user_id IN ".DB::in($userIds), [$to, $from, ...$userIds]) as $l) {
+      $u = (int) $l['user_id'];
+      for ($t = strtotime(max($l['start_date'], $from)), $e = strtotime(min($l['end_date'], $to)); $t <= $e; $t = strtotime('+1 day', $t)) { $d = date('Y-m-d', $t); $leave[$u][$d] = min(1.0, ($leave[$u][$d] ?? 0.0) + ($l['half_day'] ? 0.5 : 1.0)); } }
+    $dates = [];
+    for ($t = strtotime($from), $e = strtotime($to); $t <= $e; $t = strtotime('+1 day', $t)) { $dates[] = date('Y-m-d', $t); }
+    $weights = []; $out = [];
+    foreach ($userIds as $u) {
+      $s = $sched[$u]; $hpd = (float) $s['hours_per_day'];
+      $k = implode(',', $s['off_days']).'|'.$s['saturday'];
+      if (!isset($weights[$k])) { foreach ($dates as $d) { $weights[$k][$d] = isset($hol[$d]) ? 0.0 : \Core\WorkWeek::weight($d, $s['off_days'], $s['saturday']); } }
+      [$join, $exit] = $emp[$u] ?? [null, null];
+      $p = ['days' => [], 'expected' => 0.0, 'expected_full' => 0.0, 'scheduled_full' => 0.0, 'scheduled_in' => 0.0];
+      foreach ($dates as $d) {
+        $sh = $hpd * $weights[$k][$d];
+        $x = $sh * (1 - ($leave[$u][$d] ?? 0.0));
+        $p['scheduled_full'] += $sh; $p['expected_full'] += $x;
+        if (($join && $d < $join) || ($exit && $d > $exit)) { $p['days'][$d] = null; continue; }
+        $p['days'][$d] = $x; $p['expected'] += $x; $p['scheduled_in'] += $sh; }
+      foreach (['expected', 'expected_full', 'scheduled_full', 'scheduled_in'] as $f) { $p[$f] = round($p[$f], 2); }
+      $out[$u] = $p; }
+    return $out; }
+
+  /** Expected hours of the period per user (see hoursPlan(): schedule × day weight, holidays off, minus paid leave, inside employment). */
+  public static function expectedHours(array $userIds, string $from, string $to): array { return array_map(static fn ($p) => $p['expected'], self::hoursPlan($userIds, $from, $to)); }
+
+  /** Approved worked hours per user and day: [uid => [Y-m-d => hours]] (same source as approvedHours()). */
+  public static function approvedHoursByDay(array $userIds, string $from, string $to): array {
+    $userIds = array_values(array_unique(array_map('intval', $userIds)));
+    if (!$userIds) { return []; }
+    if (self::att('approvedHoursByDay')) {
+      try { return call_user_func([self::TIME, 'approvedHoursByDay'], $userIds, $from, $to) + array_fill_keys($userIds, []); }
+      catch (\Throwable $e) { error_log('Payroll: TimeService::approvedHoursByDay failed, using fallback: '.$e->getMessage()); } }
+    $out = array_fill_keys($userIds, []);
+    foreach (DB::all("SELECT user_id, DATE(started_at) AS d, SUM(GREATEST(CAST(duration_seconds AS SIGNED) - CAST(idle_seconds AS SIGNED), 0)) AS s FROM time_entries WHERE status='approved' AND started_at BETWEEN ? AND ? AND user_id IN ".DB::in($userIds).' GROUP BY user_id, DATE(started_at)', [$from.' 00:00:00', $to.' 23:59:59', ...$userIds]) as $r) { $out[(int) $r['user_id']][$r['d']] = round((float) $r['s'] / 3600, 4); }
+    return $out; }
+
+  /**
+   * Payable and overtime hours from expected and worked hours per date (pure). The cap depends on the flexible hours mode:
+   * monthly: min(worked, expected) over the whole period; weekly: per ISO week (clipped to the period) min(worked, expected)
+   * summed; daily: per day min(worked, expected) summed. Overtime = the hours above the cap at the same granularity.
+   * Dates with a null expectation (outside employment) and worked dates outside the plan are ignored.
+   */
+  public static function payable(array $expected, array $worked, string $mode): array {
+    $b = [];
+    foreach ($expected as $d => $x) {
+      if ($x === null) { continue; }
+      $k = match ($mode) { 'daily' => $d, 'weekly' => date('o-W', strtotime($d)), default => 'm' };
+      $b[$k]['e'] = ($b[$k]['e'] ?? 0.0) + (float) $x;
+      $b[$k]['w'] = ($b[$k]['w'] ?? 0.0) + (float) ($worked[$d] ?? 0.0); }
+    $r = ['expected' => 0.0, 'worked' => 0.0, 'payable' => 0.0, 'overtime' => 0.0];
+    foreach ($b as $v) { $r['expected'] += $v['e']; $r['worked'] += $v['w']; $r['payable'] += min($v['w'], $v['e']); $r['overtime'] += max(0.0, $v['w'] - $v['e']); }
+    return array_map(static fn ($v) => round($v, 2), $r) + ['mode' => isset(self::FLEX[$mode]) ? $mode : 'monthly']; }
+
+  /** Hours breakdown of each user for compute(): plan + worked hours + flex mode + overtime setting. */
+  public static function hoursBreakdown(array $userIds, string $from, string $to): array {
+    $plan = self::hoursPlan($userIds, $from, $to);
+    $byDay = self::approvedHoursByDay(array_keys($plan), $from, $to);
+    $mode = self::flexMode(); $ot = self::overtimeMultiplier();
+    $out = [];
+    foreach ($plan as $u => $p) { $out[$u] = self::payable($p['days'], $byDay[$u] ?? [], $mode) + ['expected_full' => $p['expected_full'], 'scheduled_full' => $p['scheduled_full'], 'scheduled_in' => $p['scheduled_in'], 'ot_multiplier' => $ot]; }
+    return $out; }
 
   /** Hours per working day of each user (their HR schedule, else the company setting). */
   public static function hoursPerDay(array $userIds): array {
@@ -78,17 +184,6 @@ final class PayrollService {
     if ($userIds && self::hr('schedules')) {
       try { foreach (call_user_func([self::LEAVE, 'schedules'], $userIds) as $u => $sch) { $out[(int) $u] = (float) $sch['hours_per_day']; } }
       catch (\Throwable $e) { error_log('Payroll: LeaveService::schedules failed: '.$e->getMessage()); } }
-    return $out; }
-
-  /** Expected hours of the period: (the employee's working days, fixed holidays excluded, minus approved paid leave) × hours per day. */
-  public static function expectedHours(array $userIds, string $from, string $to): array {
-    $userIds = array_values(array_unique(array_map('intval', $userIds)));
-    if (!$userIds) { return []; }
-    $days = self::workingDaysFor($userIds, $from, $to);
-    $paid = self::leaveDays($userIds, $from, $to, true);
-    $hpd = self::hoursPerDay($userIds);
-    $out = [];
-    foreach ($userIds as $u) { $out[$u] = round(max(0.0, ($days[$u] ?? 0.0) - ($paid[$u] ?? 0.0)) * $hpd[$u], 2); }
     return $out; }
 
   /** Approved worked hours per user (time entries minus idle time). */
@@ -122,18 +217,37 @@ final class PayrollService {
 
   /**
    * Pure payslip calculation.
-   * monthly: base = amount × paid_days / working_days (the employee's own working days); with $expected hours (salary from
-   * tracked time): base = amount × min(1, tracked hours ÷ expected hours). hourly: base = rate × hours.
-   * gross = base + allowances + reimbursements; net = max(0, gross − deductions).
+   * monthly, days: base = amount × paid_days / working_days (the employee's own working days, unpaid leave unpaid).
+   * monthly, hours ($expected or $hx given, salary from tracked time): hourly rate of the month = amount ÷ expected hours
+   *   of the whole month (schedule, holidays and paid leave applied); base = rate × payable hours (capped by the flexible
+   *   hours mode, see payable()), never above the amount. A joiner or leaver is capped by the expected hours inside employment.
+   * hourly: base = rate × payable hours ($hx) or × all hours (no $hx: time tracking unavailable).
+   * overtime ($hx with ot_multiplier): overtime hours × hourly rate × multiplier, an extra earnings line.
+   * gross = base + overtime + allowances + reimbursements; net = max(0, gross − deductions).
+   * $hx: ['expected', 'worked', 'payable', 'overtime', 'mode', 'expected_full'?, 'scheduled_full'?, 'scheduled_in'?, 'ot_multiplier'?].
    */
-  public static function compute(array $comp, float $workingDays, float $unpaid, float $hours, array $components, float $reimb, ?float $expected = null): array {
+  public static function compute(array $comp, float $workingDays, float $unpaid, float $hours, array $components, float $reimb, ?float $expected = null, ?array $hx = null): array {
     $rate = round((float) $comp['amount'], 2);
     $h = static fn (float $x): string => rtrim(rtrim(number_format($x, 2, '.', ''), '0'), '.');
-    $tracked = $comp['pay_type'] !== 'hourly' && $expected !== null;
-    if ($comp['pay_type'] === 'hourly') { $paid = 0.0; $base = round($rate * $hours, 2); }
-    elseif ($tracked) { $share = $expected > 0 ? min(1.0, $hours / $expected) : 0.0; $paid = round($workingDays * $share, 1); $base = round($rate * $share, 2); }
+    $hourly = $comp['pay_type'] === 'hourly';
+    if (!$hourly && $hx === null && $expected !== null) { $hx = ['expected' => $expected, 'worked' => $hours, 'payable' => min($hours, $expected), 'overtime' => 0.0, 'mode' => 'monthly']; }
+    $tracked = $hx !== null;
+    $mult = $tracked && ($hx['ot_multiplier'] ?? null) ? (float) $hx['ot_multiplier'] : null;
+    $hr = null; $ot = 0.0; $otPay = 0.0;
+    if ($tracked) { $hours = (float) $hx['worked']; $ot = $mult ? (float) $hx['overtime'] : 0.0; }
+    if ($hourly) {
+      $paid = 0.0; $hr = $rate;
+      $base = round($rate * ($tracked ? (float) $hx['payable'] : $hours), 2); }
+    elseif ($tracked) {
+      $full = (float) ($hx['expected_full'] ?? $hx['expected']);
+      if ($full > 0) { $hr = $rate / $full; $base = min($rate, round($hr * (float) $hx['payable'], 2)); }
+      elseif (($hx['scheduled_full'] ?? 0) > 0) { $hr = $rate / (float) $hx['scheduled_full']; $base = round($rate * (float) $hx['scheduled_in'] / (float) $hx['scheduled_full'], 2); } /* the whole month on paid leave */
+      else { $hr = 0.0; $base = 0.0; }
+      $paid = $rate > 0 ? round($workingDays * $base / $rate, 1) : 0.0; }
     else { $paid = max(0.0, round($workingDays - $unpaid, 1)); $base = $workingDays > 0 ? round($rate * $paid / $workingDays, 2) : 0.0; }
-    $earn = [['name' => $comp['pay_type'] === 'hourly' ? 'Base pay ('.$h($hours).' h)' : ($tracked ? 'Basic pay ('.$h($hours).' of '.$h($expected).' h tracked)' : 'Basic pay'), 'amount' => $base]];
+    if ($mult && $ot > 0 && $hr) { $otPay = round($ot * $hr * $mult, 2); }
+    $earn = [['name' => $hourly ? 'Base pay ('.$h($tracked ? (float) $hx['payable'] : $hours).' h)' : ($tracked ? 'Basic pay ('.$h((float) $hx['payable']).' of '.$h((float) $hx['expected']).' h tracked)' : 'Basic pay'), 'amount' => $base]];
+    if ($otPay > 0) { $earn[] = ['name' => 'Overtime ('.$h($ot).' h × '.self::multLabel($mult).')', 'amount' => $otPay]; }
     $ded = [];
     $allow = 0.0; $totalDed = 0.0;
     foreach ($components as $c) {
@@ -143,10 +257,12 @@ final class PayrollService {
       else { $ded[] = ['name' => self::componentLabel($c), 'amount' => $amt]; $totalDed += $amt; } }
     $reimb = round($reimb, 2);
     if ($reimb > 0) { $earn[] = ['name' => 'Reimbursements', 'amount' => $reimb]; }
-    $gross = round($base + $allow + $reimb, 2);
+    $gross = round($base + $otPay + $allow + $reimb, 2);
     $totalDed = round($totalDed, 2);
-    return ['pay_type' => $comp['pay_type'], 'rate' => $rate, 'working_days' => $workingDays, 'paid_days' => $comp['pay_type'] === 'hourly' ? 0.0 : $paid, 'unpaid_leave_days' => $comp['pay_type'] === 'hourly' ? 0.0 : $unpaid,
-      'worked_hours' => $comp['pay_type'] === 'hourly' || $tracked ? $hours : 0.0, 'expected_hours' => $tracked ? $expected : null, 'base_pay' => $base, 'earnings' => $earn, 'deductions' => $ded, 'reimbursement_total' => $reimb, 'gross' => $gross, 'total_deductions' => $totalDed,
+    return ['pay_type' => $comp['pay_type'], 'rate' => $rate, 'working_days' => $workingDays, 'paid_days' => $hourly ? 0.0 : $paid, 'unpaid_leave_days' => $hourly ? 0.0 : $unpaid,
+      'worked_hours' => $hourly || $tracked ? round($hours, 2) : 0.0, 'expected_hours' => $tracked ? round((float) $hx['expected'], 2) : null, 'payable_hours' => $tracked ? round((float) $hx['payable'], 2) : null,
+      'overtime_hours' => round($ot, 2), 'overtime_pay' => $otPay, 'hour_rate' => $hr === null ? null : round($hr, 4), 'flex_mode' => $tracked ? ($hx['mode'] ?? 'monthly') : null,
+      'missing_pay' => $tracked && !$hourly ? max(0.0, round($rate - $base, 2)) : 0.0, 'base_pay' => $base, 'earnings' => $earn, 'deductions' => $ded, 'reimbursement_total' => $reimb, 'gross' => $gross, 'total_deductions' => $totalDed,
       'net' => max(0.0, round($gross - $totalDed, 2)), 'flagged' => $totalDed > $gross]; }
 
   /** (Re)generate all payslips of a draft run. Idempotent: previous slips are removed and their claims unlinked first. */
@@ -160,13 +276,15 @@ final class PayrollService {
       $comps = self::effectiveCompensations($from, $to);
       $wd = self::workingDays($from, $to);
       $ids = array_map(static fn ($c) => (int) $c['user_id'], $comps);
-      $monthly = array_map(static fn ($c) => (int) $c['user_id'], array_filter($comps, static fn ($c) => $c['pay_type'] === 'monthly'));
-      $hourly = array_map(static fn ($c) => (int) $c['user_id'], array_filter($comps, static fn ($c) => $c['pay_type'] === 'hourly'));
-      $unpaid = self::unpaidLeave(array_values($monthly), $from, $to);
-      $ownDays = self::workingDaysFor(array_values($monthly), $from, $to);
-      $fromTime = self::trackedSalary();
-      $hours = self::approvedHours($fromTime ? $ids : array_values($hourly), $from, $to);
-      $expected = $fromTime ? self::expectedHours(array_values($monthly), $from, $to) : [];
+      $monthly = array_values(array_map(static fn ($c) => (int) $c['user_id'], array_filter($comps, static fn ($c) => $c['pay_type'] === 'monthly')));
+      $hourly = array_values(array_map(static fn ($c) => (int) $c['user_id'], array_filter($comps, static fn ($c) => $c['pay_type'] === 'hourly')));
+      $unpaid = self::unpaidLeave($monthly, $from, $to);
+      $ownDays = self::workingDaysFor($monthly, $from, $to);
+      /* Hours-based pay needs time tracking: hourly pay is capped by the schedule, monthly salary only while "from tracked time" is on. */
+      $byHours = array_merge(self::hoursPay() ? $hourly : [], self::trackedSalary() ? $monthly : []);
+      $hx = self::hoursBreakdown($byHours, $from, $to);
+      $plain = array_values(array_diff($hourly, $byHours));
+      $hours = self::approvedHours($plain, $from, $to);
       $global = []; $personal = [];
       if ($ids) {
         foreach (DB::all('SELECT * FROM pay_components WHERE active=1 AND (user_id IS NULL OR user_id IN '.DB::in($ids).") ORDER BY kind, user_id IS NOT NULL, name", $ids) as $c) {
@@ -177,15 +295,47 @@ final class PayrollService {
       foreach ($comps as $c) {
         $u = (int) $c['user_id'];
         $mine = $claims[$u] ?? [];
-        $s = self::compute($c, $ownDays[$u] ?? $wd, $unpaid[$u] ?? 0.0, $hours[$u] ?? 0.0, [...$global, ...($personal[$u] ?? [])], array_sum(array_map(static fn ($r) => (float) $r['amount'], $mine)), $c['pay_type'] === 'monthly' && $fromTime ? ($expected[$u] ?? 0.0) : null);
+        $x = $hx[$u] ?? null;
+        $s = self::compute($c, $ownDays[$u] ?? $wd, $unpaid[$u] ?? 0.0, $x ? (float) $x['worked'] : ($hours[$u] ?? 0.0), [...$global, ...($personal[$u] ?? [])], array_sum(array_map(static fn ($r) => (float) $r['amount'], $mine)), null, $x);
         $flagged += (int) $s['flagged'];
         $sid = DB::insert('payslips', ['run_id' => $runId, 'user_id' => $u, 'pay_type' => $s['pay_type'], 'rate' => $s['rate'], 'working_days' => $s['working_days'], 'paid_days' => $s['paid_days'], 'unpaid_leave_days' => $s['unpaid_leave_days'], 'worked_hours' => $s['worked_hours'], 'expected_hours' => $s['expected_hours'],
+          'payable_hours' => $s['payable_hours'], 'overtime_hours' => $s['overtime_hours'], 'overtime_pay' => $s['overtime_pay'], 'hour_rate' => $s['hour_rate'], 'flex_mode' => $s['flex_mode'],
           'base_pay' => $s['base_pay'], 'earnings' => json_encode($s['earnings'], JSON_UNESCAPED_UNICODE), 'deductions' => json_encode($s['deductions'], JSON_UNESCAPED_UNICODE), 'reimbursement_total' => $s['reimbursement_total'], 'gross' => $s['gross'], 'total_deductions' => $s['total_deductions'], 'net' => $s['net'], 'created_at' => $now]);
         if ($mine) { $cid = array_map(static fn ($r) => (int) $r['id'], $mine); DB::query('UPDATE reimbursements SET payslip_id=? WHERE id IN '.DB::in($cid), [$sid, ...$cid]); }
         $total += $s['net']; }
       DB::update('payroll_runs', ['working_days' => $wd, 'total_net' => round($total, 2)], 'id=?', [$runId]);
-      Audit::log('payroll.run.generate', 'payroll_run', $runId, ['slips' => count($comps), 'total_net' => round($total, 2), 'flagged' => $flagged]);
+      Audit::log('payroll.run.generate', 'payroll_run', $runId, ['slips' => count($comps), 'total_net' => round($total, 2), 'flagged' => $flagged, 'flex_mode' => $byHours ? self::flexMode() : null, 'overtime' => $byHours ? self::overtimeMultiplier() : null]);
       return ['count' => count($comps), 'total' => round($total, 2), 'flagged' => $flagged]; }); }
+
+  /**
+   * Hours breakdown of a payslip for display (web and PDF): [[label, value]], empty when pay was not based on hours.
+   * Payslips from before the breakdown columns existed fall back to worked/expected hours.
+   */
+  public static function hoursLines(array $s): array {
+    if (($s['expected_hours'] ?? null) === null) { return []; }
+    $h = static fn ($x): string => rtrim(rtrim(number_format((float) $x, 2, '.', ''), '0'), '.').' h';
+    $monthly = $s['pay_type'] !== 'hourly';
+    $exp = (float) $s['expected_hours']; $worked = (float) $s['worked_hours'];
+    $payable = ($s['payable_hours'] ?? null) !== null ? (float) $s['payable_hours'] : min($worked, $exp);
+    $rate = ($s['hour_rate'] ?? null) !== null ? (float) $s['hour_rate'] : ($monthly ? ($exp > 0 ? (float) $s['rate'] / $exp : 0.0) : (float) $s['rate']);
+    $ot = (float) ($s['overtime_hours'] ?? 0); $otPay = (float) ($s['overtime_pay'] ?? 0);
+    $out = [['Flexible hours', self::FLEX_SHORT[$s['flex_mode'] ?? 'monthly'] ?? self::FLEX_SHORT['monthly']], ['Expected hours', $h($exp)], ['Worked hours (approved)', $h($worked)], ['Payable hours', $h($payable)]];
+    if ($ot > 0) { $out[] = ['Overtime hours', $h($ot)]; }
+    $out[] = [$monthly ? 'Hourly rate this month' : 'Hourly rate', money(round($rate, 2))];
+    $out[] = ['Base pay', money($s['base_pay'])];
+    if ($otPay > 0) { $out[] = ['Overtime pay', money($otPay)]; }
+    if ($monthly) { $out[] = ['Deduction for missing hours', money(max(0.0, round((float) $s['rate'] - (float) $s['base_pay'], 2)))]; }
+    if ($otPay <= 0 && $worked - $payable > 0.004) { $out[] = ['Extra hours (overtime off, not paid)', $h($worked - $payable)]; }
+    return $out; }
+
+  /** Estimate of one employee's base pay for a period with the current settings (compensation page preview). Null without compensation. */
+  public static function estimate(array $comp, string $from, string $to): ?array {
+    $u = (int) $comp['user_id'];
+    $byHours = $comp['pay_type'] === 'hourly' ? self::hoursPay() : self::trackedSalary();
+    $x = $byHours ? (self::hoursBreakdown([$u], $from, $to)[$u] ?? null) : null;
+    $wd = self::workingDaysFor([$u], $from, $to)[$u] ?? self::workingDays($from, $to);
+    $hours = $x ? (float) $x['worked'] : ($comp['pay_type'] === 'hourly' ? (self::approvedHours([$u], $from, $to)[$u] ?? 0.0) : 0.0);
+    return self::compute($comp, $wd, $comp['pay_type'] === 'hourly' ? 0.0 : (self::unpaidLeave([$u], $from, $to)[$u] ?? 0.0), $hours, [], 0.0, null, $x); }
 
   public static function createRun(string $month): int {
     $period = $month.'-01';

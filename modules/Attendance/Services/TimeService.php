@@ -26,6 +26,15 @@ final class TimeService {
     foreach ($sec as $u => $s) { $out[(int) $u] = round((float) $s / 3600, 2); }
     return $out; }
 
+  /** Approved hours per user and day for payroll caps (flexible hours by day or week): [uid => [Y-m-d => hours]] in one query. */
+  public static function approvedHoursByDay(array $userIds, string $from, string $to): array {
+    $userIds = array_values(array_unique(array_map('intval', $userIds)));
+    if (!$userIds) { return []; }
+    $out = array_fill_keys($userIds, []);
+    $rows = DB::all("SELECT user_id, DATE(started_at) AS d, COALESCE(SUM(duration_seconds),0) AS s FROM time_entries WHERE status='approved' AND is_running=0 AND started_at>=? AND started_at<? AND user_id IN ".DB::in($userIds).' GROUP BY user_id, DATE(started_at)', [$from.' 00:00:00', date('Y-m-d', strtotime($to.' +1 day')).' 00:00:00', ...$userIds]);
+    foreach ($rows as $r) { $out[(int) $r['user_id']][$r['d']] = round((float) $r['s'] / 3600, 4); }
+    return $out; }
+
   /** Present days from attendance (half day = 0.5). */
   public static function presentDays(int $userId, string $from, string $to): float {
     return (float) DB::value("SELECT COALESCE(SUM(CASE status WHEN 'present' THEN 1 WHEN 'half_day' THEN 0.5 ELSE 0 END),0) FROM attendance WHERE user_id=? AND work_date BETWEEN ? AND ?", [$userId, $from, $to]); }

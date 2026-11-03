@@ -17,8 +17,13 @@ $crumbs = $own ? [['My HR'], ['My Payslips', '/payslips'], [$label]] : [['HR Adm
     </div>
     <div class="grid g2 pay-info">
       <dl class="kv"><dt>Employee</dt><dd><?= e($s['name']) ?></dd><dt>Employee code</dt><dd><?= e($s['employee_code'] ?: '-') ?></dd><dt>Designation</dt><dd><?= e($s['designation'] ?: '-') ?></dd><dt>Department</dt><dd><?= e($s['department'] ?: '-') ?></dd></dl>
-      <dl class="kv"><?php if ($s['pay_type'] === 'hourly'): ?><dt>Pay type</dt><dd>Hourly</dd><dt>Hourly rate</dt><dd><?= e(money($s['rate'])) ?></dd><dt>Hours worked</dt><dd><?= e(number_format((float) $s['worked_hours'], 2)) ?> h</dd><?php else: ?><dt>Pay type</dt><dd>Monthly · <?= e(money($s['rate'])) ?></dd><dt>Working days</dt><dd><?= e($n1($s['working_days'])) ?></dd><dt>Paid days</dt><dd><?= e($n1($s['paid_days'])) ?></dd><?php if ($s['expected_hours'] !== null): ?><dt>Tracked hours</dt><dd><?= e(number_format((float) $s['worked_hours'], 2)) ?> of <?= e(number_format((float) $s['expected_hours'], 2)) ?> h expected (<?= (float) $s['expected_hours'] > 0 ? (int) round(min(100, 100 * (float) $s['worked_hours'] / (float) $s['expected_hours'])) : 0 ?>% paid)</dd><?php endif ?><?php if (feature_on('leave') || (float) $s['unpaid_leave_days'] > 0): ?><dt>Unpaid leave</dt><dd><?= e($n1($s['unpaid_leave_days'])) ?></dd><?php endif ?><?php endif ?></dl>
+      <dl class="kv"><?php if ($s['pay_type'] === 'hourly'): ?><dt>Pay type</dt><dd>Hourly</dd><dt>Hourly rate</dt><dd><?= e(money($s['rate'])) ?></dd><dt>Hours worked</dt><dd><?= e(number_format((float) $s['worked_hours'], 2)) ?> h</dd><?php else: ?><dt>Pay type</dt><dd>Monthly · <?= e(money($s['rate'])) ?></dd><dt>Working days</dt><dd><?= e($n1($s['working_days'])) ?></dd><dt>Paid days</dt><dd><?= e($n1($s['paid_days'])) ?></dd><?php if (feature_on('leave') || (float) $s['unpaid_leave_days'] > 0): ?><dt>Unpaid leave</dt><dd><?= e($n1($s['unpaid_leave_days'])) ?></dd><?php endif ?><?php endif ?></dl>
     </div>
+    <?php if ($hrs = PayrollService::hoursLines($s)): ?>
+    <div class="pay-box hrs mt"><div class="pay-box-head"><b>Hours &amp; rate</b><span class="xs"><?= $s['pay_type'] === 'hourly' ? 'Paid by the hour' : 'Salary from tracked time' ?></span></div>
+      <div class="pay-hgrid"><?php foreach ($hrs as [$k, $v]): ?><div class="pay-line"><span><?= e($k) ?></span><span><?= e($v) ?></span></div><?php endforeach ?></div>
+    </div>
+    <?php endif ?>
     <div class="grid g2 mt pay-top">
       <?php foreach ([['Earnings', $earn, 'Gross earnings', $s['gross'], ''], ['Deductions', $ded, 'Total deductions', $s['total_deductions'], ' ded']] as [$t, $rows, $tl, $tot, $c]): ?>
       <div class="pay-box<?= $c ?>"><div class="pay-box-head"><b><?= e($t) ?></b><span class="xs">Amount</span></div>
