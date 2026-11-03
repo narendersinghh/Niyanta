@@ -35,6 +35,6 @@ $icons = ['overview' => 'user', 'schedule' => 'clock', 'leave' => 'umbrella', 'd
   </div>
 </div>
 <nav class="tabs mb hr-tabs" aria-label="Profile sections">
-  <?php foreach ($tabs as $k => $l): ?><a class="<?= $tab === $k ? 'active' : '' ?>" href="<?= e(url('/hr/employees/'.$id).'?tab='.$k) ?>"<?= $tab === $k ? ' aria-current="page"' : '' ?>><?= icon($icons[$k] ?? 'file', 'sm') ?> <?= e($l) ?></a><?php endforeach ?>
+  <?php foreach ($tabs as $k => $l): ?><a class="<?= $tab === $k ? 'active' : '' ?>" href="<?= e(url('/hr/employees/'.$id).'?tab='.$k) ?>"<?= $tab === $k ? ' aria-current="page"' : '' ?>><?= icon($icons[$k] ?? 'file', 'sm') ?> <?= e($l) ?></a><?php endforeach ?><?php if ($self): ?><a href="<?= e(url('/account')) ?>"><?= icon('lock', 'sm') ?> Account &amp; security</a><?php endif ?>
 </nav>
 <?= partial('hr::employees/tab_'.$tab, get_defined_vars()) ?>

@@ -99,3 +99,6 @@ function route_on(string $path): bool {
   $r = Core\App::router();
   if (!$r->hasRoutes()) { if (!$cli) { $cli = new Core\Router(); Core\Modules::registerRoutes($cli); } $r = $cli; }
   return $r->reachable($path); }
+
+/** The signed-in person's profile: the HR profile (with an Account tab) when the employee directory is on, otherwise the account page. */
+function profile_url(): string { return feature_on('employees') && can('hr.directory.view') ? '/hr/employees/'.(int) (user()['id'] ?? 0) : '/account'; }

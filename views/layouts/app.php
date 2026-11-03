@@ -63,7 +63,7 @@ echo partial('partials/head', get_defined_vars());
         <summary class="user-chip"><?= avatar($u['name'], $u['avatar'], 'sm') ?><span class="uname"><?= e(explode(' ', $u['name'])[0]) ?></span><?= icon('chevron-down', 'sm') ?></summary>
         <div class="dd-menu">
           <div style="padding:8px 12px"><b><?= e($u['name']) ?></b><div class="xs muted"><?= e($u['role_name']) ?></div></div>
-          <a href="<?= e(url('/account')) ?>"><?= icon('user') ?> My account</a>
+          <a href="<?= e(url(profile_url())) ?>"><?= icon('user') ?> My profile</a>
           <?php if ($u['role_slug'] === 'super_admin'): ?><a href="<?= e(url('/admin/settings')) ?>"><?= icon('settings') ?> Settings</a><?php endif ?>
           <form method="post" action="<?= e(url('/logout')) ?>"><?= csrf_field() ?><button type="submit"><?= icon('log-out') ?> Sign out</button></form>
         </div>

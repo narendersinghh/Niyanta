@@ -1,4 +1,6 @@
-<?= partial('partials/page_head', ['title' => 'My account', 'subtitle' => 'Your profile, password and appearance.', 'crumbs' => [['Account']]]) ?>
+<?php $hrProfile = profile_url() !== '/account'; ?>
+<?= partial('partials/page_head', ['title' => 'My profile', 'subtitle' => 'Your sign-in details, password and appearance.', 'crumbs' => [['My profile']]]) ?>
+<?php if ($hrProfile): ?><nav class="tabs mb hr-tabs" aria-label="Profile sections"><a href="<?= e(url(profile_url())) ?>"><?= icon('user', 'sm') ?> HR profile</a><a class="active" href="<?= e(url('/account')) ?>" aria-current="page"><?= icon('lock', 'sm') ?> Account &amp; security</a></nav><?php endif ?>
 <section class="card profile-banner mb">
   <div class="profile-banner-bg"></div>
   <div class="profile-banner-body">

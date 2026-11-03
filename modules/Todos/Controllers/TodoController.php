@@ -38,11 +38,12 @@ final class TodoController extends Controller {
     $view = $this->request->str('view', 'my');
     if (!isset($views[$view])) { $view = 'my'; }
     $data = ['title' => 'Tasks', 'view' => $view, 'views' => $views, 'canAssign' => $canAssign, 'all' => $all, 'uid' => $uid, 'assignees' => T::assignable($u), 'edit' => null, 'editSeries' => null,
-      'projTab' => feature_on('projects') && ($this->can('projects.view') || $this->can('projects.view_all')), 'styles' => ['css/todos.css'], 'scripts' => ['js/todos.js']];
+      'projTab' => feature_on('projects') && ($this->can('projects.view') || $this->can('projects.view_all')), 'newOpen' => $this->request->int('new') === 1, 'teamAllowed' => $this->projTeam($u), 'styles' => ['css/todos.css'], 'scripts' => ['js/todos.js']];
     if ($view === 'my') {
       $open = DB::all(T::ROW_SQL." WHERE t.assignee_id=? AND t.status='open' ORDER BY t.due_date IS NULL, t.due_date, FIELD(t.priority,'high','medium','low'), t.id LIMIT 500", [$uid]);
       $data['groups'] = T::groups($open);
-      $data['open'] = count($open);
+      $data['pgroups'] = T::groups($ptasks = $this->projectTasks($u));
+      $data['open'] = count($open) + count($ptasks);
       $data['doneRows'] = DB::all(T::ROW_SQL." WHERE t.assignee_id=? AND t.status='done' AND t.completed_at>=? ORDER BY t.completed_at DESC LIMIT 100", [$uid, date('Y-m-d H:i:s', strtotime('-7 days'))]); }
     elseif ($view === 'assigned') { $data += $this->assigned($u); }
     else {
@@ -55,6 +56,17 @@ final class TodoController extends Controller {
       $s = DB::first('SELECT s.*, a.name AS assignee FROM todo_series s JOIN users a ON a.id=s.assignee_id WHERE s.id=?', [$id]);
       if ($s && T::canManage($u, $s)) { $data['editSeries'] = $s; } }
     return $this->view('todos::index', $data); }
+
+  /** Whether the project "Team project tasks" view applies (unrestricted or manages a project). */
+  private function projTeam(array $u): bool { return feature_on('projects') && (\Modules\Projects\Services\ProjectAccess::unrestricted($u) || (bool) DB::value('SELECT 1 FROM projects WHERE manager_id=? LIMIT 1', [(int) $u['id']])); }
+
+  /** Open project tasks assigned to me (Projects feature on), shown in the same My tasks list. */
+  private function projectTasks(array $u): array {
+    if (!feature_on('projects') || !($this->can('projects.view') || $this->can('projects.view_all'))) { return []; }
+    [$w, $wp] = \Modules\Projects\Services\ProjectAccess::scope($u, 'p.id');
+    $rows = DB::all("SELECT t.id, t.title, t.status, t.priority, t.due_date, t.assignee_id, t.project_id, t.parent_id, p.name AS project, p.color, pt.title AS parent_title FROM tasks t JOIN projects p ON p.id=t.project_id LEFT JOIN tasks pt ON pt.id=t.parent_id WHERE $w AND t.assignee_id=? AND t.status<>'done' ORDER BY t.due_date IS NULL, t.due_date, t.id LIMIT 300", [...$wp, (int) $u['id']]);
+    foreach ($rows as &$r) { $r['editable'] = \Modules\Projects\Services\ProjectAccess::canEditTask($u, $r) || ($r['parent_id'] && (int) $r['assignee_id'] === (int) $u['id']); }
+    return $rows; }
 
   /** "Assigned by me": tasks I created for others (who=mine) or my team's / everyone's tasks (who=team), filter by person and status. */
   private function assigned(array $u): array {

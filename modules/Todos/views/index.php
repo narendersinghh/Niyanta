@@ -10,19 +10,16 @@ $today = date('Y-m-d');
 $newBtn = $canCreate ? '<button type="button" class="btn primary" data-modal="todo-new">'.icon('plus', 'sm').' New task</button>' : '';
 ?>
 <div class="td">
-<?= partial('partials/page_head', ['title' => 'Tasks', 'subtitle' => 'One-time to-dos and repeating routines, for you and your team.', 'crumbs' => [['Work'], ['Tasks']], 'actions' => $newBtn]) ?>
-<nav class="tabs td-tabs" aria-label="Task lists">
-  <?php foreach ($views as $k => $l): ?><a href="<?= e(url('/todos'.($k === 'my' ? '' : '?view='.$k))) ?>" class="<?= $view === $k ? 'active' : '' ?>"<?= $view === $k ? ' aria-current="page"' : '' ?>><?= icon($tabIcons[$k], 'sm') ?> <?= e($l) ?></a><?php endforeach ?>
-  <?php if ($projTab): ?><a href="<?= e(url('/tasks')) ?>"><?= icon('kanban', 'sm') ?> Project tasks</a><?php endif ?>
-</nav>
+<?= partial('partials/task_tabs', ['active' => $view, 'teamAllowed' => $teamAllowed, 'actions' => $newBtn]) ?>
 
 <?php if ($view === 'my'): ?>
 <?php $labels = ['overdue' => ['Overdue', 'peach', 'alert'], 'today' => ['Today', 'lemon', 'zap'], 'upcoming' => ['Upcoming', 'sky', 'calendar'], 'none' => ['No due date', 'lav', 'minus']]; ?>
 <div class="td-groups" data-todo-groups>
-  <?php foreach ($labels as $g => [$label, $c, $ic]): if (!$groups[$g]) { continue; } ?>
+  <?php foreach ($labels as $g => [$label, $c, $ic]): if (!$groups[$g] && !$pgroups[$g]) { continue; } ?>
   <section class="card td-group ac-<?= $c ?>" data-todo-group>
-    <div class="td-ghead"><span class="td-gic"><?= icon($ic, 'sm') ?></span><h3><?= e($label) ?></h3><span class="td-n" data-todo-count><?= count($groups[$g]) ?></span></div>
+    <div class="td-ghead"><span class="td-gic"><?= icon($ic, 'sm') ?></span><h3><?= e($label) ?></h3><span class="td-n" data-todo-count><?= count($groups[$g]) + count($pgroups[$g]) ?></span></div>
     <?php foreach ($groups[$g] as $t): ?><?= partial('todos::partials/row', ['t' => $t, 'mode' => 'my', 'uid' => $uid, 'manage' => $all || (int) $t['created_by'] === $uid, 'return' => $return]) ?><?php endforeach ?>
+    <?php foreach ($pgroups[$g] as $t): ?><?= partial('todos::partials/prow', ['t' => $t, 'return' => $return]) ?><?php endforeach ?>
   </section>
   <?php endforeach ?>
   <div class="card<?= $open ? ' hide' : '' ?>" data-todo-clear><?= empty_state('All clear!', 'Nothing open on your list. Add a task or set up a routine for things you do every day, week or month.', 'celebrate', $canCreate ? '<button type="button" class="btn primary mt" data-modal="todo-new">'.icon('plus', 'sm').' New task</button>' : '') ?></div>
@@ -91,7 +88,7 @@ $newBtn = $canCreate ? '<button type="button" class="btn primary" data-modal="to
 </div>
 <?php if ($canCreate): ?>
 <?= partial('todos::partials/form', ['id' => 'todo-new', 'heading' => 'New task', 'mode' => 'new', 'action' => '/todos', 'return' => $return, 'assignees' => $assignees, 'submit' => 'Create',
-  'open' => $oldForm === 'todo-new', 'v' => $oldForm === 'todo-new' ? ['title' => old('title'), 'description' => old('description'), 'assignee_id' => old('assignee_id'), 'priority' => old('priority', 'medium'), 'repeat' => old('repeat', 'once'), 'due_date' => old('due_date'), 'workdays_only' => old('workdays_only'), 'weekdays' => old('weekdays', []), 'month_day' => old('month_day'), 'start_date' => old('start_date'), 'end_date' => old('end_date')]
+  'open' => $oldForm === 'todo-new' || $newOpen, 'v' => $oldForm === 'todo-new' ? ['title' => old('title'), 'description' => old('description'), 'assignee_id' => old('assignee_id'), 'priority' => old('priority', 'medium'), 'repeat' => old('repeat', 'once'), 'due_date' => old('due_date'), 'workdays_only' => old('workdays_only'), 'weekdays' => old('weekdays', []), 'month_day' => old('month_day'), 'start_date' => old('start_date'), 'end_date' => old('end_date')]
     : ['assignee_id' => $uid, 'priority' => 'medium', 'repeat' => 'once', 'weekdays' => [(int) date('N')], 'month_day' => (int) date('j'), 'start_date' => $today]]) ?>
 <?php endif ?>
 <?php if ($edit): $k = 'todo-edit'; $o = $oldForm === $k; $as = $assignees + [(int) $edit['assignee_id'] => $edit['assignee']]; ?>

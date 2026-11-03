@@ -18,7 +18,6 @@ return [
     'hr.leave.manage' => ['label' => 'Manage leave types, balances & holidays', 'roles' => ['hr']],
   ],
   'nav' => [
-    ['label' => 'My Profile', 'icon' => 'user', 'color' => '#7C5CFF', 'url' => '/hr/me', 'perm' => 'hr.directory.view', 'section' => 'me', 'order' => 1],
     ['label' => 'Leave', 'icon' => 'umbrella', 'color' => '#12B5A0', 'url' => '/hr/leave', 'also' => ['/hr/holidays'], 'perm' => 'hr.leave.request', 'section' => 'me', 'order' => 3],
     ['label' => 'Holidays', 'icon' => 'calendar', 'color' => '#FF6F59', 'url' => '/hr/holidays', 'perm' => ['hr.leave.request', 'hr.leave.manage'], 'hide_if' => 'hr.leave.request', 'section' => 'me', 'order' => 4],
     ['label' => 'Company Docs', 'icon' => 'book', 'color' => '#2E9BF6', 'url' => '/hr/documents', 'perm' => 'hr.company_docs.view', 'section' => 'me', 'order' => 7],
