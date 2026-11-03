@@ -23,6 +23,7 @@ return [
     $r->post('/admin/users/{id}', [UserController::class, 'update'], 'admin.users.manage');
     $r->post('/admin/users/{id}/status', [UserController::class, 'toggleStatus'], 'admin.users.manage');
     $r->post('/admin/users/{id}/sessions', [UserController::class, 'revokeSessions'], 'admin.users.manage');
+    $r->post('/admin/users/{id}/delete', [UserController::class, 'destroy'], '__super_admin');
     $r->get('/admin/roles', [RoleController::class, 'index'], $sa);
     $r->post('/admin/roles', [RoleController::class, 'store'], $sa);
     $r->post('/admin/roles/permissions', [RoleController::class, 'savePermissions'], $sa);

@@ -445,3 +445,5 @@ html{scrollbar-color:color-mix(in srgb,var(--muted) 45%,transparent) transparent
 .nav a{padding:6px 8px;margin:1px 0}
 .nav .ni{width:28px;height:28px}
 .nav-group{margin-top:10px}
+.dd-menu.dd-float{position:fixed;right:auto;z-index:80}
+.dd-menu button.danger,.dd-menu a.danger{color:var(--red-d)}

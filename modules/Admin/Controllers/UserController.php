@@ -1,6 +1,6 @@
 <?php
 namespace Modules\Admin\Controllers;
-use Core\{Audit, Auth, Controller, DB, Mailer, Response};
+use Core\{Storage, Audit, Auth, Controller, DB, Mailer, Response};
 
 /** User management. HR may manage non-admin users; only a Super Admin can create or edit Super Admins. */
 final class UserController extends Controller {
@@ -13,7 +13,7 @@ final class UserController extends Controller {
     if (in_array($status, ['active', 'inactive', 'invited'], true)) { $sql .= ' AND u.status=?'; $p[] = $status; }
     $page = DB::paginate($sql.' ORDER BY u.status=\'active\' DESC, u.name', $p, 20);
     $roleStats = DB::all("SELECT r.id, r.name, r.slug, COUNT(u.id) AS n FROM roles r LEFT JOIN users u ON u.role_id=r.id AND u.status<>'inactive' GROUP BY r.id, r.name, r.slug ORDER BY r.id");
-    return $this->view('admin::users/index', ['title' => 'Users', 'p' => $page, 'roles' => array_column($roleStats, 'name', 'id'), 'roleStats' => $roleStats, 'f' => ['q' => $q, 'role' => $role, 'status' => $status], 'styles' => ['css/admin.css']]); }
+    return $this->view('admin::users/index', ['title' => 'Users', 'p' => $page, 'roles' => array_column($roleStats, 'name', 'id'), 'roleStats' => $roleStats, 'f' => ['q' => $q, 'role' => $role, 'status' => $status], 'styles' => ['css/admin.css'], 'scripts' => ['js/admin.js']]); }
 
   public function create(): Response { return $this->view('admin::users/form', ['title' => 'Add user', 'u' => ['id' => null, 'status' => 'active', 'role_id' => null, 'manager_id' => null], 'styles' => ['css/admin.css']] + $this->lookups()); }
 
@@ -74,6 +74,29 @@ final class UserController extends Controller {
     Audit::log('user.status', 'user', $id, ['status' => $new]);
     $this->flash("User marked $new.");
     return $this->back(); }
+
+  /**
+   * Permanently delete a user (Super Admin only). Their own records (attendance, time, leave, claims, files, screenshots) go
+   * with them; refused for yourself, the last Super Admin and anyone with payslips (payroll history must be kept: deactivate instead).
+   */
+  public function destroy(int $id): Response {
+    $u = $this->findOr404('users', $id);
+    if ($id === Auth::id()) { $this->abort(422, 'You cannot delete your own account.'); }
+    $sa = (int) DB::value("SELECT id FROM roles WHERE slug='super_admin'");
+    if ((int) $u['role_id'] === $sa && (int) DB::value("SELECT COUNT(*) FROM users WHERE role_id=? AND status='active' AND id<>?", [$sa, $id]) === 0) { $this->abort(422, 'This is the last Super Admin and cannot be deleted.'); }
+    if ($this->request->str('confirm') !== 'DELETE') { $this->flash('Type DELETE to confirm.', 'error'); return $this->back(); }
+    $has = static fn (string $t): bool => (bool) DB::value('SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name=?', [$t]);
+    if ($has('payslips') && DB::value('SELECT 1 FROM payslips WHERE user_id=? LIMIT 1', [$id])) { $this->flash($u['name'].' has payslips that must be kept for payroll records. Deactivate the account instead.', 'error'); return $this->back(); }
+    $files = DB::column("SELECT id FROM files WHERE entity_type IN ('employee','user') AND entity_id=?", [$id]);
+    $shots = $has('screenshots') ? DB::column('SELECT disk_path FROM screenshots WHERE user_id=?', [$id]) : [];
+    DB::transaction(static function () use ($id, $files): void {
+      foreach ($files as $f) { Storage::remove((int) $f); }
+      DB::delete('users', 'id=?', [$id]); });
+    foreach ($shots as $rel) { $p = Storage::path((string) $rel); if (is_file($p)) { @unlink($p); } }
+    Auth::bumpSessions($id);
+    Audit::log('user.delete', 'user', $id, ['name' => $u['name'], 'email' => $u['email']]);
+    $this->flash($u['name'].' was deleted.');
+    return $this->redirect('/admin/users'); }
 
   public function revokeSessions(int $id): Response {
     $u = $this->findOr404('users', $id);

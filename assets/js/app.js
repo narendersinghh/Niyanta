@@ -28,6 +28,10 @@ d.addEventListener("click",e=>{if(e.target.closest("[data-nav-toggle]"))$("#app"
 d.addEventListener("click",e=>{$$("details.dd[open]").forEach(x=>{if(!x.contains(e.target))x.removeAttribute("open")})});
 d.addEventListener("keydown",e=>{if(e.key==="Escape")$$("details.dd[open]").forEach(x=>x.removeAttribute("open"));
 if(e.key==="/"&&!/INPUT|TEXTAREA|SELECT/.test(d.activeElement?.tagName||"")&&!d.activeElement?.isContentEditable){const s=$("[data-search]");if(s){e.preventDefault();s.focus()}}});
+/* dropdowns inside scrolling boxes (tables): float the menu above the page so it is never cut off; opens upward near the bottom of the window */
+d.addEventListener("toggle",e=>{const x=e.target;if(!x.matches||!x.matches("details.dd"))return;const m=$(".dd-menu",x);if(!m)return;if(!x.open||!x.closest(".table-wrap,.ts-scroll,.tld-scroll")){m.classList.remove("dd-float");m.style.cssText="";return}
+const r=x.getBoundingClientRect();m.classList.add("dd-float");const h=m.offsetHeight,w=m.offsetWidth,down=r.bottom+8+h<=innerHeight-8;m.style.top=(down?r.bottom+8:Math.max(8,r.top-8-h))+"px";m.style.left=Math.max(8,Math.min(r.right-w,innerWidth-w-8))+"px"},true);
+addEventListener("scroll",()=>$$("details.dd[open] .dd-float").forEach(m=>{m.closest("details").open=false}),{passive:true,capture:true});
 /* sidebar sections are always listed in full (no collapsing); the sidebar scrolls when it is taller than the window */
 /* instant search: grouped results dropdown under the top-bar search (keyboard friendly) */
 const sIn=$("[data-search]");if(sIn){const form=sIn.closest("form"),pop=d.createElement("div");pop.className="search-pop hide";pop.setAttribute("role","listbox");form.append(pop);let t,ctl,idx=-1;

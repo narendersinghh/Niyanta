@@ -35,6 +35,7 @@ $actions = ($manage ? '<a class="btn primary" href="'.e(url('/admin/users/create
             <?php if (!$me): ?>
             <form method="post" action="<?= e(url('/admin/users/'.$u['id'].'/status')) ?>" data-confirm="<?= $u['status'] === 'active' ? 'Deactivate '.e($u['name']).'? They are signed out and can no longer sign in.' : 'Activate '.e($u['name']).'?' ?>"><?= csrf_field() ?><button><?= icon($u['status'] === 'active' ? 'lock' : 'check', 'sm') ?> <?= $u['status'] === 'active' ? 'Deactivate' : 'Activate' ?></button></form>
             <form method="post" action="<?= e(url('/admin/users/'.$u['id'].'/sessions')) ?>" data-confirm="Sign <?= e($u['name']) ?> out on every device?"><?= csrf_field() ?><button><?= icon('log-out', 'sm') ?> Sign out everywhere</button></form>
+            <?php if ($sa): ?><button type="button" class="danger" data-modal="user-delete" data-del-url="<?= e(url('/admin/users/'.$u['id'].'/delete')) ?>" data-del-name="<?= e($u['name']) ?>"><?= icon('trash', 'sm') ?> Delete user</button><?php endif ?>
             <?php endif ?>
           </div></details><?php endif ?></td>
       </tr>
@@ -43,3 +44,9 @@ $actions = ($manage ? '<a class="btn primary" href="'.e(url('/admin/users/create
   <?= pager($p) ?>
   <?php endif ?>
 </div>
+<?php if ($sa): ?><dialog class="modal" id="user-delete"><form method="post" action="" data-del-form><?= csrf_field() ?>
+  <div class="modal-head"><h3>Delete <span data-del-target>user</span>?</h3><button type="button" class="btn icon sm ghost" data-close aria-label="Close"><?= icon('x', 'sm') ?></button></div>
+  <div class="modal-body form"><div class="alert error"><?= icon('alert', 'sm') ?><div>This permanently removes the account and their own records: attendance, tracked time, screenshots, leave, claims and documents. It cannot be undone. People with payslips cannot be deleted; deactivate them instead.</div></div>
+    <div class="field"><label for="del-confirm">Type <b>DELETE</b> to confirm</label><input id="del-confirm" name="confirm" required pattern="DELETE" autocomplete="off"></div>
+    <div class="form-actions"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn danger"><?= icon('trash', 'sm') ?> Delete permanently</button></div></div>
+</form></dialog><?php endif ?>

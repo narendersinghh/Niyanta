@@ -28,4 +28,7 @@ f.addEventListener("submit",ev=>{if(i.value.trim()!==f.dataset.typed){ev.prevent
 /* long-running posts (demo import, cleanup): show progress on the button */
 d.addEventListener("submit",e=>{const f=e.target;if(e.defaultPrevented||!f.matches("[data-busy]"))return;const b=$("[type=submit]",f);if(b){f.dataset.noLock="1";setTimeout(()=>{b.disabled=true;b.innerHTML='<span class="spinner"></span> '+f.dataset.busy},0)}});
 if(box)$$("select[data-preview=font]").forEach(el=>loadFont(el.value));
+/* users: delete dialog gets the row's URL and name */
+const df=$("[data-del-form]");
+if(df)d.addEventListener("click",e=>{const b=e.target.closest("[data-del-url]");if(!b)return;df.action=b.dataset.delUrl;df.reset();const n=$("[data-del-target]",df);if(n)n.textContent=b.dataset.delName;const dd=b.closest("details");if(dd)dd.open=false},true);
 })();
