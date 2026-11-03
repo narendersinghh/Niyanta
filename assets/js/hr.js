@@ -8,4 +8,6 @@ const mode=g=>{const v=(g.querySelector("input:checked")||{}).value;d.querySelec
 d.querySelectorAll("[data-mode]").forEach(g=>{mode(g);g.addEventListener("change",()=>mode(g))});
 d.addEventListener("click",async ev=>{const b=ev.target.closest("[data-reveal]");if(!b||!N)return;ev.preventDefault();b.disabled=true;
 try{const j=await N.req(b.dataset.reveal,{body:{}});[["bank",j.bank],["tax",j.tax]].forEach(([k,v])=>{const el=d.querySelector(`[data-secret="${k}"]`);if(el&&v)el.textContent=v});b.remove();N.toast("Revealed, this view was logged")}catch(err){b.disabled=false;N.toast(err.message,"error")}});
+/* edit HR profile: show the custom days-off picker only for a custom work week */
+d.querySelectorAll("[data-days-mode]").forEach(sel=>{const box=d.querySelector("[data-days-custom]");if(!box)return;sel.addEventListener("change",()=>{box.hidden=sel.value!=="custom"})});
 })();

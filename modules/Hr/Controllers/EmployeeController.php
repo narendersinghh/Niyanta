@@ -1,6 +1,6 @@
 <?php
 namespace Modules\Hr\Controllers;
-use Core\{Audit, Auth, Controller, Crypto, DB, Modules, Response, Storage, ValidationException};
+use Core\{Audit, Auth, Controller, Crypto, DB, Modules, Notify, Response, Storage, ValidationException};
 use Modules\Hr\Services\{HrAccess, LeaveService};
 
 /** Employee list / directory, HR profile, documents, onboarding & offboarding checklists. */
@@ -139,10 +139,50 @@ final class EmployeeController extends Controller {
   public function edit(int $id): Response {
     $emp = $this->employee($id);
     $prof = $this->profile($id);
-    return $this->view('hr::employees/edit', ['title' => 'Edit HR profile', 'emp' => $emp, 'prof' => $prof, 'types' => self::TYPES, 'masked' => ['bank' => HrAccess::mask($prof['bank_account_enc'] ?? null), 'tax' => HrAccess::mask($prof['tax_id_enc'] ?? null)], 'styles' => ['css/hr.css']]); }
+    return $this->view('hr::employees/edit', $this->workData($id) + ['title' => 'Edit HR profile', 'emp' => $emp, 'prof' => $prof, 'types' => self::TYPES, 'masked' => ['bank' => HrAccess::mask($prof['bank_account_enc'] ?? null), 'tax' => HrAccess::mask($prof['tax_id_enc'] ?? null)], 'styles' => ['css/hr.css'], 'scripts' => ['js/hr.js']]); }
+
+  /** Work hours, pay and this year's leave balances for the edit form (each part only when its feature and permission apply). */
+  private function workData(int $id): array {
+    $year = (int) date('Y');
+    $payOn = feature_on('payroll') && $this->can('payroll.compensation.manage');
+    $leaveOn = feature_on('leave') && $this->can('hr.leave.manage');
+    return ['schedule' => LeaveService::scheduleFor($id), 'companyDays' => LeaveService::weekendDays(), 'companyHours' => LeaveService::companyHours(), 'year' => $year,
+      'payEdit' => $payOn, 'pay' => $payOn ? DB::first('SELECT pay_type, amount, effective_from FROM compensations WHERE user_id=? AND effective_from<=CURDATE() ORDER BY effective_from DESC, id DESC LIMIT 1', [$id]) : null,
+      'leaveEdit' => $leaveOn, 'balances' => $leaveOn ? LeaveService::balances($id, $year) : []]; }
+
+  /** Validated work-hours, pay and leave-balance input of the edit form: [profile columns, pay revision|null, [type_id => allocated], errors]. */
+  private function workInput(int $id, array $in): array {
+    $err = []; $prof = []; $pay = null; $alloc = [];
+    $h = trim((string) ($in['work_hours_per_day'] ?? ''));
+    if ($h === '') { $prof['work_hours_per_day'] = null; }
+    elseif (!is_numeric($h) || (float) $h < 0.5 || (float) $h > 16) { $err['work_hours_per_day'] = 'Enter working hours between 0.5 and 16, or leave empty for the company default.'; }
+    else { $prof['work_hours_per_day'] = round((float) $h * 4) / 4; }
+    if (($in['days_mode'] ?? 'default') === 'custom') {
+      $raw = array_map('intval', (array) ($in['off_days'] ?? []));
+      $sat = (string) ($in['saturday_rule'] ?? 'full');
+      if (array_diff($raw, range(1, 7))) { $err['off_days'] = 'Choose valid weekdays.'; }
+      elseif (count(array_unique($raw)) > 6) { $err['off_days'] = 'At least one working day per week is required.'; }
+      elseif (!\Core\WorkWeek::valid($sat)) { $err['saturday_rule'] = 'Choose a valid Saturday option.'; }
+      else { $prof['weekly_off_days'] = implode(',', LeaveService::parseDays(implode(',', $raw))); $prof['saturday_rule'] = $sat; } }
+    else { $prof['weekly_off_days'] = null; $prof['saturday_rule'] = null; }
+    if (feature_on('payroll') && $this->can('payroll.compensation.manage') && trim((string) ($in['pay_amount'] ?? '')) !== '') {
+      $amt = (string) $in['pay_amount']; $type = (string) ($in['pay_type'] ?? 'monthly'); $from = (string) ($in['pay_effective'] ?? '');
+      if (!in_array($type, ['monthly', 'hourly'], true)) { $err['pay_type'] = 'Choose monthly salary or hourly rate.'; }
+      elseif (!is_numeric($amt) || (float) $amt <= 0 || (float) $amt > 999999999) { $err['pay_amount'] = 'Enter an amount greater than zero.'; }
+      elseif (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $from) || !strtotime($from)) { $err['pay_effective'] = 'Choose the date the pay applies from.'; }
+      else { $pay = ['pay_type' => $type, 'amount' => round((float) $amt, 2), 'effective_from' => $from]; } }
+    if (feature_on('leave') && $this->can('hr.leave.manage')) {
+      foreach ((array) ($in['leave_alloc'] ?? []) as $tid => $v) {
+        $v = trim((string) $v);
+        if ($v === '') { continue; }
+        if (!is_numeric($v) || (float) $v < 0 || (float) $v > 999) { $err['leave_alloc_'.(int) $tid] = 'Balance must be between 0 and 999 days.'; continue; }
+        $alloc[(int) $tid] = round((float) $v * 2) / 2; } }
+    return [$prof, $pay, $alloc, $err]; }
 
   public function update(int $id): Response {
     $this->employee($id);
+    [$work, $pay, $alloc, $werr] = $this->workInput($id, $this->request->all());
+    if ($werr) { throw new ValidationException($werr); }
     $d = $this->validate(['employment_type' => 'required|in:'.implode(',', array_keys(self::TYPES)), 'date_of_birth' => 'nullable|date', 'gender' => 'nullable|max:20', 'personal_email' => 'nullable|email|max:190', 'address' => 'nullable|max:1000',
       'emergency_name' => 'nullable|max:150', 'emergency_phone' => 'nullable|phone', 'bank_name' => 'nullable|max:120', 'bank_account' => 'nullable|regex:/^[A-Za-z0-9 \-]{4,34}$/', 'bank_ifsc' => 'nullable|regex:/^[A-Za-z0-9 \-]{3,30}$/',
       'tax_id' => 'nullable|regex:/^[A-Za-z0-9 \-\/]{4,30}$/', 'probation_end' => 'nullable|date', 'notes' => 'nullable|max:5000'], ['date_of_birth' => 'Date of birth', 'bank_ifsc' => 'IFSC / routing code', 'tax_id' => 'Tax ID']);
@@ -154,8 +194,29 @@ final class EmployeeController extends Controller {
     elseif ($this->request->input('clear_bank')) { $d['bank_account_enc'] = null; $changed[] = 'bank_account(cleared)'; }
     if ($tax !== null) { $d['tax_id_enc'] = Crypto::encrypt(strtoupper(preg_replace('/\s+/', '', $tax))); $changed[] = 'tax_id'; }
     elseif ($this->request->input('clear_tax')) { $d['tax_id_enc'] = null; $changed[] = 'tax_id(cleared)'; }
-    $this->saveProfile($id, $d);
-    Audit::log('hr.employee.update', 'employee', $id, ['fields' => array_merge(array_keys(array_diff_key($d, ['bank_account_enc' => 1, 'tax_id_enc' => 1])), $changed)]);
+    $year = (int) date('Y');
+    $notes = DB::transaction(function () use ($id, $d, $work, $pay, $alloc, $year): array {
+      $this->saveProfile($id, $d + $work);
+      $notes = [];
+      if ($pay) {
+        $cur = DB::first('SELECT id, pay_type, amount, effective_from FROM compensations WHERE user_id=? AND effective_from<=? ORDER BY effective_from DESC, id DESC LIMIT 1', [$id, $pay['effective_from']]);
+        if (!$cur || $cur['pay_type'] !== $pay['pay_type'] || (float) $cur['amount'] !== $pay['amount']) {
+          if ($cur && $cur['effective_from'] === $pay['effective_from']) { DB::update('compensations', $pay, 'id=?', [(int) $cur['id']]); }
+          else { DB::insert('compensations', $pay + ['user_id' => $id, 'note' => 'Set on the HR profile', 'created_by' => $this->uid(), 'created_at' => date('Y-m-d H:i:s')]); }
+          Audit::log('payroll.compensation.create', 'user', $id, $pay + ['via' => 'hr_profile']);
+          $notes[] = 'pay'; } }
+      if ($alloc) {
+        $types = array_map('intval', DB::column('SELECT id FROM leave_types'));
+        $old = DB::pairs('SELECT leave_type_id, allocated FROM leave_balances WHERE user_id=? AND year=?', [$id, $year]);
+        foreach ($alloc as $tid => $v) {
+          if (!in_array($tid, $types, true) || (float) ($old[$tid] ?? 0) === $v) { continue; }
+          DB::query('INSERT INTO leave_balances (user_id, leave_type_id, year, allocated, used) VALUES (?,?,?,?,0) ON DUPLICATE KEY UPDATE allocated=VALUES(allocated)', [$id, $tid, $year, $v]);
+          Audit::log('hr.leave.adjust', 'employee', $id, ['type_id' => $tid, 'year' => $year, 'allocated' => $v, 'before' => isset($old[$tid]) ? (float) $old[$tid] : null, 'via' => 'hr_profile']);
+          $notes[] = 'leave'; } }
+      return array_unique($notes); });
+    LeaveService::flush();
+    if (in_array('leave', $notes, true)) { Notify::user($id, 'Your leave balance was updated', 'HR updated your '.$year.' leave balance.', '/hr/leave', false, 'plane'); }
+    Audit::log('hr.employee.update', 'employee', $id, ['fields' => array_merge(array_keys(array_diff_key($d + $work, ['bank_account_enc' => 1, 'tax_id_enc' => 1])), $changed)]);
     $this->flash('HR profile saved.');
     return $this->redirect('/hr/employees/'.$id); }
 

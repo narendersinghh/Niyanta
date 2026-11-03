@@ -4,12 +4,46 @@
 <form class="hr-form" method="post" action="<?= e(url('/hr/employees/'.$id)) ?>" autocomplete="off"><?= csrf_field() ?>
   <div class="card pad0">
     <div class="hr-sec">
-      <div class="hr-sec-t"><h3><?= icon('briefcase', 'sm') ?> Employment</h3><p>Contract type and probation. Work hours & weekly off days are on the <a class="b" href="<?= e(url('/hr/employees/'.$id.'?tab=schedule')) ?>">Work schedule</a> tab.</p></div>
+      <div class="hr-sec-t"><h3><?= icon('briefcase', 'sm') ?> Employment</h3><p>Contract type and probation.</p></div>
       <div class="form-grid">
         <div class="field"><label for="f-type">Employment type *</label><select id="f-type" name="employment_type" required><?php foreach ($types as $k => $l): ?><option value="<?= e($k) ?>"<?= selected($k, $v('employment_type') ?: 'full_time') ?>><?= e($l) ?></option><?php endforeach ?></select><?= error_for('employment_type') ?></div>
         <div class="field"><label for="f-prob">Probation ends</label><input id="f-prob" type="date" name="probation_end" value="<?= e($v('probation_end')) ?>"><div class="hint">Shown as a badge on the profile until this date.</div><?= error_for('probation_end') ?></div>
       </div>
     </div>
+    <?php $LS = \Modules\Hr\Services\LeaveService::class; $daysMode = old('days_mode', $schedule['custom_days'] ? 'custom' : 'default'); $offSel = array_map('intval', (array) old('off_days', $schedule['off_days'])); ?>
+    <div class="hr-sec">
+      <div class="hr-sec-t"><h3><?= icon('clock', 'sm') ?> Working hours</h3><p>Hours per day and weekly off days used for leave, attendance targets and pay. Leave hours empty to follow the company default.</p></div>
+      <div class="form-grid">
+        <div class="field"><label for="f-hpd">Hours per day</label><input id="f-hpd" type="number" name="work_hours_per_day" step="0.25" min="0.5" max="16" value="<?= e(old('work_hours_per_day', $schedule['custom_hours'] ? $LS::num($schedule['hours_per_day']) : '')) ?>" placeholder="Company default: <?= e($LS::num($companyHours)) ?> h"><?= error_for('work_hours_per_day') ?></div>
+        <div class="field"><label for="f-dm">Weekly off days</label><select id="f-dm" name="days_mode" data-days-mode><option value="default"<?= selected('default', $daysMode) ?>>Company default (<?= e($LS::daysLabel($companyDays, \Core\WorkWeek::companyRule())) ?>)</option><option value="custom"<?= selected('custom', $daysMode) ?>>Custom for this employee</option></select></div>
+        <div class="field full" data-days-custom<?= $daysMode === 'custom' ? '' : ' hidden' ?>><span class="lbl">Days off</span><div class="hr-days" role="group" aria-label="Weekly off days"><?php foreach ($LS::DAY_NAMES as $n => $dn): ?><label><input type="checkbox" name="off_days[]" value="<?= $n ?>"<?= checked(in_array($n, $offSel, true)) ?>><span><?= e($dn) ?></span></label><?php endforeach ?></div><?= error_for('off_days') ?>
+          <div class="field mt"><label for="f-sat">Saturdays</label><select id="f-sat" name="saturday_rule"><?php foreach (\Core\WorkWeek::RULES as $rk => $rl): ?><option value="<?= e($rk) ?>"<?= selected($rk, old('saturday_rule', $schedule['saturday'] ?? 'full')) ?>><?= e($rl) ?></option><?php endforeach ?></select><div class="hint">Applies when Saturday is not ticked as a day off.</div><?= error_for('saturday_rule') ?></div></div>
+      </div>
+    </div>
+    <?php if ($payEdit): ?>
+    <div class="hr-sec">
+      <div class="hr-sec-t"><h3><?= icon('wallet', 'sm') ?> Salary</h3><p><?= $pay ? 'Current: '.e(money($pay['amount'])).' '.($pay['pay_type'] === 'hourly' ? 'per hour' : 'per month').' since '.e(fdate($pay['effective_from'])).'. Changing it adds a new revision from the date you choose; earlier payslips are not changed.' : 'No pay set yet. Payroll uses this to calculate payslips.' ?></p></div>
+      <div class="form-grid g3">
+        <div class="field"><label for="f-pt">Pay type</label><select id="f-pt" name="pay_type"><option value="monthly"<?= selected('monthly', old('pay_type', $pay['pay_type'] ?? 'monthly')) ?>>Monthly salary</option><option value="hourly"<?= selected('hourly', old('pay_type', $pay['pay_type'] ?? 'monthly')) ?>>Hourly rate</option></select><?= error_for('pay_type') ?></div>
+        <div class="field"><label for="f-pa">Amount</label><input id="f-pa" type="number" name="pay_amount" step="0.01" min="0" value="<?= e(old('pay_amount', $pay ? rtrim(rtrim(number_format((float) $pay['amount'], 2, '.', ''), '0'), '.') : '')) ?>" placeholder="e.g. 15700"><?= error_for('pay_amount') ?></div>
+        <div class="field"><label for="f-pe2">Applies from</label><input id="f-pe2" type="date" name="pay_effective" value="<?= e(old('pay_effective', date('Y-m-01'))) ?>"><?= error_for('pay_effective') ?></div>
+      </div>
+    </div>
+    <?php endif ?>
+    <?php if ($leaveEdit && $balances): ?>
+    <div class="hr-sec">
+      <div class="hr-sec-t"><h3><?= icon('umbrella', 'sm') ?> Leave balance <?= (int) $year ?></h3><p>Set the days available this year for each leave type. Used days are kept; the employee is notified when a balance changes.</p></div>
+      <div class="table-wrap"><table class="table">
+        <thead><tr><th>Leave type</th><th class="num">Allocated</th><th class="num">Used</th><th class="num">Left</th></tr></thead>
+        <tbody><?php foreach ($balances as $b): $tid = (int) $b['id']; ?><tr>
+          <td><span class="pill pill-<?= e($b['color']) ?>"><?= e($b['name']) ?></span><?= (int) $b['paid'] ? '' : ' <span class="xs muted">unpaid</span>' ?></td>
+          <td class="num"><label class="sr" for="la-<?= $tid ?>">Allocated <?= e($b['name']) ?></label><input id="la-<?= $tid ?>" class="hr-quota-in" type="number" step="0.5" min="0" max="999" name="leave_alloc[<?= $tid ?>]" value="<?= e(old('leave_alloc.'.$tid, $LS::num($b['allocated']))) ?>"><?= error_for('leave_alloc_'.$tid) ?></td>
+          <td class="num"><?= e($LS::num($b['used'])) ?></td>
+          <td class="num"><b><?= e($LS::num(max(0, (float) $b['allocated'] - (float) $b['used']))) ?></b></td>
+        </tr><?php endforeach ?></tbody>
+      </table></div>
+    </div>
+    <?php endif ?>
     <div class="hr-sec">
       <div class="hr-sec-t"><h3><?= icon('user', 'sm') ?> Personal</h3><p>Private details visible to HR and the employee only.</p></div>
       <div class="form-grid">
