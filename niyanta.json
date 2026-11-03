@@ -1,1 +1,1 @@
-{"name":"niyanta","version":"1.1.1","min_php":"8.2.0","repository":"narendersinghh/Niyanta","tracker_tag_prefix":"tracker-v","preserve":["config/config.php","storage","assets/uploads",".htaccess.local"]}
+{"name":"niyanta","version":"1.1.2","min_php":"8.2.0","repository":"narendersinghh/Niyanta","tracker_tag_prefix":"tracker-v","preserve":["config/config.php","storage","assets/uploads",".htaccess.local"]}
