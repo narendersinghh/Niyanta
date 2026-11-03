@@ -21,10 +21,10 @@ final class TodoController extends Controller {
     if (!$s || !T::canManage($this->user(), $s)) { $this->abort(404, 'Routine not found.'); }
     return $s; }
 
-  /** Safe local return path (hidden "return" field), else the fallback. */
+  /** Safe local return path (hidden "return" field: task pages, a project page or the dashboard), else the fallback. */
   private function to(string $fallback = '/todos'): Response {
     $p = $this->request->str('return');
-    return $this->redirect(preg_match('#^/todos(?:[?\#][^\s]*)?$#', $p) || preg_match('#^/(?:dashboard)?$#', $p) ? $p : $fallback); }
+    return $this->redirect(preg_match('#^/(?:todos|tasks|projects/\d+)(?:[?\#][^\s]*)?$#', $p) || preg_match('#^/(?:dashboard)?$#', $p) ? $p : $fallback); }
 
   private function done(string $msg, ?array $row = null, string $mode = 'my'): Response {
     if ($this->request->wantsJson()) { return $this->json(['ok' => true, 'message' => $msg, 'html' => $row ? View::partial('todos::partials/row', ['t' => $row, 'mode' => $mode, 'uid' => $this->uid(), 'manage' => T::canManage($this->user(), $row), 'return' => $this->request->str('return', '/todos')]) : '']); }
@@ -38,7 +38,7 @@ final class TodoController extends Controller {
     $view = $this->request->str('view', 'my');
     if (!isset($views[$view])) { $view = 'my'; }
     $data = ['title' => 'Tasks', 'view' => $view, 'views' => $views, 'canAssign' => $canAssign, 'all' => $all, 'uid' => $uid, 'assignees' => T::assignable($u), 'edit' => null, 'editSeries' => null,
-      'projTab' => feature_on('projects') && ($this->can('projects.view') || $this->can('projects.view_all')), 'newOpen' => $this->request->int('new') === 1, 'teamAllowed' => $this->projTeam($u), 'styles' => ['css/todos.css'], 'scripts' => ['js/todos.js']];
+      'projTab' => feature_on('projects') && ($this->can('projects.view') || $this->can('projects.view_all')), 'newOpen' => $this->request->int('new') === 1, 'teamAllowed' => $this->projTeam($u), 'styles' => ['css/todos.css'], 'scripts' => ['js/todos.js', 'js/taskdialog.js']];
     if ($view === 'my') {
       $open = DB::all(T::ROW_SQL." WHERE t.assignee_id=? AND t.status='open' ORDER BY t.due_date IS NULL, t.due_date, FIELD(t.priority,'high','medium','low'), t.id LIMIT 500", [$uid]);
       $data['groups'] = T::groups($open);
@@ -68,23 +68,39 @@ final class TodoController extends Controller {
     foreach ($rows as &$r) { $r['editable'] = \Modules\Projects\Services\ProjectAccess::canEditTask($u, $r) || ($r['parent_id'] && (int) $r['assignee_id'] === (int) $u['id']); }
     return $rows; }
 
-  /** "Assigned by me": tasks I created for others (who=mine) or my team's / everyone's tasks (who=team), filter by person and status. */
+  /**
+   * "Assigned by me": tasks I gave to someone else (who=mine): one-time tasks, routine occurrences and, with Projects on, project tasks
+   * I created for another person; or my team's / everyone's to-dos (who=team). Filter by person and status (open, overdue, done, all).
+   * Tasks I assign to myself are only in My tasks.
+   */
   private function assigned(array $u): array {
     $uid = (int) $u['id'];
     $who = $this->request->str('who') === 'team' ? 'team' : 'mine';
     if ($who === 'mine') { $base = 't.created_by=? AND t.assignee_id<>?'; $bp = [$uid, $uid]; }
     elseif ($this->can('todos.assign_all')) { $base = 't.assignee_id<>?'; $bp = [$uid]; }
     else { $base = 't.assignee_id IN (SELECT id FROM users WHERE manager_id=?)'; $bp = [$uid]; }
-    $people = DB::pairs("SELECT DISTINCT a.id, a.name FROM todos t JOIN users a ON a.id=t.assignee_id WHERE $base ORDER BY a.name", $bp);
+    $sql = "SELECT 'todo' AS kind, t.id, t.title, t.description, t.priority, t.assignee_id, t.created_by, t.due_date, t.status, t.completed_at, t.series_id, t.occurrence, c.name AS creator, a.name AS assignee, a.avatar AS assignee_avatar, s.frequency, s.workdays_only, s.weekdays, s.month_day, NULL AS project_id, NULL AS project, NULL AS color, NULL AS parent_title, NULL AS pstatus FROM todos t JOIN users c ON c.id=t.created_by JOIN users a ON a.id=t.assignee_id LEFT JOIN todo_series s ON s.id=t.series_id WHERE $base";
+    $proj = $who === 'mine' && feature_on('projects') && ($this->can('projects.view') || $this->can('projects.view_all'));
+    if ($proj) {
+      [$pw, $pp] = \Modules\Projects\Services\ProjectAccess::scope($u, 't.project_id');
+      $sql .= " UNION ALL SELECT 'task', t.id, t.title, t.description, t.priority, t.assignee_id, t.created_by, t.due_date, IF(t.status='done','done','open'), t.completed_at, NULL, NULL, c.name, a.name, a.avatar, NULL, NULL, NULL, NULL, t.project_id, p.name, p.color, pt.title, t.status FROM tasks t JOIN projects p ON p.id=t.project_id JOIN users c ON c.id=t.created_by JOIN users a ON a.id=t.assignee_id LEFT JOIN tasks pt ON pt.id=t.parent_id WHERE t.created_by=? AND t.assignee_id<>? AND p.status<>'cancelled' AND $pw";
+      $bp = [...$bp, $uid, $uid, ...$pp]; }
+    $from = "FROM ($sql) x";
+    $people = DB::pairs("SELECT DISTINCT x.assignee_id, x.assignee $from ORDER BY x.assignee", $bp);
     $person = $this->request->int('person');
-    if ($person && isset($people[$person])) { $base .= ' AND t.assignee_id=?'; $bp[] = $person; } else { $person = 0; }
-    $c = DB::first("SELECT COUNT(*) AS total, IFNULL(SUM(t.status='open'),0) AS open, IFNULL(SUM(t.status='done'),0) AS done, IFNULL(SUM(t.status='open' AND t.due_date<?),0) AS overdue FROM todos t WHERE $base", [date('Y-m-d'), ...$bp]);
+    $w = '1=1'; $p = $bp;
+    if ($person && isset($people[$person])) { $w .= ' AND x.assignee_id=?'; $p[] = $person; } else { $person = 0; }
+    $today = date('Y-m-d');
+    $c = DB::first("SELECT COUNT(*) AS total, IFNULL(SUM(x.status='open'),0) AS open, IFNULL(SUM(x.status='done'),0) AS done, IFNULL(SUM(x.status='open' AND x.due_date<?),0) AS overdue $from WHERE $w", [$today, ...$p]);
     $status = $this->request->str('status', 'open');
     if (!in_array($status, ['open', 'done', 'overdue', 'all'], true)) { $status = 'open'; }
-    $w = $base.match ($status) { 'open' => " AND t.status='open'", 'done' => " AND t.status='done'", 'overdue' => " AND t.status='open' AND t.due_date<?", default => '' };
-    $p = $status === 'overdue' ? [...$bp, date('Y-m-d')] : $bp;
-    $page = DB::paginate(T::ROW_SQL." WHERE $w ORDER BY t.status='done', t.due_date IS NULL, t.due_date".($status === 'done' ? ' DESC' : '').', t.id DESC', $p, 30);
-    return ['who' => $who, 'people' => $people, 'person' => $person, 'status' => $status, 'counts' => array_map('intval', $c), 'page' => $page]; }
+    $w .= match ($status) { 'open' => " AND x.status='open'", 'done' => " AND x.status='done'", 'overdue' => " AND x.status='open' AND x.due_date<?", default => '' };
+    if ($status === 'overdue') { $p[] = $today; }
+    $page = DB::paginate("SELECT x.* $from WHERE $w ORDER BY x.status='done', x.due_date IS NULL, x.due_date".($status === 'done' ? ' DESC' : '').', x.id DESC', $p, 30);
+    foreach ($page['items'] as &$r) {
+      if ($r['kind'] === 'task') { $r['status'] = $r['pstatus']; $r['editable'] = \Modules\Projects\Services\ProjectAccess::canEditTask($u, $r); } }
+    unset($r);
+    return ['who' => $who, 'people' => $people, 'person' => $person, 'status' => $status, 'counts' => array_map('intval', $c), 'page' => $page, 'projRows' => $proj]; }
 
   /** Validated input. $mode: new (once or repeat), todo (one-time edit), series (routine edit). */
   private function input(string $mode, ?int $keepAssignee = null): array {
@@ -111,7 +127,14 @@ final class TodoController extends Controller {
     if ($assignee === $this->uid()) { return; }
     Notify::user($assignee, ($routine ? 'New routine from ' : 'New task from ').$this->user()['name'].': '.$title, $body, '/todos', false, $routine ? 'refresh' : 'check-square'); }
 
+  /**
+   * New task dialog. With a project_id the request is a project task: it is handed to the Projects task controller, which checks
+   * projects.tasks.manage + project visibility, that the assignee is a project member, the milestone, notifies and audits.
+   */
   public function store(): Response {
+    if ($pid = $this->request->int('project_id')) {
+      if (!feature_on('projects')) { $this->abort(404, 'Project not found.'); }
+      return (new \Modules\Projects\Controllers\TaskController($this->request))->store($pid); }
     $d = $this->input('new');
     $now = date('Y-m-d H:i:s'); $uid = $this->uid();
     if ($d['repeat'] === 'once') {

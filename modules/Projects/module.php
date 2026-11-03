@@ -34,6 +34,7 @@ return [
     $r->post('/projects/{id}/delete', [ProjectController::class, 'destroy'], 'projects.delete');
     $r->post('/projects/{id}/files', [ProjectController::class, 'upload'], $view);
     $r->post('/projects/{id}/tasks', [TaskController::class, 'store'], 'projects.tasks.manage');
+    $r->get('/projects/{id}/task-form', [TaskController::class, 'formData'], 'projects.tasks.manage');
     $r->post('/projects/{id}/milestones', [MilestoneController::class, 'store'], 'projects.manage');
     $r->post('/milestones/{id}', [MilestoneController::class, 'update'], 'projects.manage');
     $r->post('/milestones/{id}/complete', [MilestoneController::class, 'complete'], 'projects.manage');

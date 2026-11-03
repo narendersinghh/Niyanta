@@ -4,10 +4,10 @@ $q = (string) ($_SERVER['QUERY_STRING'] ?? '');
 $return = '/todos'.($q !== '' ? '?'.preg_replace('/(^|&)(edit|edit_routine)=\d+/', '', $q) : '');
 $return = rtrim($return, '?&');
 $tabIcons = ['my' => 'check-square', 'assigned' => 'send', 'routines' => 'refresh'];
-$canCreate = T::canCreate();
+$canCreate = Modules\Todos\Services\TaskDialog::available(Core\Auth::user());
 $oldForm = errors() ? (string) old('_form') : '';
 $today = date('Y-m-d');
-$newBtn = $canCreate ? '<button type="button" class="btn primary" data-modal="todo-new">'.icon('plus', 'sm').' New task</button>' : '';
+$newBtn = $canCreate ? '<button type="button" class="btn primary" data-modal="task-new">'.icon('plus', 'sm').' New task</button>' : '';
 ?>
 <div class="td">
 <?= partial('partials/task_tabs', ['active' => $view, 'teamAllowed' => $teamAllowed, 'actions' => $newBtn]) ?>
@@ -22,7 +22,7 @@ $newBtn = $canCreate ? '<button type="button" class="btn primary" data-modal="to
     <?php foreach ($pgroups[$g] as $t): ?><?= partial('todos::partials/prow', ['t' => $t, 'return' => $return]) ?><?php endforeach ?>
   </section>
   <?php endforeach ?>
-  <div class="card<?= $open ? ' hide' : '' ?>" data-todo-clear><?= empty_state('All clear!', 'Nothing open on your list. Add a task or set up a routine for things you do every day, week or month.', 'celebrate', $canCreate ? '<button type="button" class="btn primary mt" data-modal="todo-new">'.icon('plus', 'sm').' New task</button>' : '') ?></div>
+  <div class="card<?= $open ? ' hide' : '' ?>" data-todo-clear><?= empty_state('All clear!', 'Nothing open on your list. Add a task or set up a routine for things you do every day, week or month.', 'celebrate', $canCreate ? '<button type="button" class="btn primary mt" data-modal="task-new">'.icon('plus', 'sm').' New task</button>' : '') ?></div>
 </div>
 <details class="card td-done" data-todo-done<?= $doneRows ? '' : ' hidden' ?>>
   <summary><span class="td-gic"><?= icon('check-circle', 'sm') ?></span><h3>Done</h3><span class="xs muted">last 7 days</span><span class="td-n" data-todo-done-count><?= count($doneRows) ?></span><?= icon('chevron-down', 'sm td-chev') ?></summary>
@@ -41,15 +41,16 @@ $newBtn = $canCreate ? '<button type="button" class="btn primary" data-modal="to
   <noscript><button class="btn ghost sm">Apply</button></noscript>
   <span class="xs muted"><?= (int) $page['total'] ?> task<?= $page['total'] == 1 ? '' : 's' ?></span>
 </form>
+<?php if ($who === 'mine'): ?><p class="xs muted td-hint"><?= icon('info', 'sm') ?><span>Tasks you gave to other people<?= $projRows ? ', including project tasks' : '' ?>. Routine tasks appear on their due day. Tasks you assign to yourself are in <a href="<?= e(url('/todos')) ?>">My tasks</a>.</span></p><?php endif ?>
 <section class="card td-list">
-  <?php if (!$page['items']): ?><?= empty_state($counts['total'] ? 'Nothing here' : 'No assigned tasks yet', $counts['total'] ? 'No tasks match this filter.' : 'Tasks you give to your team show up here so you can follow them up.', 'team', $counts['total'] ? '' : '<button type="button" class="btn primary mt" data-modal="todo-new">'.icon('plus', 'sm').' Assign a task</button>') ?>
-  <?php else: foreach ($page['items'] as $t): ?><?= partial('todos::partials/row', ['t' => $t, 'mode' => 'assigned', 'uid' => $uid, 'manage' => true, 'return' => $return]) ?><?php endforeach; endif ?>
+  <?php if (!$page['items']): ?><?= empty_state($counts['total'] ? 'Nothing here' : 'No assigned tasks yet', $counts['total'] ? 'No tasks match this filter.' : ($who === 'mine' ? 'Tasks you give to someone else show up here so you can follow them up. Tasks you assign to yourself stay in My tasks.' : 'Tasks of your team show up here.'), 'team', $counts['total'] || !$canCreate ? '' : '<button type="button" class="btn primary mt" data-modal="task-new">'.icon('plus', 'sm').' Assign a task</button>') ?>
+  <?php else: foreach ($page['items'] as $t): ?><?= $t['kind'] === 'task' ? partial('todos::partials/prow', ['t' => $t, 'return' => $return, 'mode' => 'assigned']) : partial('todos::partials/row', ['t' => $t, 'mode' => 'assigned', 'uid' => $uid, 'manage' => true, 'return' => $return]) ?><?php endforeach; endif ?>
 </section>
 <?= pager($page) ?>
 
 <?php else: ?>
 <section class="card td-list">
-  <?php if (!$routines): ?><?= empty_state('No routines yet', 'Routines create a task automatically every day, on chosen weekdays or once a month.', 'calendar-person', $canCreate ? '<button type="button" class="btn primary mt" data-modal="todo-new">'.icon('plus', 'sm').' New routine</button>' : '') ?>
+  <?php if (!$routines): ?><?= empty_state('No routines yet', 'Routines create a task automatically every day, on chosen weekdays or once a month.', 'calendar-person', $canCreate ? '<button type="button" class="btn primary mt" data-modal="task-new">'.icon('plus', 'sm').' New routine</button>' : '') ?>
   <?php else: foreach ($routines as $s): $state = T::state($s, $today); $next = $state === 'active' ? T::nextOccurrence($s, $today) : null; ?>
   <div class="td-row td-routine<?= $state !== 'active' ? ' is-off' : '' ?>" id="routine-<?= (int) $s['id'] ?>">
     <span class="td-ric ac-<?= ['active' => 'mint', 'paused' => 'lemon', 'ended' => 'lav'][$state] ?>"><?= icon('refresh', 'sm') ?></span>
@@ -86,11 +87,7 @@ $newBtn = $canCreate ? '<button type="button" class="btn primary" data-modal="to
 </section>
 <?php endif ?>
 </div>
-<?php if ($canCreate): ?>
-<?= partial('todos::partials/form', ['id' => 'todo-new', 'heading' => 'New task', 'mode' => 'new', 'action' => '/todos', 'return' => $return, 'assignees' => $assignees, 'submit' => 'Create',
-  'open' => $oldForm === 'todo-new' || $newOpen, 'v' => $oldForm === 'todo-new' ? ['title' => old('title'), 'description' => old('description'), 'assignee_id' => old('assignee_id'), 'priority' => old('priority', 'medium'), 'repeat' => old('repeat', 'once'), 'due_date' => old('due_date'), 'workdays_only' => old('workdays_only'), 'weekdays' => old('weekdays', []), 'month_day' => old('month_day'), 'start_date' => old('start_date'), 'end_date' => old('end_date')]
-    : ['assignee_id' => $uid, 'priority' => 'medium', 'repeat' => 'once', 'weekdays' => [(int) date('N')], 'month_day' => (int) date('j'), 'start_date' => $today]]) ?>
-<?php endif ?>
+<?php if ($canCreate): ?><?= partial('partials/task_dialog', ['return' => $return, 'open' => $newOpen]) ?><?php endif ?>
 <?php if ($edit): $k = 'todo-edit'; $o = $oldForm === $k; $as = $assignees + [(int) $edit['assignee_id'] => $edit['assignee']]; ?>
 <?= partial('todos::partials/form', ['id' => $k, 'heading' => 'Edit task', 'mode' => 'todo', 'action' => '/todos/'.$edit['id'], 'return' => $return, 'assignees' => $as, 'submit' => 'Save', 'open' => true,
   'v' => $o ? ['title' => old('title'), 'description' => old('description'), 'assignee_id' => old('assignee_id'), 'priority' => old('priority'), 'due_date' => old('due_date'), 'occurrence' => $edit['occurrence']] : $edit]) ?>

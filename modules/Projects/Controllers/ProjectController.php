@@ -125,9 +125,8 @@ final class ProjectController extends Controller {
     $team = DB::all('SELECT u.id, u.name, u.avatar, u.designation, pm.role FROM project_members pm JOIN users u ON u.id=pm.user_id WHERE pm.project_id=? ORDER BY u.name', [$id]);
     $sc = DB::pairs('SELECT status, COUNT(*) FROM tasks WHERE project_id=? AND parent_id IS NULL GROUP BY status', [$id]);
     $nums = DB::first("SELECT (SELECT COUNT(*) FROM milestones WHERE project_id=?) AS ms, (SELECT COUNT(*) FROM milestones WHERE project_id=? AND status='completed') AS ms_done, (SELECT COUNT(*) FROM change_requests WHERE project_id=? AND status='pending') AS cr, (SELECT COUNT(*) FROM files WHERE module='projects' AND entity_type='project' AND entity_id=?) AS files", [$id, $id, $id, $id]);
-    $data = ['title' => $pr['name'], 'pr' => $pr, 'tab' => $tab, 'team' => $team, 'sc' => $sc, 'nums' => array_map('intval', $nums), 'styles' => ['css/projects.css'], 'scripts' => ['js/projects.js'],
+    $data = ['title' => $pr['name'], 'pr' => $pr, 'tab' => $tab, 'team' => $team, 'sc' => $sc, 'nums' => array_map('intval', $nums), 'styles' => ['css/projects.css', 'css/todos.css'], 'scripts' => ['js/projects.js', 'js/taskdialog.js'],
       'canManage' => PA::canManageProject($u, $id), 'canTasks' => PA::canManageTasks($u, $id), 'canCr' => $this->can('projects.change_requests.manage'), 'canDelete' => $this->can('projects.delete')];
-    if ($data['canTasks'] && in_array($tab, ['board', 'list', 'overview'], true)) { $data['assignees'] = PS::team($id); $data['milestoneOpts'] = DB::pairs('SELECT id, title FROM milestones WHERE project_id=? ORDER BY due_date IS NULL, due_date, position', [$id]); }
     $data += match ($tab) {
       'overview' => $this->overview($pr),
       'board' => $this->board($id),

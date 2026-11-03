@@ -20,6 +20,13 @@ function todo_add(int $assignee, int $by, string $title, array $extra = []): int
 function todo_series(int $assignee, int $by, array $s): int {
   return DB::insert('todo_series', $s + ['title' => 'Routine '.mt_rand(), 'priority' => 'medium', 'assignee_id' => $assignee, 'created_by' => $by, 'frequency' => 'daily', 'workdays_only' => 0, 'start_date' => '2026-01-01', 'active' => 1, 'created_at' => date('Y-m-d H:i:s')]); }
 
+/** A project managed by $mgr with $members (project_members). */
+function todo_project(int $mgr, array $members, string $name, array $extra = []): int {
+  $id = DB::insert('projects', $extra + ['name' => $name, 'status' => 'active', 'manager_id' => $mgr, 'created_by' => $mgr, 'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')]);
+  foreach ($members as $m) { DB::insert('project_members', ['project_id' => $id, 'user_id' => $m]); }
+  \Modules\Projects\Services\ProjectAccess::flush();
+  return $id; }
+
 /** Run a request as AJAX (JSON response). */
 function todo_ajax(string $path, array $post = []): Core\Response {
   $_SERVER['HTTP_X_REQUESTED_WITH'] = 'XMLHttpRequest';
@@ -208,4 +215,90 @@ return [
       $n = $mt(); assert_eq(1, count($n), 'super admin keeps one entry'); assert_eq('/tasks', $n[0]['url']); }
     finally { Features::set('feature:todos', true); \Core\Gate::flush(); }
     assert_true(isset(\Core\Cron::jobs()['todos.generate']), 'cron job registered'); },
+
+  'new task dialog: a project_id posted to /todos becomes a project task with the project checks, no project stays a to-do' => function () {
+    ['emp' => $emp, 'mgr' => $mgr, 'mgr2' => $mgr2, 'other' => $other] = todo_fx();
+    $pid = todo_project($mgr, [$emp], 'Dialog project');
+    $ms = DB::insert('milestones', ['project_id' => $pid, 'title' => 'Phase 1']);
+    $foreign = todo_project($mgr2, [$other], 'Foreign project');
+    act_as($mgr);
+    $body = http('GET', '/todos')->body();
+    assert_true(str_contains($body, 'id="task-new"') && str_contains($body, 'data-task-project') && str_contains($body, '>Dialog project<') && !str_contains($body, 'Foreign project'), 'one dialog, project select limited to projects the manager may add tasks to');
+    assert_true(str_contains($body, 'value="weekly"') && str_contains($body, 'data-repeat="once"'), 'repeat options with the js / no :has() hook');
+    $n0 = (int) DB::value('SELECT COUNT(*) FROM notifications WHERE user_id=?', [$emp]);
+    $r = http('POST', '/todos', ['_form' => 'task-new', 'project_id' => $pid, 'title' => 'Dialog project task', 'status' => 'in_progress', 'priority' => 'urgent', 'assignee_id' => $emp, 'milestone_id' => $ms, 'estimated_hours' => '2.5', 'billable' => '1', 'return' => '/todos?view=assigned']);
+    assert_eq(302, $r->status());
+    assert_true(str_ends_with($r->headers()['Location'] ?? '', '/todos?view=assigned'), 'back to where the dialog was opened');
+    $t = DB::first("SELECT * FROM tasks WHERE title='Dialog project task'");
+    assert_true($t && (int) $t['project_id'] === $pid && (int) $t['assignee_id'] === $emp && (int) $t['created_by'] === $mgr && $t['status'] === 'in_progress' && (int) $t['milestone_id'] === $ms && (float) $t['estimated_hours'] === 2.5, 'project task stored with project fields');
+    assert_eq(0, (int) DB::value("SELECT COUNT(*) FROM todos WHERE title='Dialog project task'"), 'no to-do created');
+    assert_eq($n0 + 1, (int) DB::value('SELECT COUNT(*) FROM notifications WHERE user_id=?', [$emp]), 'assignee notified');
+    assert_true((bool) DB::value("SELECT 1 FROM audit_logs WHERE action='projects.task.create' AND entity_id=?", [(int) $t['id']]), 'audited');
+    http('POST', '/todos', ['project_id' => $pid, 'title' => 'Dialog outsider', 'status' => 'todo', 'priority' => 'medium', 'assignee_id' => $other]);
+    assert_eq(0, (int) DB::value("SELECT COUNT(*) FROM tasks WHERE title='Dialog outsider'") + (int) DB::value("SELECT COUNT(*) FROM todos WHERE title='Dialog outsider'"), 'assignee must be a project member');
+    assert_eq(404, http('POST', '/todos', ['project_id' => $foreign, 'title' => 'Dialog foreign', 'status' => 'todo', 'priority' => 'medium'])->status(), 'project the manager cannot see');
+    assert_eq(0, (int) DB::value("SELECT COUNT(*) FROM tasks WHERE title='Dialog foreign'"));
+    $j = json_decode(http('GET', '/projects/'.$pid.'/task-form')->body(), true);
+    assert_eq([[$emp, DB::value('SELECT name FROM users WHERE id=?', [$emp])], [$mgr, DB::value('SELECT name FROM users WHERE id=?', [$mgr])]], array_values(array_filter($j['team'], static fn ($x) => in_array($x[0], [$emp, $mgr], true))), 'team for the assign list');
+    assert_eq([[$ms, 'Phase 1']], $j['milestones']); assert_true($j['billable'] === true);
+    assert_eq(404, http('GET', '/projects/'.$foreign.'/task-form')->status(), 'no team list of other projects');
+    $r = todo_ajax('/projects/'.$pid.'/tasks', ['title' => 'Board quick add', 'status' => 'review', 'priority' => 'medium']);
+    assert_true(str_contains((string) (json_decode($r->body(), true)['html'] ?? ''), 'Board quick add'), 'board quick add still returns the card');
+    $body = http('GET', '/projects/'.$pid.'?tab=board')->body();
+    assert_true(str_contains($body, 'id="task-new"') && str_contains($body, 'data-mode="project"') && str_contains($body, 'projects/'.$pid.'/tasks" data-task-form') && str_contains($body, 'value="'.$pid.'" selected'), 'project page: same dialog with the project preselected');
+    assert_true(!str_contains($body, 'id="tn-title"'), 'old project dialog gone');
+    $r = http('POST', '/todos', ['title' => 'Dialog plain todo', 'priority' => 'low', 'assignee_id' => $emp, 'repeat' => 'once', 'project_id' => '', 'return' => '/projects/'.$pid.'?tab=board']);
+    assert_true(str_ends_with($r->headers()['Location'] ?? '', '/projects/'.$pid.'?tab=board'), 'no project: to-do, back to the project page');
+    assert_eq($emp, (int) DB::value("SELECT assignee_id FROM todos WHERE title='Dialog plain todo'"));
+    assert_eq(0, (int) DB::value("SELECT COUNT(*) FROM tasks WHERE title='Dialog plain todo'"));
+    Features::set('feature:todos', false); \Core\Gate::flush();
+    try {
+      $body = http('GET', '/projects/'.$pid.'?tab=board')->body();
+      assert_true(str_contains($body, 'id="task-new"') && !str_contains($body, 'No project') && !str_contains($body, 'name="repeat"'), 'Tasks & routines off: project-only dialog'); }
+    finally { Features::set('feature:todos', true); \Core\Gate::flush(); }
+    Features::set('feature:projects', false); \Core\Gate::flush();
+    try {
+      $body = http('GET', '/todos')->body();
+      assert_true(str_contains($body, 'id="task-new"') && !str_contains($body, 'data-task-project'), 'Projects off: no project select');
+      assert_eq(404, http('POST', '/todos', ['project_id' => $pid, 'title' => 'Dialog projects off', 'status' => 'todo', 'priority' => 'medium'])->status(), 'no project tasks while Projects is off'); }
+    finally { Features::set('feature:projects', true); \Core\Gate::flush(); }
+    act_as($emp);
+    assert_eq(404, http('POST', '/todos', ['project_id' => $pid, 'title' => 'Employee project task', 'status' => 'todo', 'priority' => 'medium'])->status(), 'employees cannot add project tasks through /todos');
+    assert_eq(403, http('GET', '/projects/'.$pid.'/task-form')->status());
+    $body = http('GET', '/todos')->body();
+    assert_true(str_contains($body, 'id="task-new"') && !str_contains($body, 'data-task-project'), 'employee: dialog without the project select');
+    assert_true(str_contains(http('GET', '/tasks')->body(), 'id="task-new"'), '/tasks has the same dialog'); },
+
+  'assigned by me: one-time, routine and project tasks given to others, never self-assigned; manager, HR and super admin' => function () {
+    ['emp' => $emp, 'mgr' => $mgr, 'hr' => $hr, 'other' => $other] = todo_fx();
+    $pid = todo_project($mgr, [$emp], 'Assigned project');
+    act_as($mgr);
+    http('POST', '/todos', ['title' => 'ABM one-off', 'priority' => 'medium', 'assignee_id' => $emp, 'repeat' => 'once']);
+    http('POST', '/todos', ['title' => 'ABM for myself', 'priority' => 'medium', 'assignee_id' => $mgr, 'repeat' => 'once']);
+    http('POST', '/todos', ['title' => 'ABM routine', 'priority' => 'medium', 'assignee_id' => $emp, 'repeat' => 'daily', 'start_date' => date('Y-m-d')]);
+    http('POST', '/projects/'.$pid.'/tasks', ['title' => 'ABM project task', 'status' => 'todo', 'priority' => 'high', 'assignee_id' => $emp]);
+    http('POST', '/projects/'.$pid.'/tasks', ['title' => 'ABM project self', 'status' => 'todo', 'priority' => 'high', 'assignee_id' => $mgr]);
+    $body = http('GET', '/todos?view=assigned')->body();
+    foreach (['ABM one-off', 'ABM routine', 'ABM project task'] as $t) { assert_true(str_contains($body, $t), "manager sees $t"); }
+    assert_true(!str_contains($body, 'ABM for myself') && !str_contains($body, 'ABM project self'), 'self-assigned tasks stay in My tasks');
+    assert_true(str_contains($body, 'Tasks you assign to yourself are in'), 'hint about self-assigned tasks');
+    assert_true(str_contains(http('GET', '/todos')->body(), 'ABM for myself'), 'self-assigned in My tasks');
+    $tid = (int) DB::value("SELECT id FROM tasks WHERE title='ABM project task'");
+    DB::update('tasks', ['status' => 'done', 'completed_at' => date('Y-m-d H:i:s')], 'id=?', [$tid]);
+    assert_true(!str_contains(http('GET', '/todos?view=assigned')->body(), 'ABM project task'), 'done project task leaves the open list');
+    assert_true(str_contains(http('GET', '/todos?view=assigned&status=done')->body(), 'ABM project task'), '... and is under Done');
+    assert_true(str_contains(http('GET', '/todos?view=assigned&status=all&person='.$emp)->body(), 'ABM project task'), 'person filter covers project tasks');
+    assert_true(!str_contains(http('GET', '/todos?view=assigned&who=team&status=all')->body(), 'ABM project task'), 'team view lists to-dos only');
+    act_as($hr);
+    http('POST', '/todos', ['title' => 'ABM from HR', 'priority' => 'medium', 'assignee_id' => $other, 'repeat' => 'once']);
+    $body = http('GET', '/todos?view=assigned')->body();
+    assert_true(str_contains($body, 'ABM from HR') && !str_contains($body, 'ABM one-off'), 'HR: own assignments only under Created by me');
+    act_as($GLOBALS['ADMIN_ID']);
+    http('POST', '/todos', ['title' => 'ABM from admin', 'priority' => 'medium', 'assignee_id' => $emp, 'repeat' => 'once']);
+    http('POST', '/todos', ['_form' => 'task-new', 'project_id' => $pid, 'title' => 'ABM admin project task', 'status' => 'todo', 'priority' => 'low', 'assignee_id' => $emp]);
+    $body = http('GET', '/todos?view=assigned')->body();
+    assert_true(str_contains($body, 'Assigned by me') && str_contains($body, 'ABM from admin') && str_contains($body, 'ABM admin project task'), 'super admin sees to-dos and project tasks they assigned');
+    act_as($emp);
+    $body = http('GET', '/todos?view=assigned')->body();
+    assert_true(!str_contains($body, 'Tasks you assign to yourself are in') && !str_contains($body, 'Assigned by me'), 'employee has no assigned view'); },
 ];

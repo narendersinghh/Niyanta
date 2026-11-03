@@ -61,6 +61,13 @@ final class TaskController extends Controller {
     $this->flash('Task added.');
     return $this->redirect(PS::returnPath($this->request, '/projects/'.$id.'?tab=board')); }
 
+  /** New task dialog: team, milestones and billing default of a project the user may add tasks to (JSON). */
+  public function formData(int $id): Response {
+    if (!PA::canManageTasks($this->user(), $id)) { $this->abort(404, 'Project not found.'); }
+    $d = \Modules\Todos\Services\TaskDialog::projectData($id);
+    $pairs = static fn (array $a): array => array_map(null, array_keys($a), array_values($a));
+    return $this->json(['team' => $pairs($d['team']), 'milestones' => $pairs($d['milestones']), 'billable' => $d['billable']]); }
+
   public function update(int $id): Response {
     $t = $this->managed($id);
     $d = $this->data((int) $t['project_id']);
@@ -238,4 +245,4 @@ final class TaskController extends Controller {
     $doneWeek = (int) DB::value('SELECT COUNT(*) FROM tasks t JOIN projects p ON p.id=t.project_id WHERE '.$w.' AND t.status=\'done\' AND t.completed_at>=?'.($mode === 'mine' ? ' AND t.assignee_id=?' : ''), [...$wp, $mon.' 00:00:00', ...($mode === 'mine' ? [$uid] : [])]);
     $projects = DB::pairs("SELECT p.id, p.name FROM projects p WHERE $w AND p.status NOT IN ('completed','cancelled')".($mode === 'team' && !PA::unrestricted($u) ? ' AND p.manager_id='.(int) $uid : '').' ORDER BY p.name', $wp);
     $people = $mode === 'team' ? DB::pairs('SELECT DISTINCT u.id, u.name FROM users u JOIN tasks t ON t.assignee_id=u.id JOIN projects p ON p.id=t.project_id WHERE '.$w.(PA::unrestricted($u) ? '' : ' AND p.manager_id='.(int) $uid)." AND t.status<>'done' ORDER BY u.name", $wp) : [];
-    return $this->view('projects::tasks/mine', ['title' => $mode === 'team' ? 'Team tasks' : 'My tasks', 'groups' => $groups, 'total' => count($tasks), 'week' => $week, 'doneWeek' => $doneWeek, 'mode' => $mode, 'teamAllowed' => $teamAllowed, 'projects' => $projects, 'people' => $people, 'project' => $project, 'assignee' => $assignee, 'styles' => ['css/projects.css'], 'scripts' => ['js/projects.js']]); } }
+    return $this->view('projects::tasks/mine', ['title' => $mode === 'team' ? 'Team tasks' : 'My tasks', 'groups' => $groups, 'total' => count($tasks), 'week' => $week, 'doneWeek' => $doneWeek, 'mode' => $mode, 'teamAllowed' => $teamAllowed, 'projects' => $projects, 'people' => $people, 'project' => $project, 'assignee' => $assignee, 'styles' => ['css/projects.css', 'css/todos.css'], 'scripts' => ['js/projects.js', 'js/taskdialog.js']]); } }

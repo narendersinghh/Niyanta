@@ -47,6 +47,6 @@ $vars = get_defined_vars();
 <div class="tabs-wrap"><nav class="tabs" aria-label="Project sections"><?php foreach ($tabs as $k => [$l, $ic, $n]): ?><a href="<?= e(url('/projects/'.$id.'?tab='.$k)) ?>" class="<?= $tab === $k ? 'active' : '' ?>"<?= $tab === $k ? ' aria-current="page"' : '' ?>><?= icon($ic, 'sm') ?> <?= e($l) ?><?php if ($n): ?><span class="tab-n<?= $k === 'changes' ? ' hot' : '' ?>"><?= (int) $n ?></span><?php endif ?></a><?php endforeach ?></nav></div>
 <?= partial('projects::projects/tabs/'.$tab, $vars) ?>
 <?php if ($canTasks && $taskTab): ?>
-<?= partial('projects::projects/task_modal', ['id' => $id, 'assignees' => $assignees, 'milestoneOpts' => $milestoneOpts, 'billable' => $pr['billing_type'] !== 'non_billable']) ?>
+<?= partial('partials/task_dialog', ['project' => $id, 'return' => '/projects/'.$id.'?'.(($q = (string) ($_SERVER['QUERY_STRING'] ?? '')) !== '' ? $q : 'tab='.$tab)]) ?>
 <?php endif ?>
 </div>

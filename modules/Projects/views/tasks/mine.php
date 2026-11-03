@@ -3,12 +3,13 @@ use Modules\Projects\Services\ProjectService as PS;
 $labels = ['overdue' => ['Overdue', 'red', 'alert'], 'today' => ['Today', 'lemon', 'zap'], 'week' => ['This week', 'sky', 'calendar'], 'later' => ['Later', 'lav', 'layers'], 'none' => ['No due date', 'gray', 'minus']];
 $today = date('Y-m-d');
 $team = $mode === 'team';
+$canNew = Modules\Todos\Services\TaskDialog::available(Core\Auth::user());
 $filtered = $project || $assignee;
 $dueWeek = count($groups['overdue']) + count($groups['today']) + count($groups['week']);
 $wp = $doneWeek + $dueWeek ? (int) round($doneWeek / ($doneWeek + $dueWeek) * 100) : 0;
 ?>
 <div class="pj">
-<?= partial('partials/task_tabs', ['active' => $team ? 'team' : 'projects', 'teamAllowed' => $teamAllowed, 'subtitle' => $team ? 'Open tasks across the projects you manage, grouped by due date.' : 'Project tasks assigned to you, grouped by when they are due.']) ?>
+<?= partial('partials/task_tabs', ['active' => $team ? 'team' : 'projects', 'teamAllowed' => $teamAllowed, 'actions' => $canNew ? '<button type="button" class="btn primary" data-modal="task-new">'.icon('plus', 'sm').' New task</button>' : '', 'subtitle' => $team ? 'Open tasks across the projects you manage, grouped by due date.' : 'Project tasks assigned to you, grouped by when they are due.']) ?>
 <div class="grid g4 mb">
   <div class="tile bg-lav"><span class="tile-ic"><?= icon('check-square') ?></span><div><div class="num"><?= (int) $total ?></div><div class="lbl">Open tasks</div></div></div>
   <div class="tile bg-peach"><span class="tile-ic"><?= icon('alert') ?></span><div><div class="num"><?= count($groups['overdue']) ?></div><div class="lbl">Overdue</div></div></div>
@@ -73,3 +74,4 @@ $wp = $doneWeek + $dueWeek ? (int) round($doneWeek / ($doneWeek + $dueWeek) * 10
   </aside>
 </div>
 </div>
+<?php if ($canNew): ?><?= partial('partials/task_dialog', ['return' => '/tasks'.(($q = (string) ($_SERVER['QUERY_STRING'] ?? '')) !== '' ? '?'.$q : '')]) ?><?php endif ?>
