@@ -63,6 +63,8 @@ const eq = (a, b, msg) => ok(JSON.stringify(a) === JSON.stringify(b), `${msg}: e
     threw = false; try { su.macHelperScript({ pid: 0, source: '/a.app', target: '/b.app', work: '/w', log: '/l' }); } catch (e) { threw = true; } ok(threw, 'bad pid rejected');
     threw = false; try { su.macHelperScript({ pid: 5, source: '/a', target: '/b.app', work: '/w', log: '/l' }); } catch (e) { threw = true; } ok(threw, 'non-bundle rejected');
     eq(su.sq("it's"), "'it'\\''s'", 'single quoting');
+    /* the real helper run needs bash, sleep and POSIX paths: macOS and Linux build machines only */
+    if (process.platform !== 'win32') {
     const bin = path.join(tmp, 'bin'); fs.mkdirSync(bin);
     const stub = (name, body) => fs.writeFileSync(path.join(bin, name), '#!/bin/bash\n' + body + '\n', { mode: 0o755 });
     stub('ditto', '[ -n "${FAIL_DITTO:-}" ] && exit 1; cp -R "$1" "$2"');
@@ -91,7 +93,7 @@ const eq = (a, b, msg) => ok(JSON.stringify(a) === JSON.stringify(b), `${msg}: e
     eq(r.version, '1.2.0', 'paths with spaces and quotes');
     r = await scenario('fail', 'Applications', true);
     eq([r.version, r.old], ['1.1.0', false], 'failed copy restores the previous version');
-    ok(/copy failed, restoring/.test(r.log) && /open /.test(r.out), 'failure logged and the old version reopened'); }
+    ok(/copy failed, restoring/.test(r.log) && /open /.test(r.out), 'failure logged and the old version reopened'); } }
   finally { fs.rmSync(tmp, { recursive: true, force: true }); }
 
   console.log(`updates: ${n - fails}/${n} checks passed`);

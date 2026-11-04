@@ -80,11 +80,11 @@ function macAppPath(execPath) { const m = String(execPath || '').match(/^(.*?\.a
  * `canWrite(dir)` is injected (fs.accessSync W_OK in the app, a stub in tests).
  */
 function macTarget(appPath, home, canWrite) {
-  const name = (appPath && path.basename(appPath)) || APP_NAME + '.app';
-  const sys = path.join('/Applications', name);
-  const user = path.join(home, 'Applications', name);
+  const name = (appPath && path.posix.basename(appPath)) || APP_NAME + '.app';
+  const sys = path.posix.join('/Applications', name);
+  const user = path.posix.join(home, 'Applications', name);
   const temporary = !appPath || /^\/Volumes\//.test(appPath) || /\/AppTranslocation\//.test(appPath) || /^\/private\/var\/folders\//.test(appPath);
-  const writable = p => canWrite(path.dirname(p)) && (!fs.existsSync(p) || canWrite(p));
+  const writable = p => canWrite(path.posix.dirname(p)) && (!fs.existsSync(p) || canWrite(p));
   if (!temporary && writable(appPath)) return { target: appPath, moved: false, reason: null };
   if (writable(sys)) return { target: sys, moved: sys !== appPath, reason: temporary ? 'not-installed' : 'not-writable' };
   return { target: user, moved: true, reason: 'user-applications' }; }
