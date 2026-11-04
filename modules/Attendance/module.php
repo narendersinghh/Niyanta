@@ -48,7 +48,7 @@ return [
     $r->post('/timesheets/{id}/reject', [TimesheetController::class, 'reject'], 'attendance.timesheets.approve');
     /* Niyanta Tracker desktop API (token auth, see AGENT_API.md) */
     $api = ['auth' => false, 'csrf' => false, 'throttle' => [600, 60]];
-    $r->post('/api/agent/login', [AgentController::class, 'login'], ['auth' => false, 'csrf' => false, 'throttle' => [20, 300]]);
+    $r->post('/api/agent/login', [AgentController::class, 'login'], ['auth' => false, 'csrf' => false, 'throttle' => [300, 300]]);
     $r->post('/api/agent/logout', [AgentController::class, 'logout'], $api);
     $r->get('/api/agent/bootstrap', [AgentController::class, 'bootstrap'], $api);
     $r->get('/api/agent/status', [AgentController::class, 'status'], $api);

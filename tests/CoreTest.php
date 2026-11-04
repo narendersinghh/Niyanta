@@ -30,9 +30,11 @@ return [
     assert_eq(1, (int) DB::value('SELECT failed_logins FROM users WHERE id=?', [$id]));
     assert_eq(null, Auth::attempt('login@unit.test', 'Passw0rd123'));
     assert_eq(0, (int) DB::value('SELECT failed_logins FROM users WHERE id=?', [$id]));
+    for ($i = 0; $i < 12; $i++) { assert_eq(null, Auth::attempt('login@unit.test', 'Passw0rd123'), 'successful sign-ins never block'); }
     for ($i = 0; $i < 5; $i++) { Auth::attempt('login@unit.test', 'bad'); }
-    assert_true(str_contains((string) Auth::attempt('login@unit.test', 'Passw0rd123'), 'Too many attempts'), 'rate limited');
-    RateLimiter::clear('login:login@unit.test|127.0.0.1'); },
+    assert_true(str_contains((string) Auth::attempt('login@unit.test', 'Passw0rd123'), 'Too many wrong passwords'), 'rate limited after wrong passwords');
+    Auth::unlock($id);
+    assert_eq(null, Auth::attempt('login@unit.test', 'Passw0rd123'), 'admin unlock lets the person in again'); },
   'inactive users cannot sign in and bumping sessions logs users out' => function () {
     $id = make_user('employee', 'inactive@unit.test', ['status' => 'inactive']);
     assert_true(Auth::attempt('inactive@unit.test', 'Passw0rd123') !== null);

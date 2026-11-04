@@ -6,7 +6,7 @@ use Core\{Storage, Audit, Auth, Controller, DB, Mailer, Response};
 final class UserController extends Controller {
   public function index(): Response {
     $q = $this->request->str('q'); $role = $this->request->int('role'); $status = $this->request->str('status');
-    $sql = 'SELECT u.id, u.name, u.email, u.phone, u.status, u.avatar, u.designation, u.department, u.last_login_at, r.name AS role_name, r.slug AS role_slug, m.name AS manager_name FROM users u JOIN roles r ON r.id=u.role_id LEFT JOIN users m ON m.id=u.manager_id WHERE 1=1';
+    $sql = 'SELECT u.id, u.name, u.email, u.phone, u.status, u.failed_logins, u.locked_until, u.avatar, u.designation, u.department, u.last_login_at, r.name AS role_name, r.slug AS role_slug, m.name AS manager_name FROM users u JOIN roles r ON r.id=u.role_id LEFT JOIN users m ON m.id=u.manager_id WHERE 1=1';
     $p = [];
     if ($q !== '') { $sql .= ' AND (u.name LIKE ? OR u.email LIKE ? OR u.employee_code LIKE ?)'; array_push($p, DB::like($q), DB::like($q), DB::like($q)); }
     if ($role) { $sql .= ' AND u.role_id=?'; $p[] = $role; }
@@ -97,6 +97,14 @@ final class UserController extends Controller {
     Audit::log('user.delete', 'user', $id, ['name' => $u['name'], 'email' => $u['email']]);
     $this->flash($u['name'].' was deleted.');
     return $this->redirect('/admin/users'); }
+
+  public function unlock(int $id): Response {
+    $u = $this->findOr404('users', $id);
+    $this->guardTarget($u);
+    Auth::unlock($id);
+    Audit::log('user.unlock', 'user', $id);
+    $this->flash($u['name'].' can sign in again.');
+    return $this->back(); }
 
   public function revokeSessions(int $id): Response {
     $u = $this->findOr404('users', $id);

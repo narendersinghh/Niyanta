@@ -40,11 +40,22 @@ final class Auth {
    * Check credentials with the web sign-in's rate limits and lockout, without starting a session (also used by the desktop
    * tracker). @return array{0: ?array, 1: ?string} [user (id, status, session_version), error message]
    */
+  public static function loginKey(string $email): string { return 'login:'.strtolower(trim($email)); }
+
+  /** Clear a person's sign-in lock and failed-attempt counter (Users › Unlock sign-in). */
+  public static function unlock(int $userId): void {
+    $email = (string) DB::value('SELECT email FROM users WHERE id=?', [$userId]);
+    DB::update('users', ['failed_logins' => 0, 'locked_until' => null], 'id=?', [$userId]);
+    if ($email !== '') { RateLimiter::clear(self::loginKey($email)); } }
+
   public static function verify(string $email, string $password): array {
     $req = Request::current();
-    $key = 'login:'.strtolower($email).'|'.$req->ip();
-    if (!RateLimiter::hit($key, (int) Settings::get('security.login_max_attempts', 5), 900)) { return [null, 'Too many attempts. Try again in 15 minutes.']; }
-    if (!RateLimiter::hit('login-ip:'.$req->ip(), 30, 900)) { return [null, 'Too many attempts from your network. Try again later.']; }
+    /* Only wrong passwords count: successful sign-ins never block anyone, and a whole office behind one IP is only
+       blocked after many failures (a password-guessing attack), not after normal use. */
+    $key = self::loginKey($email); $ipKey = 'login-ip:'.$req->ip();
+    $max = max(3, (int) Settings::get('security.login_max_attempts', 5));
+    if (RateLimiter::blocked($key, $max)) { return [null, 'Too many wrong passwords. Try again in 15 minutes or ask an administrator to unlock your account.']; }
+    if (RateLimiter::blocked($ipKey, 100)) { return [null, 'Too many wrong passwords from your network. Try again later.']; }
     $u = DB::first('SELECT id, password_hash, status, locked_until, failed_logins, session_version FROM users WHERE email=? LIMIT 1', [strtolower(trim($email))]);
     if ($u && $u['locked_until'] && strtotime($u['locked_until']) > time()) { return [null, 'Account temporarily locked. Try again later.']; }
     if (!$u || !password_verify($password, $u['password_hash'])) {
@@ -53,6 +64,7 @@ final class Auth {
         $f = (int) $u['failed_logins'] + 1;
         DB::update('users', ['failed_logins' => $f, 'locked_until' => $f >= 10 ? date('Y-m-d H:i:s', time() + 1800) : null], 'id=?', [$u['id']]);
         Audit::log('auth.failed', 'user', (int) $u['id'], [], (int) $u['id']); }
+      RateLimiter::hit($key, $max, 900); RateLimiter::hit($ipKey, 100, 900);
       return [null, 'Invalid email or password.']; }
     if ($u['status'] !== 'active') { return [null, 'Your account is not active. Contact your administrator.']; }
     if (password_needs_rehash($u['password_hash'], PASSWORD_DEFAULT)) { DB::update('users', ['password_hash' => password_hash($password, PASSWORD_DEFAULT)], 'id=?', [$u['id']]); }

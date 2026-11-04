@@ -28,12 +28,13 @@ $actions = ($manage ? '<a class="btn primary" href="'.e(url('/admin/users/create
         <td class="hide-sm"><?= $u['designation'] ? e($u['designation']) : '<span class="muted">-</span>' ?><?= $u['department'] ? '<div class="xs muted">'.e($u['department']).'</div>' : '' ?></td>
         <td class="hide-sm small"><?= e($u['manager_name'] ?? '-') ?></td>
         <td class="hide-sm small muted nowrap"><?= e($u['last_login_at'] ? ago($u['last_login_at']) : 'Never') ?></td>
-        <td><?= badge($u['status']) ?></td>
+        <td><?= badge($u['status']) ?><?php if ($u['locked_until'] && strtotime($u['locked_until']) > time()): ?> <span class="pill pill-red" title="Too many wrong passwords. Unlock from the menu.">Locked</span><?php endif ?></td>
         <td class="actions"><?php if ($manage && ($u['role_slug'] !== 'super_admin' || $sa)): ?>
           <details class="dd"><summary class="btn icon sm ghost" aria-label="Actions for <?= e($u['name']) ?>"><?= icon('more', 'sm') ?></summary><div class="dd-menu">
             <a href="<?= e(url('/admin/users/'.$u['id'].'/edit')) ?>"><?= icon('edit', 'sm') ?> Edit</a>
             <?php if (!$me): ?>
             <form method="post" action="<?= e(url('/admin/users/'.$u['id'].'/status')) ?>" data-confirm="<?= $u['status'] === 'active' ? 'Deactivate '.e($u['name']).'? They are signed out and can no longer sign in.' : 'Activate '.e($u['name']).'?' ?>"><?= csrf_field() ?><button><?= icon($u['status'] === 'active' ? 'lock' : 'check', 'sm') ?> <?= $u['status'] === 'active' ? 'Deactivate' : 'Activate' ?></button></form>
+            <?php if ((int) $u['failed_logins'] || $u['locked_until']): ?><form method="post" action="<?= e(url('/admin/users/'.$u['id'].'/unlock')) ?>"><?= csrf_field() ?><button><?= icon('key', 'sm') ?> Unlock sign-in</button></form><?php endif ?>
             <form method="post" action="<?= e(url('/admin/users/'.$u['id'].'/sessions')) ?>" data-confirm="Sign <?= e($u['name']) ?> out on every device?"><?= csrf_field() ?><button><?= icon('log-out', 'sm') ?> Sign out everywhere</button></form>
             <?php if ($sa): ?><button type="button" class="danger" data-modal="user-delete" data-del-url="<?= e(url('/admin/users/'.$u['id'].'/delete')) ?>" data-del-name="<?= e($u['name']) ?>"><?= icon('trash', 'sm') ?> Delete user</button><?php endif ?>
             <?php endif ?>

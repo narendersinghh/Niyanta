@@ -106,7 +106,7 @@ final class SettingsSchema {
         ['key' => 'company.tax_id', 'label' => 'Tax ID (GSTIN / VAT)', 'type' => 'text', 'rules' => 'nullable|max:60', 'hint' => (feature_on('invoices') || feature_on('quotations') ? 'Printed on '.self::join([feature_on('invoices') ? 'invoices' : null, feature_on('quotations') ? 'quotations' : null]).'.' : 'Your registered tax number.')]],
       'users' => [
         $num('security.password_min_length', 'Minimum password length', 8, 64, 'Passwords must also contain letters and numbers.', ['section' => 'Passwords & sessions']),
-        $num('security.login_max_attempts', 'Max sign-in attempts per 15 min', 3, 20, 'Per email and IP address. Accounts lock for 30 minutes after 10 failures.'),
+        $num('security.login_max_attempts', 'Wrong passwords allowed per 15 min', 3, 20, 'Only wrong passwords count, successful sign-ins never block anyone. After 10 wrong passwords in a row the account locks for 30 minutes; an admin can unlock it in Users & Access.'),
         $num('security.session_idle_minutes', 'Session idle timeout (minutes)', 5, 1440, 'Users are signed out after this much inactivity.')],
       'appearance' => [
         ['key' => 'appearance.primary_color', 'label' => 'Primary', 'type' => 'color', 'section' => 'Colours', 'var' => '--primary', 'hint' => 'Buttons, links, focus rings.'],
