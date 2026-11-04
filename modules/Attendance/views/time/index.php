@@ -50,8 +50,8 @@ $archLbl = ['arm64' => 'Apple silicon', 'x64' => 'Intel', 'universal' => 'Univer
       </div>
       <div class="dl-steps">
         <div><h4><?= icon('package', 'sm') ?> Install</h4><ol class="steps-list small">
-          <li data-os-step="windows"><b>Windows:</b> run the .exe and follow the installer. The app updates itself.</li>
-          <li data-os-step="mac"><b>macOS:</b> open the .dmg, drag Niyanta Tracker to Applications, then allow <i>Screen Recording</i> when asked.</li>
+          <li data-os-step="windows"><b>Windows:</b> run the .exe and follow the installer. If Chrome says the file is uncommon, choose <b>Keep</b>. If Windows shows <i>Windows protected your PC</i>, click <b>More info › Run anyway</b>. The app updates itself.</li>
+          <li data-os-step="mac"><b>macOS:</b> open the .dmg and drag Niyanta Tracker to Applications. On first launch, if macOS says it cannot verify the developer, open <b>System Settings › Privacy &amp; Security</b> and click <b>Open Anyway</b>. If it says the app is <i>damaged</i>, run <span class="mono">xattr -cr "/Applications/Niyanta Tracker.app"</span> in Terminal once, then open it. Allow <i>Screen Recording</i> and <i>Accessibility</i> when asked.</li>
           <li data-os-step="linux"><b>Linux:</b> make the AppImage executable (<span class="mono">chmod +x</span>) and run it, or install the .deb with <span class="mono">sudo apt install ./niyanta-tracker-*.deb</span>.</li></ol></div>
         <div><h4><?= icon('link', 'sm') ?> Connect</h4><p class="small mb">Sign in with your Niyanta email and password and this workspace address:</p>
           <div class="token-box"><code><?= e(absolute_url('/')) ?></code><button type="button" class="btn icon sm ghost" data-copy="<?= e(absolute_url('/')) ?>" aria-label="Copy workspace address"><?= icon('copy', 'sm') ?></button></div></div>

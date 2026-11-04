@@ -20,3 +20,14 @@ The repository is private, so the server needs a read-only key:
 1. GitHub → your profile picture → **Settings** → **Developer settings** → **Personal access tokens** → **Fine-grained tokens** → **Generate new token**.
 2. Name it "Niyanta server", choose an expiry, **Repository access: Only select repositories → Niyanta**, **Permissions → Repository permissions → Contents: Read-only**. Generate and copy it.
 3. In Niyanta: *Settings › Updates*, paste it into **GitHub token**, save.
+
+## Code signing (removes the "damaged" and "unknown publisher" warnings)
+
+Without certificates the desktop app is built unsigned on Windows and ad-hoc signed on macOS. People can still install it (see the steps on Time & Attendance › Tracker), but browsers and the operating system warn first. To remove the warnings, add these repository secrets (GitHub › Settings › Secrets and variables › Actions) and release again; nothing else needs to change:
+
+| Platform | What you need | Secrets |
+|---|---|---|
+| macOS | Apple Developer Program membership (99 USD/year), a "Developer ID Application" certificate exported as .p12, and an app-specific password for your Apple ID | `MAC_CSC_LINK` (the .p12 as base64), `MAC_CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID` |
+| Windows | A code signing certificate (OV or EV) exported as .pfx | `WIN_CSC_LINK` (the .pfx as base64), `WIN_CSC_KEY_PASSWORD` |
+
+With the macOS secrets the build is signed with your Developer ID and notarized by Apple, so it opens without any prompt and updates itself. A new Windows certificate removes "unknown publisher" at once; SmartScreen stops warning after the certificate builds up reputation (immediately with EV).

@@ -138,6 +138,7 @@
         "url": "https://updates.invalid/niyanta-tracker/",
         "channel": "latest"
       }
-    ]
+    ],
+    "afterPack": "scripts/adhoc-sign.js"
   }
 }

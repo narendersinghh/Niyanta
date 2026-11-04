@@ -86,7 +86,11 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           if [ -z "$CSC_LINK" ] && [ -z "$WIN_CSC_LINK" ]; then export CSC_IDENTITY_AUTO_DISCOVERY=false; unset CSC_LINK CSC_KEY_PASSWORD WIN_CSC_LINK WIN_CSC_KEY_PASSWORD; fi
-          npm run ${{ matrix.script }}
+          if [ -z "$CSC_LINK" ]; then unset CSC_LINK CSC_KEY_PASSWORD; fi
+          # Notarize only when a Developer ID certificate and an Apple ID are configured (repository secrets).
+          extra=""
+          if [ "${{ matrix.name }}" = "macOS" ] && [ -n "$CSC_LINK" ] && [ -n "$APPLE_ID" ]; then extra="-c.mac.notarize=true"; fi
+          npm run ${{ matrix.script }} -- $extra
       - name: List output
         shell: bash
         run: ls -la dist
