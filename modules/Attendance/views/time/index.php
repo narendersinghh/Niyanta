@@ -1,6 +1,6 @@
 <?php
 use Modules\Attendance\Services\DesktopApp;
-/* $st (Tracker::state), $app (DesktopApp::latest), $tokens, $monitoring, $consent, $policy, $retention, $shotsToday */
+/* $st (Tracker::state), $app (DesktopApp::latest), $install (one-line commands or null), $tokens, $monitoring, $consent, $policy, $retention, $shotsToday */
 $hms = static fn (int $s): string => sprintf('%02d:%02d:%02d', intdiv($s, 3600), intdiv($s % 3600, 60), $s % 60);
 $size = static fn (int $b): string => $b >= 1048576 ? round($b / 1048576).' MB' : ($b > 0 ? max(1, (int) round($b / 1024)).' KB' : '');
 $run = $st['running']; $tot = $st['totals'];
@@ -48,11 +48,29 @@ $archLbl = ['arm64' => 'Apple silicon', 'x64' => 'Intel', 'universal' => 'Univer
         </div>
         <?php endforeach ?>
       </div>
+      <?php if (!empty($install)): $olInfo = [
+        'windows' => ['Windows', 'Open <b>PowerShell</b> (Start menu, type <i>PowerShell</i>), paste and press Enter. It installs without prompts and opens the app.'],
+        'mac' => ['macOS', 'Open <b>Terminal</b> (Spotlight, type <i>Terminal</i>), paste and press Enter. It installs to Applications and opens the app.'],
+        'linux' => ['Linux', 'Paste into a terminal and press Enter. It installs the AppImage to <span class="mono">~/.local/bin</span>, adds it to your apps menu and opens it.']]; ?>
+      <div class="oneline" data-oneline>
+        <div class="ol-head"><span class="ol-ic"><?= icon('zap', 'sm') ?></span><div><h4>Install with one command (no security warnings)</h4><p class="small muted mb0">The command downloads the app straight from this workspace and checks it, so Chrome, Windows SmartScreen and macOS Gatekeeper do not get in the way. It is personal and works until <b><?= e(ftime(date('Y-m-d H:i:s', (int) $install['until']))) ?></b>; reload the page for a new one.</p></div></div>
+        <div class="ol-list" data-ol-list>
+          <?php foreach ($olInfo as $ok => [$ol, $oh]): $cmd = $install['commands'][$ok]; ?>
+          <div class="ol-item" data-ol="<?= e($ok) ?>">
+            <div class="ol-top"><span class="os-ic os-<?= e($ok) ?>"><?= $osIc[$ok] ?></span><b><?= e($ol) ?></b><span class="pill pill-mint os-you hide">Your system</span></div>
+            <div class="ol-cmd"><code><?= e($cmd) ?></code><button type="button" class="btn sm primary" data-copy="<?= e($cmd) ?>" aria-label="Copy the <?= e($ol) ?> install command"><?= icon('copy', 'sm') ?> Copy</button></div>
+            <p class="xs muted mb0"><?= $oh ?></p></div>
+          <?php endforeach ?>
+        </div>
+        <button type="button" class="btn ghost sm ol-more hide" data-ol-more><?= icon('chevron-down', 'sm') ?> Commands for other systems</button>
+      </div>
+      <?php endif ?>
       <div class="dl-steps">
-        <div><h4><?= icon('package', 'sm') ?> Install</h4><ol class="steps-list small">
-          <li data-os-step="windows"><b>Windows:</b> run the .exe and follow the installer. If Chrome says the file is uncommon, choose <b>Keep</b>. If Windows shows <i>Windows protected your PC</i>, click <b>More info › Run anyway</b>. The app updates itself.</li>
-          <li data-os-step="mac"><b>macOS:</b> open the .dmg and drag Niyanta Tracker to Applications. On first launch, if macOS says it cannot verify the developer, open <b>System Settings › Privacy &amp; Security</b> and click <b>Open Anyway</b>. If it says the app is <i>damaged</i>, run <span class="mono">xattr -cr "/Applications/Niyanta Tracker.app"</span> in Terminal once, then open it. Allow <i>Screen Recording</i> and <i>Accessibility</i> when asked.</li>
-          <li data-os-step="linux"><b>Linux:</b> make the AppImage executable (<span class="mono">chmod +x</span>) and run it, or install the .deb with <span class="mono">sudo apt install ./niyanta-tracker-*.deb</span>.</li></ol></div>
+        <div><h4><?= icon('package', 'sm') ?> Install from the download button</h4><ol class="steps-list small">
+          <li data-os-step="windows"><b>Windows:</b> run the .exe. If Chrome says the file isn't commonly downloaded, open Downloads (<span class="mono">Ctrl+J</span>) and choose <b>Keep</b>. If Windows shows <i>Windows protected your PC</i>, click <b>More info</b>, then <b>Run anyway</b>.<?= !empty($install) ? ' The one-line command above avoids both.' : '' ?></li>
+          <li data-os-step="mac"><b>macOS:</b> open the .dmg and drag Niyanta Tracker to Applications. If macOS says it cannot verify the developer, open <b>System Settings › Privacy &amp; Security</b> and click <b>Open Anyway</b>. If it says the app is <i>damaged</i>, run <span class="mono">xattr -cr "/Applications/Niyanta Tracker.app"</span> in Terminal once<?= !empty($install) ? ', or simply use the one-line command above' : '' ?>. Allow <i>Screen Recording</i> and <i>Accessibility</i> when asked.</li>
+          <li data-os-step="linux"><b>Linux:</b> make the AppImage executable (<span class="mono">chmod +x</span>) and run it, or install the .deb with <span class="mono">sudo apt install ./niyanta-tracker-*.deb</span>.</li>
+          <li><b>Updates:</b> the app tells you when a new version is out. Click <b>Update now</b>: it downloads, restarts by itself and your tracking continues.</li></ol></div>
         <div><h4><?= icon('link', 'sm') ?> Connect</h4><p class="small mb">Sign in with your Niyanta email and password and this workspace address:</p>
           <div class="token-box"><code><?= e(absolute_url('/')) ?></code><button type="button" class="btn icon sm ghost" data-copy="<?= e(absolute_url('/')) ?>" aria-label="Copy workspace address"><?= icon('copy', 'sm') ?></button></div></div>
       </div>

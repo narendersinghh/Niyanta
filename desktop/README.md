@@ -18,12 +18,14 @@ src/main/      main.js (lifecycle, tray, window, IPC, auto-launch, notifications
                meter.js (activity windows and grace period), pomodoro.js (break reminder), api.js (HTTP client),
                queue.js (offline queue), capture.js (screenshots),
                toast.js (capture notice), store.js (prefs + encrypted token), errors.js (error reporting),
-               updater.js (electron-updater against the workspace)
+               updater.js (update check, Update now, manual download), selfupdate.js (pure helpers: feed parsing,
+               macOS helper script)
 src/preload/   contextIsolation bridge (window.tracker) and the notice window bridge
 src/renderer/  index.html / app.js / styles.css (380 x 640 window), toast.html (capture notice)
 build/         icon.png (1024, converted by electron-builder), icons/ (Linux), tray/ (tray states), mac entitlements
-scripts/       icons.js (regenerate icons from the logo), check.js (syntax check + simulation), simulate.js (activity and
-               pomodoro simulation on fake input timelines)
+scripts/       icons.js (regenerate icons from the logo), check.js (syntax check + simulation + update checks), simulate.js
+               (activity and pomodoro simulation on fake input timelines), updates-check.js (selfupdate.js checks, runs the
+               generated macOS helper on fake bundles), adhoc-sign.js (afterPack: ad-hoc signature without a certificate)
 ```
 
 ## Develop
@@ -32,7 +34,7 @@ scripts/       icons.js (regenerate icons from the logo), check.js (syntax check
 cd desktop
 npm install
 npm start                      # opens the app; sign in with your workspace URL, email and password
-npm run check                  # node --check on every JS file, then the simulation below
+npm run check                  # node --check on every JS file, the simulation below and the update helper checks
 npm run simulate               # activity % for typical input patterns (old vs new rule) and the pomodoro checks
 NIYANTA_TRACKER_PROFILE=/tmp/tracker-2 npm start   # a second, separate profile (another user)
 NIYANTA_NO_INPUT_HOOK=1 npm start                  # force the idle-time fallback (no input hook)
@@ -73,25 +75,56 @@ access token in **Settings › Updates** (the same one app updates use, see docs
 
 Running the workflow by hand (Actions › Desktop tracker › Run workflow) makes test builds: workflow artifacts only, no release.
 
-### Auto-update
+### Updates (in the app)
 
-The app checks on start and every 6 hours: `GET /api/agent/version`, then electron-updater (generic provider) with the feed
-`<workspace>/api/agent/updates/` and the device token as `Authorization: Bearer`. The workspace serves the `latest*.yml`
-rewritten to point at itself, plus the installers and blockmaps it mirrored. The update downloads in the background; the
-tray menu and the window then show **Update ready, restart to install**, and it installs when the app quits anyway
-(`autoInstallOnAppQuit`). Errors go to the workspace error log through the normal error reporting.
+The app checks on start and every 6 hours: `GET /api/agent/version` (device token). When the workspace has a newer
+version, the window shows a card **Niyanta Tracker 1.2.0 is available** (with up to 4 lines of *what's new* when the
+`latest*.yml` has `releaseNotes`) and one button, **Update now**; the tray menu has the same item, and one OS notification
+is shown per version. Nothing restarts without that click (or a normal quit, which installs a pre-downloaded update on
+Windows / AppImage, as before). Clicking: progress bar, then tracking is paused (the click's time is sent; up to 15 s for the
+server), the app installs and restarts, and on the next start tracking resumes by itself (`config.json` > `updateRestart`,
+honoured within 30 minutes). The restart minutes are never counted and nothing is counted twice: if the pause did not reach
+the server, the entry is closed at the click time first. If the version did not change after the restart, the card shows
+the manual download instead.
 
-| Platform | Auto-update |
+All downloads come from `<workspace>/api/agent/updates/<file>` with the device token (the workspace mirrors the private
+GitHub release; the app never talks to GitHub). Files an app downloads itself get no Mark-of-the-Web (Windows) and no
+quarantine flag (macOS), so SmartScreen and Gatekeeper do not interfere.
+
+| Install | What **Update now** does |
 |---|---|
-| Windows (NSIS) | yes |
-| macOS | only for **signed** builds (Squirrel.Mac rejects unsigned apps). Unsigned builds show a **Download** button that opens Time Tracking › Get the desktop app. |
-| Linux AppImage | yes (the AppImage file is replaced in place) |
-| Linux .deb | no, the app shows the **Download** button (install the new .deb with apt) |
+| Windows (NSIS) | electron-updater (generic provider). The update is pre-downloaded in the background; the click waits for it, then `quitAndInstall(true, true)`: silent NSIS update, app starts again. |
+| Linux AppImage | electron-updater: the AppImage file is replaced in place and started again. |
+| macOS, ad-hoc signed (no Developer ID) | Own updater (Squirrel.Mac refuses such apps): reads `latest-mac.yml`, downloads the zip for this Mac (arm64 on Apple silicon, also under Rosetta), checks its sha512, extracts it with `ditto -x -k` and starts a detached helper script (`selfupdate.macHelperScript`) that waits for the app to quit, swaps the bundle at its current path (from `process.execPath`; `/Applications`, or `~/Applications` when that is not writable, or when the app ran from the disk image / App Translocation), keeps the old copy until the new one is in place (restores it on failure), runs `xattr -cr` and opens the new version. Log: `userData/logs/update.log`. |
+| macOS with a Developer ID | Detected at start (`codesign -dv` shows a TeamIdentifier): electron-updater / Squirrel.Mac as on Windows. `NIYANTA_MAC_UPDATER=custom` or `=squirrel` forces one or the other. |
+| Linux .deb | Downloads the new .deb to Downloads and opens it with the system installer; the card shows `sudo apt install '<file>'` with Copy and a **Restart app** button (tracking resumes). |
+| Anything failed, development build | **Download the new version**: saves the installer for this computer to Downloads (inside the app, no browser) and opens it, with 2-3 short steps (macOS: the dmg opens; quarantine is removed first; drag to Applications and Replace). |
+
+Errors go to the workspace error log through the normal error reporting.
+
+### First install without warnings (one-line commands)
+
+Time Tracking › *Get the desktop app* shows, next to the download buttons, a personal command per OS (the visitor's OS
+first). They download straight from the workspace (no browser, so no Chrome or SmartScreen prompt, no quarantine flag) and
+check the sha512 from the `latest*.yml`:
+
+```bash
+# macOS (zip for arm64/x64 -> /Applications or ~/Applications, xattr -cr, opens it) and Linux (AppImage -> ~/.local/bin + menu entry)
+curl -fsSL "https://team.example.com/time/desktop/install.sh?k=<key>" | bash
+# Windows PowerShell (Invoke-WebRequest to %TEMP%, silent per-user install /S, starts the app)
+irm "https://team.example.com/time/desktop/install.ps1?k=<key>" | iex
+```
+
+The key is signed by the server for the signed-in user (HMAC with the app key, bound to this purpose and to the user's
+session version), works for 2 hours, only for these routes and the installer files they fetch
+(`/time/desktop/get/<file>?k=<key>`), is throttled and every script/download is audit-logged. Commands are only offered
+on HTTPS workspaces (or localhost). Server side: `modules/Attendance/Services/DesktopInstall.php`.
 
 ### Code signing (optional)
 
-Unsigned builds work but show warnings (Windows SmartScreen "unknown publisher", macOS Gatekeeper: right-click › Open the
-first time). To sign in CI add these repository secrets; the workflow passes them to electron-builder when present:
+Unsigned builds work but a browser download shows warnings (Chrome "uncommon download", Windows SmartScreen "unknown
+publisher", macOS "damaged" / "unverified developer"). The one-line commands and in-app updates avoid them; signing removes
+them for the normal download buttons too. To sign in CI add these repository secrets; the workflow passes them to electron-builder when present:
 
 | Platform | Secrets |
 |---|---|
@@ -169,7 +202,7 @@ first time). To sign in CI add these repository secrets; the workflow passes the
   the web (My screenshots).
 - **Errors**: uncaught exceptions, unhandled rejections, failed syncs and capture failures are written to
   `userData/logs/tracker.log` and sent to the workspace error log (Audit log › Error logs, source *desktop*, with the version).
-- **Updates**: see *Auto-update* above.
+- **Updates**: see *Updates (in the app)* above.
 
 ## Privacy
 

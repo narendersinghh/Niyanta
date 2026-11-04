@@ -10,6 +10,8 @@ DirectoryIndex index.php
   # Block direct access to private folders and sensitive files
   RewriteRule ^(config|core|modules|storage|views|tests|docs|desktop|\.github)(/|$) - [F,L,NC]
   RewriteRule (^|/)\.(?!well-known) - [F,L]
+  # (real files only: app routes such as /time/desktop/install.sh or installer .zip downloads go to index.php)
+  RewriteCond %{REQUEST_FILENAME} -f
   RewriteRule ^(cron\.php|composer\.(json|lock)|niyanta\.json|README\.md|.*\.(sql|log|lock|gz|zip|bak|dist|example|sh|md))$ - [F,L,NC]
   # Front controller
   RewriteCond %{REQUEST_FILENAME} !-f

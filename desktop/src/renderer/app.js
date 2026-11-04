@@ -104,13 +104,42 @@
     b.push(...pomodoroBanners(st));
     if (ui.idlePause && ui.idlePause.back && st.state === 'paused') b.push(banner('info', `${icon('coffee', 'sm')} Tracking paused after ${+ui.idlePause.minutes} min idle. Resume when you are back.`, '<button class="btn" data-resume>Resume</button>'));
     if (ui.offline) b.push(banner('warn', `${icon('cloud-off', 'sm')} <b>Offline.</b> Your actions are saved and sync automatically. Without a connection for 10 minutes, time is not counted.`));
-    const up = ui.update;
-    if (up && up.ready) b.push(banner('ok', `Update ready, restart to install version <b>${esc(up.readyVersion)}</b>. It also installs when you quit.`, '<button class="btn" data-install-update>Restart</button>'));
-    else if (up && up.downloading) b.push(banner('info', `Downloading version <b>${esc(up.latest)}</b> in the background (${+up.percent || 0}%).`));
-    else if (up && up.available) b.push(banner('ok', `Version <b>${esc(up.latest)}</b> is available.`, '<button class="btn" data-open="download">Download</button>'));
+    b.push(updateCard());
     if (ui.monitoring && ui.settings.screenshots_enabled && ui.consent && ui.consent.given && ui.monitoring.permission === 'denied') b.push(banner('error', 'Screenshots need the <b>Screen Recording</b> permission.', '<button class="btn" data-open="permissions">Open settings</button>'));
     if (ui.consent && ui.consent.needed && st.state === 'tracking' && modalKind !== 'consent') b.push(banner('warn', 'Screen monitoring is on in your workspace. Please review the notice.', '<button class="btn" data-consent>Review</button>'));
-    $('banners').innerHTML = b.join(''); }
+    $('banners').innerHTML = b.join('');
+    document.querySelectorAll('[data-pc]').forEach(el => { el.style.width = el.dataset.pc + '%'; }); }
+
+  const BUSY = ['downloading', 'verifying', 'ready', 'installing'];
+  /** Short steps after the installer was saved to Downloads (fallback, .deb, development builds). */
+  const MANUAL = {
+    windows: ['The installer opened. If you do not see it, click <b>Open installer</b>.', 'Follow it to the end: it replaces this version and keeps your sign-in.', 'Niyanta Tracker starts again by itself.'],
+    mac: ['The disk image opened. Quit Niyanta Tracker (menu bar icon › <b>Quit</b>).', 'Drag <b>Niyanta Tracker</b> onto <b>Applications</b> and choose <b>Replace</b>.', 'Open it from Applications. The download has no quarantine flag, so macOS opens it without warnings.'],
+    linux: ['The new AppImage is in your Downloads folder and is already executable.', 'Quit Niyanta Tracker, then double-click the new AppImage.', 'You can delete the old AppImage afterwards.'],
+    deb: ['The new package opened in your software installer: click <b>Install</b>.', 'Or run the command below in a terminal.', 'Then click <b>Restart app</b>. Tracking continues.'] };
+
+  /** "Niyanta Tracker X is available" with Update now, its progress, the manual download and its steps. */
+  function updateCard() {
+    const up = ui.update;
+    if (!up || !(up.available || up.manual)) return '';
+    const v = esc(up.latest || '');
+    const head = (title, sub) => `<div class="upd-head">${icon('download')}<div><b>${title}</b>${sub ? `<small>${sub}</small>` : ''}</div></div>`;
+    const card = (cls, inner) => `<section class="upd ${cls}" aria-live="polite">${inner}</section>`;
+    if (up.status === 'manual' && up.manual) {
+      const m = up.manual;
+      const steps = (MANUAL[m.kind] || MANUAL.windows).map(x => `<li>${x}</li>`).join('');
+      const cmd = m.command ? `<div class="upd-cmd"><code>${esc(m.command)}</code><button class="btn sm" data-copy-text="${esc(m.command)}">Copy</button></div>` : '';
+      const acts = (m.kind === 'linux' ? '<button class="btn sm" data-installer>Show in folder</button>' : '<button class="btn sm" data-installer>Open installer</button>') + (m.kind === 'deb' ? '<button class="btn primary sm" data-restart-app>Restart app</button>' : '');
+      return card('ok', head(`Version ${v} downloaded`, `Saved to ${esc(m.folder)}`) + `<ol class="upd-steps">${steps}</ol>${cmd}<div class="acts">${acts}</div>`); }
+    if (up.want && BUSY.includes(up.status)) {
+      const pc = up.status === 'downloading' ? Math.max(2, +up.percent || 0) : 100;
+      const label = { downloading: `Downloading${up.auto && up.mode !== 'deb' ? '' : ' the installer'}... ${+up.percent || 0}%`, verifying: 'Checking the download...', ready: 'Installing. The app restarts in a moment.', installing: 'Installing. The app restarts in a moment.' }[up.status];
+      return card('info', head(`Updating to Niyanta Tracker ${v}`, up.auto ? 'Keep working. Tracking pauses for the restart and continues by itself.' : '') + `<div class="upd-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pc}"><span data-pc="${pc}"></span></div><small class="upd-label">${label}</small>`); }
+    if (up.status === 'error') {
+      return card('error', head(`Niyanta Tracker ${v} is available`, esc(up.error || 'The automatic update did not work.')) + '<p class="upd-p">Get the new version in one step instead: it downloads inside the app (no browser) and opens the installer.</p><div class="acts"><button class="btn primary sm" data-download-installer>Download the new version</button>' + (up.auto ? '<button class="btn sm" data-install-update>Try again</button>' : '') + '</div>'); }
+    const notes = up.notes && up.notes.length ? `<ul class="upd-notes">${up.notes.map(n => `<li>${esc(n)}</li>`).join('')}</ul>` : '';
+    const sub = up.auto ? (up.mode === 'deb' ? 'Downloads the new package and opens your software installer.' : 'One click: it downloads, restarts the app and your tracking continues.') : 'Downloads the installer inside the app and opens it.';
+    return card('ok', head(`Niyanta Tracker ${v} is available`, `You have ${esc(up.current)}. ${sub}`) + notes + `<div class="acts">${up.auto ? '<button class="btn primary" data-install-update>Update now</button>' : '<button class="btn primary" data-download-installer>Download the new version</button>'}</div>`); }
 
   /** One quiet line about screen monitoring (screenshots themselves are never shown in the app) and the last activity level. */
   function renderMonitoring() {
@@ -135,9 +164,10 @@
     $('p-perm').classList.toggle('hide', ui.platform !== 'darwin');
     $('p-version').textContent = ui.version;
     const up = ui.update;
-    $('p-update-state').textContent = !up ? 'not checked yet' : (up.ready ? `version ${up.readyVersion} ready, restart to install` : (up.downloading ? `downloading ${up.latest} (${+up.percent || 0}%)` : (up.available ? `version ${up.latest} available` : 'up to date')));
-    $('p-download').classList.toggle('hide', !(up && up.available && !up.downloading));
-    $('p-download').lastChild.textContent = up && up.ready ? ' Restart to install' : ' Download';
+    const busy = up && up.want && BUSY.includes(up.status);
+    $('p-update-state').textContent = !up ? 'not checked yet' : (busy ? `updating to ${up.latest} (${+up.percent || 0}%)` : (up.available ? `version ${up.latest} available` : 'up to date'));
+    $('p-download').classList.toggle('hide', !(up && up.available && !busy));
+    $('p-download').lastChild.textContent = up && up.auto && up.status !== 'error' ? ' Update now' : ' Download the new version';
     $('p-account').textContent = ui.account ? `${ui.account.name} · ${ui.account.workspace.url}${ui.prefs.tokenProtected ? ' · sign-in stored in the system keychain' : ''}` : ''; }
 
   function renderPomodoroForm(force = false) {
@@ -234,7 +264,7 @@
     if (r && r.ok) { ui.pomodoro = Object.assign({}, ui.pomodoro, r.prefs); renderPomodoroForm(true); pomoState(r.prefs.on ? `Saved. A reminder after ${r.prefs.work} minutes of tracking.` : 'Saved. Pomodoro break is off.'); }
     else pomoState('Could not save. Please try again.'); });
   $('p-check').addEventListener('click', () => T.checkUpdates());
-  $('p-download').addEventListener('click', () => { if (ui && ui.update && ui.update.ready) T.installUpdate(); else T.open('download'); });
+  $('p-download').addEventListener('click', () => { const up = ui && ui.update; closeSheet(); if (up && up.auto && up.status !== 'error') T.installUpdate(); else T.downloadInstaller(); });
   $('p-perm').addEventListener('click', () => T.open('permissions'));
   $('p-shots').addEventListener('click', () => T.open('screenshots'));
   $('p-logs').addEventListener('click', () => T.open('logs'));
@@ -248,6 +278,10 @@
     if (t.dataset.dismiss) { noticeShown = +t.dataset.dismiss; renderBanners(ui.state || {}); }
     if (t.dataset.open) T.open(t.dataset.open);
     if ('installUpdate' in t.dataset) { t.disabled = true; T.installUpdate(); }
+    if ('downloadInstaller' in t.dataset) { t.disabled = true; T.downloadInstaller(); }
+    if ('installer' in t.dataset) T.openInstaller();
+    if ('restartApp' in t.dataset) { t.disabled = true; T.restartApp(); }
+    if (t.dataset.copyText) { T.copy(t.dataset.copyText); t.textContent = 'Copied'; }
     if ('resume' in t.dataset) T.resume(currentSel());
     if (t.dataset.pomo === 'break') { t.disabled = true; T.takeBreak(); }
     if (t.dataset.pomo === 'snooze') T.snoozeBreak();

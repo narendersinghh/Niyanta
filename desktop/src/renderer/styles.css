@@ -107,3 +107,21 @@ input[aria-invalid=true]{border-color:var(--red)}
 .m-body{font-size:.85rem;color:var(--muted);text-align:left;display:grid;gap:6px}.m-body.center{text-align:center}.m-body .note{font-size:.76rem}
 .m-body ul{margin:0;padding-left:1.1rem;display:grid;gap:5px;max-height:210px;overflow:auto}.m-body b{color:var(--text)}
 .m-actions{display:flex;gap:8px}.m-actions .btn{flex:1}
+/* update card */
+.upd{border-radius:16px;padding:12px 13px;display:grid;gap:9px;border:1px solid var(--border);background:var(--surface);box-shadow:var(--shadow)}
+.upd.ok{border-color:color-mix(in srgb,var(--mint) 45%,var(--border));background:linear-gradient(135deg,var(--mint-s),var(--surface) 75%)}
+.upd.info{border-color:color-mix(in srgb,var(--sky) 45%,var(--border));background:linear-gradient(135deg,var(--sky-s),var(--surface) 75%)}
+.upd.error{border-color:color-mix(in srgb,var(--red) 40%,var(--border));background:linear-gradient(135deg,var(--red-s),var(--surface) 75%)}
+.upd-head{display:flex;gap:10px;align-items:flex-start}
+.upd-head>.ic{width:34px;height:34px;padding:8px;border-radius:11px;background:var(--primary);color:#fff;flex:none}
+.upd.error .upd-head>.ic{background:var(--red)}
+.upd-head b{display:block;font-size:.92rem;line-height:1.3}
+.upd-head small{display:block;color:var(--muted);font-size:.76rem;line-height:1.4;margin-top:2px;user-select:text}
+.upd-notes,.upd-steps{margin:0;padding-left:18px;font-size:.8rem;display:grid;gap:3px}
+.upd-p{font-size:.8rem;color:var(--muted)}
+.upd .btn.primary{flex:1}
+.upd-bar{height:8px;border-radius:8px;background:var(--surface-3);overflow:hidden}
+.upd-bar>span{display:block;height:100%;width:2%;border-radius:8px;background:linear-gradient(90deg,var(--primary),var(--mint));transition:width .3s}
+.upd-label{font-size:.76rem;color:var(--muted)}
+.upd-cmd{display:flex;gap:6px;align-items:center;background:var(--surface-2);border:1px dashed var(--border);border-radius:10px;padding:6px 8px}
+.upd-cmd code{flex:1;min-width:0;font:12px/1.4 ui-monospace,Menlo,Consolas,monospace;overflow-wrap:anywhere;user-select:text}

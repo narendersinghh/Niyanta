@@ -1,5 +1,5 @@
 <?php
-use Modules\Attendance\Controllers\{AgentController, AttendanceController, HubController, ScreenshotController, SettingsController, TimeController, TimesheetController};
+use Modules\Attendance\Controllers\{AgentController, AttendanceController, HubController, InstallController, ScreenshotController, SettingsController, TimeController, TimesheetController};
 use Modules\Attendance\Services\{AttendanceService, DesktopApp, Monitoring, TimeService, Widgets};
 
 return [
@@ -28,6 +28,11 @@ return [
     $r->get('/time', [TimeController::class, 'index'], $t);
     $r->get('/time/status', [TimeController::class, 'status'], ['perm' => $t, 'throttle' => [120, 60]]);
     $r->get('/time/desktop/download/{file}', [TimeController::class, 'download'], ['perm' => $t, 'throttle' => [30, 60]]);
+    /* one-line installs (no browser): signed ?k= key instead of a session, see Services/DesktopInstall.php */
+    $inst = ['auth' => false, 'csrf' => false, 'throttle' => [300, 300]];
+    $r->get('/time/desktop/install.sh', [InstallController::class, 'shell'], $inst);
+    $r->get('/time/desktop/install.ps1', [InstallController::class, 'powershell'], $inst);
+    $r->get('/time/desktop/get/{file}', [InstallController::class, 'file'], $inst);
     $r->get('/time/tasks', [TimeController::class, 'tasks'], $t);
     $r->post('/time/entries', [TimeController::class, 'storeEntry'], $t);
     $r->post('/time/entries/{id}', [TimeController::class, 'updateEntry'], $t);

@@ -3,7 +3,7 @@
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
-const { app, BrowserWindow, Tray, Menu, Notification, ipcMain, shell, nativeTheme, nativeImage, powerMonitor, dialog } = require('electron');
+const { app, BrowserWindow, Tray, Menu, Notification, ipcMain, shell, nativeTheme, nativeImage, powerMonitor, dialog, clipboard } = require('electron');
 const errors = require('./errors');
 const store = require('./store');
 const capture = require('./capture');
@@ -92,6 +92,20 @@ function pomodoroNote(kind, minutes) {
     pomoNote.show(); }
   catch (e) { errors.report('notification', e, {}, 'warning'); } }
 
+/** A newer version: one OS notification per version (the window shows the update card with Update now). */
+let updateNote = null;
+function updateAvailable(v) {
+  if (!v || store.get('updateNotified') === v) return;
+  store.set('updateNotified', v);
+  if (!Notification.isSupported()) return;
+  try {
+    if (updateNote) updateNote.close();
+    tone();
+    updateNote = new Notification({ title: `Niyanta Tracker ${v} is available`, body: 'Click Update now in the app. It restarts by itself and your tracking continues.', silent: true });
+    updateNote.on('click', () => showWindow());
+    updateNote.show(); }
+  catch (e) { errors.report('notification', e, {}, 'warning'); } }
+
 /* ---------- tray ---------- */
 
 function trayImage(kind) {
@@ -112,10 +126,11 @@ function updateTray(ui) {
   const kind = ui.screen === 'signin' ? 'signed-out' : ui.chip;
   const label = { tracking: 'Tracking', idle: 'Idle', paused: 'Paused', offline: 'Offline', ended: 'Not started', stopped: 'Not tracking', not_started: 'Not started', 'signed-out': 'Signed out' }[kind] || 'Niyanta Tracker';
   const proj = st && st.running ? (st.running.project || (ui.projectsEnabled ? 'No project' : '')) : '';
-  tray.setToolTip(`Niyanta Tracker · ${label}${ui.update && ui.update.ready ? ' · update ready' : ''}${st ? ' · ' + hm(st.totals.tracked) + ' today' : ''}${proj ? ' · ' + proj : ''}${ui.monitoring && ui.monitoring.on && st && st.state === 'tracking' ? ' · screenshots on' : ''}`);
+  tray.setToolTip(`Niyanta Tracker · ${label}${ui.update && ui.update.available ? ' · update available' : ''}${st ? ' · ' + hm(st.totals.tracked) + ' today' : ''}${proj ? ' · ' + proj : ''}${ui.monitoring && ui.monitoring.on && st && st.state === 'tracking' ? ' · screenshots on' : ''}`);
   if (process.platform === 'darwin') tray.setTitle(st && st.state === 'tracking' ? ' ' + hm(st.totals.tracked) : '');
   const up = ui.update || {};
-  const key = [kind, st && st.state, proj, up.available, up.ready, up.downloading, ui.screen].join('|');
+  const updating = up.want && ['downloading', 'verifying', 'ready', 'installing'].includes(up.status);
+  const key = [kind, st && st.state, proj, up.available, up.latest, up.auto, updating, ui.screen].join('|');
   if (key === trayKey) return;
   trayKey = key;
   tray.setImage(trayImage(kind));
@@ -126,9 +141,9 @@ function updateTray(ui) {
     if (s === 'tracking') items.push({ label: 'Pause', click: () => tracker.action('pause') });
     if (s === 'paused' || s === 'stopped') items.push({ label: 'Resume', click: () => tracker.action('resume', {}) });
     items.push({ type: 'separator' }, { label: 'Open Niyanta in browser', click: () => openTarget('web') });
-    if (up.ready) items.push({ label: `Update ready, restart to install ${up.readyVersion}`, click: () => restartToUpdate() });
-    else if (up.downloading) items.push({ label: `Downloading update ${up.latest}...`, enabled: false });
-    else if (up.available) items.push({ label: `Download update ${up.latest}`, click: () => openTarget('download') }); }
+    if (up.available && updating) items.push({ label: `Updating to ${up.latest}...`, enabled: false });
+    else if (up.available && up.auto) items.push({ label: `Update now to ${up.latest}`, click: () => { showWindow(); tracker.updateNow(); } });
+    else if (up.available) items.push({ label: `Download version ${up.latest}`, click: () => { showWindow(); tracker.downloadInstaller(); } }); }
   items.push({ type: 'separator' }, { label: 'Quit Niyanta Tracker', click: () => { app.quit(); } });
   tray.setContextMenu(Menu.buildFromTemplate(items)); }
 
@@ -190,7 +205,11 @@ function registerIpc() {
     return { ok: false }; });
   h('open', what => { openTarget(what); return { ok: true }; });
   h('updates', () => tracker.checkUpdates(true));
-  h('installUpdate', () => ({ ok: restartToUpdate() }));
+  h('installUpdate', () => tracker.updateNow());
+  h('downloadInstaller', () => tracker.downloadInstaller());
+  h('openInstaller', () => ({ ok: tracker.updater.open() }));
+  h('restartApp', () => { restartToUpdate(false); return { ok: true }; });
+  h('copy', text => { clipboard.writeText(String(text || '').slice(0, 2000)); return { ok: true }; });
   h('refresh', async () => { await tracker.refreshBoot(); await tracker.refreshState(); return { ok: true }; });
   h('error', info => { const e = new Error(info.message); e.stack = info.stack || e.stack; errors.report('renderer', e); return { ok: true }; }); }
 
@@ -208,9 +227,9 @@ app.on('activate', () => showWindow());
 app.on('window-all-closed', e => { /* keep running in the tray */ });
 /* Quitting pauses tracking first, then quits for real (app.quit, so a downloaded update installs on the way out). */
 let closing = null;
-async function prepareQuit() {
+async function prepareQuit(wait) {
   closing = closing || (async () => {
-    try { await tracker.beforeQuit(); } catch (err) { /* quitting anyway */ }
+    try { await tracker.beforeQuit(wait); } catch (err) { /* quitting anyway */ }
     toast.destroy();
     quitting = true;
   })();
@@ -222,12 +241,22 @@ app.on('before-quit', async e => {
   await prepareQuit();
   app.quit(); });
 
-/** "Restart to install": pause tracking, then let electron-updater quit, install and relaunch. */
-function restartToUpdate() {
-  const up = tracker && tracker.updateUi();
-  if (!up || !up.ready) return false;
-  prepareQuit().then(() => { if (!tracker.installUpdate()) app.quit(); });
-  return true; }
+/**
+ * The update is downloaded and verified (or the person restarts after installing a .deb): remember whether tracking was on,
+ * pause it (as on every quit, waiting up to 15 s for the server), then install and restart. electron-updater quits by itself
+ * ('self'); the macOS helper needs us to quit ('quit'); when the install could not start, the current version restarts and
+ * the tracker shows the manual download. Tracking resumes after the restart (tracker.afterUpdateRestart).
+ */
+let restarting = false;
+async function restartToUpdate(install = true) {
+  if (restarting || !tracker) return;
+  restarting = true;
+  tracker.markUpdateRestart();
+  await prepareQuit(15000);
+  const how = install ? tracker.updater.apply() : false;
+  if (how === 'self') { setTimeout(() => { app.relaunch(); app.exit(0); }, 20000); return; }
+  if (how !== 'quit') app.relaunch();
+  app.quit(); }
 
 app.whenReady().then(async () => {
   tracker = new Tracker(errors.report);
@@ -237,7 +266,9 @@ app.whenReady().then(async () => {
   tracker.on('pomodoro', (kind, m) => pomodoroNote(kind, m));
   tracker.on('alert', () => tone());
   tracker.on('consent-needed', () => showWindow());
-  tracker.on('update-ready', v => { if (tray && process.platform === 'win32') tray.displayBalloon({ title: 'Niyanta Tracker', content: `Version ${v} is ready. Restart the app to install it, or it installs when you quit.` }); });
+  tracker.on('update-available', v => updateAvailable(v));
+  tracker.on('update-restart', () => restartToUpdate(true));
+  tracker.on('app-moved', () => { if (store.get('launchAtLogin', true)) setLaunchAtLogin(true); });
   registerIpc();
   createWindow();
   createTray();

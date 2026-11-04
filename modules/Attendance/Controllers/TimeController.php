@@ -1,7 +1,7 @@
 <?php
 namespace Modules\Attendance\Controllers;
 use Core\{Audit, DB, Response};
-use Modules\Attendance\Services\{DesktopApp, Monitoring, Timesheets, Tracker, TimeService as T};
+use Modules\Attendance\Services\{DesktopApp, DesktopInstall, Monitoring, Timesheets, Tracker, TimeService as T};
 
 /**
  * Time Tracking page (read-only live status, desktop app downloads, week entries), manual corrections, monitoring consent
@@ -13,9 +13,12 @@ final class TimeController extends BaseController {
     $tokens = DB::all('SELECT id, name, kind, device_os, app_version, created_at, last_used_at FROM agent_tokens WHERE user_id=? AND revoked_at IS NULL ORDER BY COALESCE(last_used_at, created_at) DESC', [$uid]);
     $shotsToday = Monitoring::enabled() ? (int) DB::value('SELECT COUNT(*) FROM screenshots WHERE user_id=? AND taken_at>=?', [$uid, date('Y-m-d 00:00:00')]) : 0;
     $st = Tracker::state($uid);
+    $app = DesktopApp::latest();
+    /* one-line install commands: a personal key valid for 2 hours (only over HTTPS, see DesktopInstall) */
+    $key = $app['ok'] && DesktopInstall::available() ? DesktopInstall::key($uid) : null;
     return $this->view('attendance::time/index', ['title' => 'Time Tracking', 'st' => $st,
       'monitoring' => Monitoring::enabled(), 'consent' => Monitoring::consent($uid), 'policy' => Monitoring::policy(), 'retention' => Monitoring::retention(), 'shotsToday' => $shotsToday,
-      'tokens' => $tokens, 'app' => DesktopApp::latest(),
+      'tokens' => $tokens, 'app' => $app, 'install' => $key ? ['commands' => DesktopInstall::commands($key), 'until' => DesktopInstall::expires($key)] : null,
       'styles' => ['css/attendance.css'], 'scripts' => ['js/attendance.js']]); }
 
   /** Live status for the page and the dashboard card (polled about every 30 s). */

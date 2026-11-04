@@ -18,6 +18,7 @@
  * time, the open slot) is saved every 15 s so a crash or power cut is recovered on the next start (see recover()).
  */
 const os = require('os');
+const path = require('path');
 const { EventEmitter } = require('events');
 const { app } = require('electron');
 const { Api, ApiError } = require('./api');
@@ -26,6 +27,7 @@ const capture = require('./capture');
 const toast = require('./toast');
 const store = require('./store');
 const { Updater } = require('./updater');
+const { cmpVersion, macAppPath } = require('./selfupdate');
 const { Activity } = require('./activity');
 const meter = require('./meter');
 const { Pomodoro } = require('./pomodoro');
@@ -68,7 +70,9 @@ class Tracker extends EventEmitter {
     this.day = null;
     this.update = null;
     this.updater = new Updater(report);
-    this.updater.on('change', st => { if (st.status === 'ready' && !this._readyShown) { this._readyShown = true; this.emit('update-ready', st.version); } this.changed(); });
+    this.updater.on('change', () => this.changed());
+    this.updater.on('available', v => this.emit('update-available', v));
+    this.updater.on('restart', () => this.emit('update-restart'));
     this.autoPaused = false;
     this.permission = capture.screenPermission();
     this.loops = [];
@@ -110,6 +114,7 @@ class Tracker extends EventEmitter {
     this.start();
     this.recover(this._session);
     this._session = null;
+    this.afterUpdateRestart();
     return true; }
 
   async signIn({ url, email, password }) {
@@ -556,9 +561,9 @@ class Tracker extends EventEmitter {
     if (kind === 'resume') { this.idleArmed = false; this.tick(); setTimeout(() => this.refreshState(), 6000); } }
 
   /** Best-effort pause before the app quits, so the server does not count the minutes until the entry goes stale. */
-  async beforeQuit() {
+  async beforeQuit(wait = 4000) {
     if (this.signedIn) this.closeSlot(false);
-    if (this.signedIn && this.state === 'tracking') await Promise.race([this.action('pause', {}, { quiet: true }), new Promise(r => setTimeout(r, 4000))]);
+    if (this.signedIn && this.state === 'tracking') await Promise.race([this.action('pause', {}, { quiet: true }), new Promise(r => setTimeout(r, wait))]);
     this.activity.stop();
     this.saveSession(true);
     this.queue.persist(); }
@@ -566,24 +571,53 @@ class Tracker extends EventEmitter {
   /* ---------- updates ---------- */
 
   /**
-   * On start and every 6 hours: GET /api/agent/version (what the workspace offers) and, where supported, electron-updater
-   * against <workspace>/api/agent/updates/ (downloads in the background, installs on quit). Unsupported builds (unsigned
-   * macOS, .deb, development) show "Download" instead, which opens the workspace's download page.
+   * On start and every 6 hours: GET /api/agent/version (what the workspace offers); when it is newer, the updater finds out
+   * what one click installs (updater.js). The window shows the update card and main.js one notification per version.
    */
   async checkUpdates(manual = false) {
     if (!this.signedIn) return;
     try {
       const r = await this.api.get('version', { timeout: 15000 });
       this.update = { available: !!r.update_available, latest: r.latest, url: r.download_page, checkedAt: new Date().toISOString() };
-      if (r.update_available && this.updater.state.supported) { this.updater.configure(this.api.base, this.api.token); await this.updater.check(); }
-      if (manual) {
-        const u = this.updater.state;
-        this.flash(!r.update_available ? (r.latest ? 'You have the latest version.' : 'No version is available from your workspace yet.')
-          : (u.status === 'ready' ? `Version ${u.version || r.latest} is ready. Restart to install.` : (u.status === 'downloading' ? `Downloading version ${r.latest}...` : `Version ${r.latest} is available.`)), 'info'); } }
+      if (r.update_available) { this.updater.configure(this.api.base, this.api.token); await this.updater.check({ latest: r.latest, files: r.files || {} }); }
+      if (manual) this.flash(!r.update_available ? (r.latest ? 'You have the latest version.' : 'No version is available from your workspace yet.') : `Niyanta Tracker ${r.latest} is available. Click Update now to install it.`, 'info'); }
     catch (e) { if (manual) this.flash('Could not check for updates: ' + e.message, 'error'); }
     this.changed(); }
 
-  installUpdate() { return this.updater.install(); }
+  /** "Update now": download and verify; the updater then asks main.js to restart (pause first, resume after). */
+  updateNow() { if (!this.update || !this.update.available) return { ok: false }; this.updater.configure(this.api.base, this.api.token); return this.updater.updateNow(); }
+
+  /** Fallback: save the installer for this computer to Downloads and open it. */
+  async downloadInstaller() {
+    this.updater.configure(this.api.base, this.api.token);
+    try { return await this.updater.manualDownload(); }
+    catch (e) { this.updater.fail(e.message, e); return { ok: false, error: e.message }; } }
+
+  /**
+   * Just before the update restart: remember whether we were tracking (main.js then pauses, as on every quit). The pause is
+   * sent with the click's time; after the restart afterUpdateRestart() resumes, so the restart itself is never counted.
+   */
+  markUpdateRestart() {
+    if (!this.signedIn) return;
+    store.set('updateRestart', { user: this.boot.user.id, tracking: this.state === 'tracking', at: Date.now(), from: app.getVersion(), to: this.updater.state.version || (this.update && this.update.latest) || null, exe: process.execPath }); }
+
+  /** First start after an update restart: resume tracking if it was on (within 30 minutes) and say what happened. */
+  afterUpdateRestart() {
+    const r = store.get('updateRestart');
+    if (!r) return;
+    store.set('updateRestart', undefined);
+    if (!this.boot || r.user !== this.boot.user.id) return;
+    const resume = r.tracking && Date.now() - (+r.at || 0) < 30 * 60000;
+    if (resume) {
+      /* the pause did not reach the server before the restart: close the entry at the click, then resume */
+      if (this.state === 'tracking') this.action('pause', {}, { quiet: true, at: iso(r.at) }).then(() => this.action('resume', {}, { quiet: true }));
+      else if (['paused', 'stopped', 'not_started'].includes(this.state)) this.action('resume', {}, { quiet: true }); }
+    const updated = cmpVersion(app.getVersion(), r.from) > 0;
+    if (!updated) this.updater.notInstalled(r.to);
+    /* macOS: the old folder was not writable, so the new version went to ~/Applications (login item follows the new path) */
+    const moved = updated && process.platform === 'darwin' && r.exe && r.exe !== process.execPath ? (macAppPath(process.execPath) || process.execPath) : null;
+    if (moved) this.emit('app-moved');
+    this.flash(updated ? `Updated to version ${app.getVersion()}.${resume ? ' Tracking continues where you left off.' : ''}${moved ? ` It is now in ${path.dirname(moved)}; you can delete the old copy in ${path.dirname(macAppPath(r.exe) || r.exe)}.` : ''}` : `The update to ${r.to || 'the new version'} could not be installed automatically. Use Download the new version below.${resume ? ' Tracking continues.' : ''}`, updated ? 'info' : 'error'); }
 
   /* ---------- UI ---------- */
 
@@ -593,12 +627,19 @@ class Tracker extends EventEmitter {
     if (this._t) return;
     this._t = setTimeout(() => { this._t = null; this.emit('change', this.ui()); }, 30); }
 
-  /** available: newer version on the workspace; ready: downloaded, restart to install; auto: installs itself. */
+  /**
+   * available: a newer version is on the workspace; auto: one click installs it (else the manual download); status: idle |
+   * available | downloading | verifying | ready | installing | manual (installer saved to Downloads) | error; want: the
+   * person clicked Update now (progress is shown and the app restarts when ready).
+   */
   updateUi() {
-    if (!this.update) return null;
     const u = this.updater.state;
-    const auto = !!u.supported && this.update.available;
-    return Object.assign({}, this.update, { auto, ready: auto && u.status === 'ready', downloading: auto && u.status === 'downloading', percent: u.percent || 0, readyVersion: u.version || this.update.latest }); }
+    if (!this.update && !u.manual) return null;
+    const cur = app.getVersion();
+    const latest = u.version && cmpVersion(u.version, cur) > 0 ? u.version : (this.update && this.update.latest) || null;
+    const available = !!(this.update && this.update.available) || !!(u.version && cmpVersion(u.version, cur) > 0);
+    return { available, latest, current: cur, url: this.update && this.update.url, notes: u.notes || [], mode: u.mode, auto: this.updater.auto, status: u.status,
+      percent: u.percent || 0, error: u.error, want: !!u.want, manual: u.manual, platform: process.platform, checkedAt: this.update && this.update.checkedAt }; }
 
   setSelection(sel) { this.selection = { project_id: sel.project_id || null, task_id: sel.task_id || null }; }
 
