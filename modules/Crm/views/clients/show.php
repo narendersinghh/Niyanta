@@ -13,7 +13,6 @@ $statuses = ['lead' => 'Lead', 'active' => 'Active', 'on_hold' => 'On hold', 'in
 $errs = errors();
 $base = '/clients/'.$cid;
 $openFu = count($followUps);
-$journeyTotal = array_sum($typeCounts);
 $finTab = $fin || $qv;
 $place = trim(($c['city'] ?? '').($c['city'] && $c['country'] ? ', ' : '').($c['country'] ?? ''));
 $tel = static fn (string $p) => 'tel:'.preg_replace('/[^\d+]/', '', $p);
@@ -149,45 +148,28 @@ $moreMenu = Ui::more([
 
 <div data-panel="journey" data-group="client" class="hide">
   <div class="card">
-    <div class="card-head"><div><h3>Client journey</h3><p class="xs muted mb0">Every touchpoint, newest first. Dashed cards are internal-only notes.</p></div><?php if ($manage): ?><button type="button" class="btn primary sm" data-modal="activity-modal" data-activity-new><?= icon('plus', 'sm') ?> Add entry</button><?php endif ?></div>
-    <?php if ($journeyTotal): ?>
-    <div class="crm-filter-chips">
-      <a class="chip <?= $jt === '' ? 'on' : '' ?>" href="<?= e(url($base.'?jt=#journey')) ?>">All <span class="crm-count"><?= (int) $journeyTotal ?></span></a>
-      <?php foreach ($types as $tk => [$tl, $ti]): if (empty($typeCounts[$tk])) { continue; } ?><a class="chip <?= $jt === $tk ? 'on' : '' ?>" href="<?= e(url($base.'?jt='.$tk.'#journey')) ?>"><?= icon($ti, 'sm') ?> <?= e($tl) ?> <span class="crm-count"><?= (int) $typeCounts[$tk] ?></span></a><?php endforeach ?>
+    <div class="card-head"><div><h3>Client journey</h3><p class="xs muted mb0">Every touchpoint, newest first<?= $grouped ? ', grouped by project' : '' ?>. Dashed cards are internal-only notes.</p></div><?php if ($manage): ?><button type="button" class="btn primary sm" data-modal="activity-modal" data-activity-new><?= icon('plus', 'sm') ?> Add entry</button><?php endif ?></div>
+    <?php if ($manage && class_exists(\Modules\Meetings\Services\Ui::class)): ?><?= \Modules\Meetings\Services\Ui::addressHint('c', $cid) ?><?php endif ?>
+    <?php if ($journeyTotal): $jq = static fn (string $t, string $pr) => url($base.'?'.http_build_query(array_filter(['jt' => $t, 'jpr' => $pr], 'strlen')).'#journey'); ?>
+    <?php if ($projOn && array_diff(array_map('strval', array_keys($projCounts)), ['none'])): ?>
+    <div class="crm-filter-chips crm-proj-chips" aria-label="Filter by project">
+      <a class="chip <?= $jpr === '' ? 'on' : '' ?>" href="<?= e($jq($jt, '')) ?>"><?= icon('layers', 'sm') ?> All projects <span class="crm-count"><?= (int) array_sum($projCounts) ?></span></a>
+      <?php foreach ($projCounts as $pk => $n): if ($pk === 'none') { continue; } ?><a class="chip <?= $jpr === (string) $pk ? 'on' : '' ?>" href="<?= e($jq($jt, (string) $pk)) ?>"><?= icon('folder', 'sm') ?> <?= e(str_limit($projNames[(int) $pk] ?? 'Project #'.$pk, 40)) ?> <span class="crm-count"><?= (int) $n ?></span></a><?php endforeach ?>
+      <?php if (!empty($projCounts['none'])): ?><a class="chip <?= $jpr === 'none' ? 'on' : '' ?>" href="<?= e($jq($jt, 'none')) ?>"><?= icon('briefcase', 'sm') ?> Non-project <span class="crm-count"><?= (int) $projCounts['none'] ?></span></a><?php endif ?>
+    </div>
+    <?php endif ?>
+    <div class="crm-filter-chips" aria-label="Filter by type">
+      <a class="chip <?= $jt === '' ? 'on' : '' ?>" href="<?= e($jq('', $jpr)) ?>">All types <span class="crm-count"><?= (int) array_sum($typeCounts) ?></span></a>
+      <?php foreach ($types as $tk => [$tl, $ti]): if (empty($typeCounts[$tk])) { continue; } ?><a class="chip <?= $jt === $tk ? 'on' : '' ?>" href="<?= e($jq($tk, $jpr)) ?>"><?= icon($ti, 'sm') ?> <?= e($tl) ?> <span class="crm-count"><?= (int) $typeCounts[$tk] ?></span></a><?php endforeach ?>
     </div>
     <?php endif ?>
     <?php if (!$acts): ?>
-      <?= empty_state($jt !== '' ? 'Nothing of this type yet' : 'The journey starts here', 'Log meetings, calls, requirements and follow-ups to build a shared history with this client.', 'calendar-person', $manage ? '<button type="button" class="btn primary" data-modal="activity-modal" data-activity-new>'.icon('plus', 'sm').' Add first entry</button>' : '') ?>
+      <?= empty_state($jt !== '' || $jpr !== '' ? 'Nothing here yet' : 'The journey starts here', 'Log meetings, calls, requirements and follow-ups to build a shared history with this client.', 'calendar-person', $manage ? '<button type="button" class="btn primary" data-modal="activity-modal" data-activity-new>'.icon('plus', 'sm').' Add first entry</button>' : '') ?>
     <?php else: ?>
-    <div class="crm-tl">
-      <?php $lastDay = null; foreach ($acts as $a): [$tl, $ti, $tc] = $types[$a['type']] ?? $types['other']; $day = date('Y-m-d', strtotime($a['occurred_at'])); ?>
-      <?php if ($day !== $lastDay): $lastDay = $day; ?><div class="crm-day"><?= e($day === date('Y-m-d') ? 'Today' : ($day === date('Y-m-d', strtotime('-1 day')) ? 'Yesterday' : fdate($day, 'l, d M Y'))) ?></div><?php endif ?>
-      <div class="crm-tl-item crm-c-<?= e($tc) ?>">
-        <span class="crm-ic solid crm-c-<?= e($tc) ?>"><?= icon($ti, 'sm') ?></span>
-        <div class="crm-tl-card crm-c-<?= e($tc) ?> <?= $a['is_internal'] ? 'internal' : '' ?>">
-          <div class="crm-tl-head">
-            <div class="grow"><div class="crm-tl-type"><?= e($tl) ?><?= $a['is_internal'] ? ' · '.icon('lock', 'sm').' Internal' : '' ?></div><b><?= e($a['title']) ?></b></div>
-            <div class="crm-tl-tools">
-              <span class="xs muted nowrap" title="<?= e(fdatetime($a['occurred_at'])) ?>"><?= e(ftime($a['occurred_at'])) ?></span>
-              <?php if ($manage): ?><?= Ui::more(['<button type="button" data-modal="activity-modal" data-activity="'.e(json_encode(['action' => url($base.'/activities/'.$a['id']), 'type' => $a['type'], 'title' => $a['title'], 'body' => $a['body'], 'occurred_at' => substr(str_replace(' ', 'T', $a['occurred_at']), 0, 16), 'follow_up_at' => $a['follow_up_at'] ? substr(str_replace(' ', 'T', $a['follow_up_at']), 0, 16) : '', 'is_internal' => (int) $a['is_internal'], 'project_id' => $a['project_id']])).'">'.icon('edit', 'sm').' Edit entry</button>', Ui::post($base.'/activities/'.$a['id'].'/delete', 'trash', 'Delete entry', 'Delete this journey entry?', true)], 'Entry actions') ?><?php endif ?>
-            </div>
-          </div>
-          <?php if ($a['body']): ?><p class="crm-tl-body"><?= nl2br(e($a['body'])) ?></p><?php endif ?>
-          <div class="crm-tl-foot">
-            <span class="flex"><?= avatar($a['user_name'] ?? 'System', $a['user_avatar'] ?? null, 'sm') ?><?= e($a['user_name'] ?? 'System') ?></span>
-            <?php if ($a['project_name']): ?><a class="pill pill-sky" href="<?= e(url('/projects/'.(int) $a['project_id'])) ?>"><?= icon('folder', 'sm') ?> <?= e($a['project_name']) ?></a><?php endif ?>
-            <?php if ($a['follow_up_at']): $late = !$a['follow_up_done'] && strtotime($a['follow_up_at']) < time(); ?>
-              <span class="pill <?= $a['follow_up_done'] ? 'pill-mint' : ($late ? 'pill-red' : 'pill-lemon') ?>"><?= icon($a['follow_up_done'] ? 'check' : 'clock', 'sm') ?> Follow-up <?= e(fdatetime($a['follow_up_at'])) ?><?= $a['follow_up_done'] ? ' · done' : '' ?></span>
-              <?php if (!$a['follow_up_done'] && $manage): ?><form method="post" action="<?= e(url($base.'/activities/'.$a['id'].'/done')) ?>"><?= csrf_field() ?><button class="btn sm soft"><?= icon('check', 'sm') ?> Mark done</button></form><?php endif ?>
-            <?php endif ?>
-          </div>
-        </div>
-      </div>
-      <?php endforeach ?>
-    </div>
-    <?php if ($jp > 1 || $more): ?><div class="flex between mt">
-      <?php if ($jp > 1): ?><a class="btn sm ghost" href="<?= e(url($base.'?jt='.rawurlencode($jt).'&jp='.($jp - 1).'#journey')) ?>"><?= icon('chevron-left', 'sm') ?> Newer</a><?php else: ?><span></span><?php endif ?>
-      <?php if ($more): ?><a class="btn sm ghost" href="<?= e(url($base.'?jt='.rawurlencode($jt).'&jp='.($jp + 1).'#journey')) ?>">Older <?= icon('chevron-right', 'sm') ?></a><?php endif ?>
+    <?= partial('crm::partials/journey_list', ['acts' => $acts, 'base' => $base, 'manage' => $manage, 'grouped' => $grouped, 'showProject' => $projOn, 'projNames' => $projNames, 'projCounts' => $projCounts, 'transcripts' => $transcripts]) ?>
+    <?php if ($jp > 1 || $more): $pq = static fn (int $n) => url($base.'?'.http_build_query(array_filter(['jt' => $jt, 'jpr' => $jpr], 'strlen') + ['jp' => $n]).'#journey'); ?><div class="flex between mt">
+      <?php if ($jp > 1): ?><a class="btn sm ghost" href="<?= e($pq($jp - 1)) ?>"><?= icon('chevron-left', 'sm') ?> Newer</a><?php else: ?><span></span><?php endif ?>
+      <?php if ($more): ?><a class="btn sm ghost" href="<?= e($pq($jp + 1)) ?>">Older <?= icon('chevron-right', 'sm') ?></a><?php endif ?>
     </div><?php endif ?>
     <?php endif ?>
   </div>
@@ -264,27 +246,7 @@ $moreMenu = Ui::more([
 <?php endif ?>
 
 <?php if ($manage): ?>
-<dialog class="modal" id="activity-modal">
-  <form method="post" action="<?= e(url($base.'/activities')) ?>" data-new-action="<?= e(url($base.'/activities')) ?>" data-activity-form><?= csrf_field() ?>
-    <div class="modal-head"><h3 data-modal-title data-new="Log activity" data-edit="Edit journey entry">Log activity</h3><button type="button" class="btn icon sm ghost" data-close aria-label="Close"><?= icon('x', 'sm') ?></button></div>
-    <div class="modal-body form">
-      <div class="field"><label>Type</label><div class="crm-typepick">
-        <?php foreach ($types as $tk => [$tl, $ti, $tc]): if ($tk === 'payment' || $tk === 'assignment') { continue; } ?><label class="crm-type crm-c-<?= e($tc) ?>"><input type="radio" name="type" value="<?= e($tk) ?>"<?= checked($tk === 'meeting') ?>><span><?= icon($ti, 'sm') ?> <?= e($tl) ?></span></label><?php endforeach ?>
-        <label class="crm-type crm-c-sky hide" data-system-type><input type="radio" name="type" value="assignment"><span><?= icon('user-plus', 'sm') ?> Team assignment</span></label>
-        <label class="crm-type crm-c-mint hide" data-system-type><input type="radio" name="type" value="payment"><span><?= icon('wallet', 'sm') ?> Payment</span></label>
-      </div></div>
-      <div class="field"><label for="a-title">Title *</label><input id="a-title" type="text" name="title" required maxlength="190" placeholder="e.g. Kick-off meeting for the Q3 campaign"></div>
-      <div class="form-grid">
-        <div class="field"><label for="a-when">When *</label><input id="a-when" type="datetime-local" name="occurred_at" required value="<?= e(date('Y-m-d\TH:i')) ?>" data-default="<?= e(date('Y-m-d\TH:i')) ?>"></div>
-        <div class="field"><label for="a-fu">Follow-up on</label><input id="a-fu" type="datetime-local" name="follow_up_at"><div class="hint">The account team is reminded on the day.</div></div>
-        <?php if ($projectOptions): ?><div class="field full"><label for="a-proj">Related project</label><select id="a-proj" name="project_id"><option value="">None</option><?php foreach ($projectOptions as $pid => $pn): ?><option value="<?= (int) $pid ?>"><?= e($pn) ?></option><?php endforeach ?></select></div><?php endif ?>
-      </div>
-      <div class="field"><label for="a-body">Details</label><textarea id="a-body" name="body" rows="4" maxlength="5000" placeholder="What was discussed, decisions, next steps…"></textarea></div>
-      <label class="flex"><span class="switch"><input type="checkbox" name="is_internal" value="1"><span></span></span><span><b class="small">Internal only</b><span class="xs muted">, team-only context, never shared with the client</span></span></label>
-      <div class="form-actions"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary"><?= icon('check', 'sm') ?> Save entry</button></div>
-    </div>
-  </form>
-</dialog>
+<?= partial('crm::partials/activity_modal', ['action' => $base.'/activities', 'projectOptions' => $projectOptions, 'clientId' => $cid]) ?>
 <dialog class="modal" id="contact-modal">
   <form method="post" action="<?= e(url($base.'/contacts')) ?>" data-new-action="<?= e(url($base.'/contacts')) ?>" data-contact-form><?= csrf_field() ?>
     <div class="modal-head"><h3 data-modal-title data-new="Add contact" data-edit="Edit contact">Add contact</h3><button type="button" class="btn icon sm ghost" data-close aria-label="Close"><?= icon('x', 'sm') ?></button></div>

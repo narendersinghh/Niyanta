@@ -24,6 +24,7 @@ final class Features {
     if ($feature === 'ai') { return Modules::enabled('ai') && Settings::bool('ai.enabled'); }
     $f = self::find($feature);
     if (!$f) { return true; }
+    foreach ($f['requires'] ?? [] as $r) { if (!self::enabled($r)) { return false; } }
     return self::bundleEnabled($f['bundle']) && (int) (self::state()['feature:'.$feature] ?? 1) === 1; }
 
   /** Feature owning a permission (longest matching prefix), or null when not feature-governed. */

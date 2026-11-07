@@ -1,7 +1,7 @@
 <?php
 namespace Modules\Crm\Controllers;
 use Core\{Audit, DB, Modules, Notify, Response, Storage, ValidationException};
-use Modules\Crm\Services\{ClientAccess, Finance};
+use Modules\Crm\Services\{ClientAccess, Finance, Journey};
 
 /** Clients: list with KPIs & filters, create/edit (managers, tags), profile with journey/documents/finance, delete. */
 final class ClientController extends CrmController {
@@ -88,20 +88,13 @@ final class ClientController extends CrmController {
     // Quotations and invoices are separate features: each part of the Finance tab follows its own permission.
     $fin = $this->can('crm.finance.view'); $qv = $this->can('crm.quotations.view');
     $projOn = feature_on('projects');
-    $data = ['title' => $c['company'] ?: $c['name'], 'c' => $c, 'fin' => $fin, 'qv' => $qv, 'projOn' => $projOn, 'styles' => ['css/crm.css'], 'scripts' => ['js/crm.js']];
+    $mt = feature_on('meetings') && $this->can('meetings.use');
+    $data = ['title' => $c['company'] ?: $c['name'], 'c' => $c, 'fin' => $fin, 'qv' => $qv, 'projOn' => $projOn, 'styles' => ['css/crm.css', ...($mt ? ['css/meetings.css'] : [])], 'scripts' => ['js/crm.js', ...($mt ? ['js/meetings.js'] : [])]];
     $data['tags'] = DB::all('SELECT t.id, t.name, t.color FROM client_tags ct JOIN tags t ON t.id=ct.tag_id WHERE ct.client_id=? ORDER BY t.name', [$id]);
     $data['managers'] = DB::all('SELECT u.id, u.name, u.avatar, u.email, u.designation FROM client_managers cm JOIN users u ON u.id=cm.user_id WHERE cm.client_id=? ORDER BY u.name', [$id]);
     $data['contacts'] = DB::all('SELECT * FROM client_contacts WHERE client_id=? ORDER BY is_primary DESC, name', [$id]);
     $data['projects'] = $projOn ? DB::all('SELECT id, name, code, status, progress, deadline, budget FROM projects WHERE client_id=? ORDER BY FIELD(status,\'active\',\'planning\',\'on_hold\',\'completed\',\'cancelled\'), id DESC LIMIT 50', [$id]) : [];
-    $jp = max(1, $this->request->int('jp', 1)); $per = 25;
-    $type = $this->request->str('jt');
-    $aw = 'a.client_id=?'; $ap = [$id];
-    if (isset(JourneyController::TYPES[$type])) { $aw .= ' AND a.type=?'; $ap[] = $type; }
-    $acts = DB::all('SELECT a.*, u.name AS user_name, u.avatar AS user_avatar'.($projOn ? ', pr.name AS project_name' : ', NULL AS project_name').' FROM client_activities a LEFT JOIN users u ON u.id=a.user_id'.($projOn ? ' LEFT JOIN projects pr ON pr.id=a.project_id' : '')." WHERE $aw ORDER BY a.occurred_at DESC, a.id DESC LIMIT ".($per + 1).' OFFSET '.(($jp - 1) * $per), $ap);
-    $data['more'] = count($acts) > $per;
-    $data['acts'] = array_slice($acts, 0, $per);
-    $data['jp'] = $jp; $data['jt'] = $type;
-    $data['typeCounts'] = DB::pairs('SELECT type, COUNT(*) FROM client_activities WHERE client_id=? GROUP BY type', [$id]);
+    $data += Journey::clientData($id, $data['projects'], $projOn, $this->request);
     $data['followUps'] = DB::all('SELECT id, title, follow_up_at, type FROM client_activities WHERE client_id=? AND follow_up_at IS NOT NULL AND follow_up_done=0 ORDER BY follow_up_at LIMIT 10', [$id]);
     $data['docs'] = DB::all("SELECT f.id, f.original_name, f.mime, f.size, f.created_at, u.name AS uploader FROM files f LEFT JOIN users u ON u.id=f.uploaded_by WHERE f.module='crm' AND f.entity_type='client' AND f.entity_id=? ORDER BY f.id DESC", [$id]);
     $data['sum'] = ['invoiced' => 0, 'paid' => 0, 'outstanding' => 0, 'overdue' => 0];

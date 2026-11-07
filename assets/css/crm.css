@@ -312,3 +312,15 @@ button.crm-go{border:0;background:none;cursor:pointer;font:inherit;padding:0}
 .crm-upload{align-self:start;align-content:start;display:flex;flex-direction:column;gap:14px}
 .crm-upload .crm-sec-h{align-items:center;margin-bottom:4px}
 .crm-upload .btn.primary{align-self:stretch;justify-content:center}
+/* journey organised by project: project chips, group headings, fixed project in the log dialog */
+.crm-proj-chips{margin-bottom:8px}
+.crm-proj-chips .chip{max-width:100%}
+.crm-proj-h{display:flex;align-items:center;gap:10px;margin:22px 0 10px -52px;padding:8px 12px;border-radius:14px;background:var(--surface-2);border:1px solid var(--border);font-weight:700}
+.crm-proj-h:first-child{margin-top:0}
+.crm-proj-h .crm-ic{width:28px;height:28px;border-radius:9px}
+.crm-proj-h a{color:var(--text)}.crm-proj-h a:hover{color:var(--primary)}
+.crm-proj-h .crm-count{margin-left:auto}
+.crm-proj-h.none b{color:var(--muted)}
+.crm-fixed-proj{display:flex;align-items:center;gap:8px;padding:10px 12px;border-radius:12px;background:var(--sky-s);color:var(--sky-d);font-size:.85rem}
+.crm-fixed-proj span{opacity:.8}
+@media (max-width:560px){.crm-proj-h{margin-left:-44px}}

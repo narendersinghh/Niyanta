@@ -5,15 +5,17 @@ $total = array_sum($sc); $done = (int) ($sc['done'] ?? 0);
 [$cd, $tone] = PS::countdown($pr['deadline'], $pr['status']);
 $initials = mb_strtoupper(implode('', array_map(static fn ($w) => mb_substr($w, 0, 1), array_slice(preg_split('/\s+/', trim($pr['name'])) ?: [], 0, 2))));
 $canUpload = can('projects.manage') || can('projects.tasks.manage') || can('projects.tasks.update_own');
-$tabs = ['overview' => ['Overview', 'grid', null], 'board' => ['Board', 'kanban', $total], 'list' => ['List', 'list', null], 'milestones' => ['Milestones', 'flag', $nums['ms']], 'changes' => ['Change requests', 'refresh', $nums['cr']], 'files' => ['Files', 'paperclip', $nums['files']]];
+$tabs = ['overview' => ['Overview', 'grid', null], 'board' => ['Board', 'kanban', $total], 'list' => ['List', 'list', null], 'milestones' => ['Milestones', 'flag', $nums['ms']], 'changes' => ['Change requests', 'refresh', $nums['cr']], 'files' => ['Files', 'paperclip', $nums['files']]] + ($logView ? ['log' => ['Client log', 'activity', $nums['log']]] : []);
 $taskTab = in_array($tab, ['board', 'list', 'overview'], true);
 $primary = match (true) {
   $taskTab && $canTasks => '<button type="button" class="btn primary" data-modal="task-new" data-status="todo">'.icon('plus', 'sm').' Add task</button>',
   $tab === 'milestones' && $canManage => '<button type="button" class="btn primary" data-modal="ms-new">'.icon('plus', 'sm').' Add milestone</button>',
   $tab === 'changes' && $canCr => '<button type="button" class="btn primary" data-modal="cr-new">'.icon('plus', 'sm').' Log change request</button>',
   $tab === 'files' && $canUpload => '<button type="button" class="btn primary" data-modal="file-new">'.icon('upload', 'sm').' Upload file</button>',
+  $tab === 'log' && $logWrite => '<button type="button" class="btn primary" data-modal="activity-modal" data-activity-new>'.icon('plus', 'sm').' Log activity</button>',
   default => '' };
 $more = ($canManage ? '<a href="'.e(url('/projects/'.$id.'/edit')).'">'.icon('edit', 'sm').' Edit project</a>' : '')
+  .($logWrite && $tab !== 'log' ? '<button type="button" data-modal="activity-modal" data-activity-new>'.icon('activity', 'sm').' Log activity</button>' : '')
   .($canTasks && !$taskTab ? '<a href="'.e(url('/projects/'.$id.'?tab=board')).'">'.icon('kanban', 'sm').' Open board</a>' : '')
   .(PS::on('report_submit') ? '<a href="'.e(url('/work-reports/create?project='.$id)).'">'.icon('clipboard', 'sm').' Write work report</a>' : '')
   .($canDelete ? '<div class="sep"></div><form method="post" action="'.e(url('/projects/'.$id.'/delete')).'" data-confirm="Delete this project with all its tasks, milestones and files? This cannot be undone.">'.csrf_field().'<button class="danger-text">'.icon('trash', 'sm').' Delete project</button></form>' : '');
@@ -46,6 +48,7 @@ $vars = get_defined_vars();
 </header>
 <div class="tabs-wrap"><nav class="tabs" aria-label="Project sections"><?php foreach ($tabs as $k => [$l, $ic, $n]): ?><a href="<?= e(url('/projects/'.$id.'?tab='.$k)) ?>" class="<?= $tab === $k ? 'active' : '' ?>"<?= $tab === $k ? ' aria-current="page"' : '' ?>><?= icon($ic, 'sm') ?> <?= e($l) ?><?php if ($n): ?><span class="tab-n<?= $k === 'changes' ? ' hot' : '' ?>"><?= (int) $n ?></span><?php endif ?></a><?php endforeach ?></nav></div>
 <?= partial('projects::projects/tabs/'.$tab, $vars) ?>
+<?php if ($logWrite): ?><div class="crm"><?= partial('crm::partials/activity_modal', ['action' => '/projects/'.$id.'/activities', 'fixedProject' => ['id' => $id, 'name' => $pr['name']], 'clientId' => $pr['client_id'] ? (int) $pr['client_id'] : null]) ?></div><?php endif ?>
 <?php if ($canTasks && $taskTab): ?>
 <?= partial('partials/task_dialog', ['project' => $id, 'return' => '/projects/'.$id.'?'.(($q = (string) ($_SERVER['QUERY_STRING'] ?? '')) !== '' ? $q : 'tab='.$tab)]) ?>
 <?php endif ?>

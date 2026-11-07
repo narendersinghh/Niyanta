@@ -6,12 +6,15 @@ namespace Modules\Ai\Services;
  * pretends to be (OpenAI chat completions or Anthropic messages), so the real provider parsers and the tool loop run.
  * Script it from the user message: "#tool name {json}" (one per line) forces tool calls, "#fail" simulates an outage,
  * "#loop" keeps calling tools. Otherwise simple keyword rules pick a tool and tool results are summarised as markdown.
+ * Meeting summary requests (system prompt marked NIYANTA_MEETING_SUMMARY) get strict JSON built from the transcript lines.
  */
 final class MockServer {
   public static function handle(string $url, array $headers, array $body, int $timeout = 50): array {
     $anthropic = str_ends_with($url, '/v1/messages');
     [$user, $results, $rounds] = $anthropic ? self::readAnthropic($body['messages'] ?? []) : self::readOpenAi($body['messages'] ?? []);
     if (str_contains($user, '#fail')) { return ['code' => 503, 'json' => ['error' => ['message' => 'Mock provider simulated outage']], 'raw' => '']; }
+    $sys = $anthropic ? (string) ($body['system'] ?? '') : (string) ($body['messages'][0]['content'] ?? '');
+    if (str_contains($sys, 'NIYANTA_MEETING_SUMMARY')) { return self::reply($anthropic, $body, self::meetingSummary($user), [], 0); }
     $calls = [];
     if (str_contains($user, '#loop') || !$results) {
       $calls = $rounds > 0 && !str_contains($user, '#loop') ? [] : self::plan($user);
@@ -21,6 +24,10 @@ final class MockServer {
       if (!str_contains($user, '#tool')) { $calls = array_values(array_filter($calls, static fn ($c) => in_array($c[0], $offered, true))); }
       if ($planned && !$calls) { $results = [['denied', '{"error":"That information is not available to your role."}']]; } }
     $text = $calls ? '' : ($results ? self::compose($results) : self::smallTalk($user));
+    return self::reply($anthropic, $body, $text, $calls, $rounds); }
+
+  /** Response in the wire format of the endpoint (round-tripped through JSON like a real HTTP response). */
+  private static function reply(bool $anthropic, array $body, string $text, array $calls, int $rounds): array {
     $in = (int) ceil(strlen((string) json_encode($body)) / 4);
     $out = (int) ceil((strlen($text) + strlen((string) json_encode($calls))) / 4);
     if ($anthropic) {
@@ -32,8 +39,32 @@ final class MockServer {
       $msg = ['role' => 'assistant', 'content' => $calls ? null : $text];
       if ($calls) { $msg['tool_calls'] = array_map(static fn ($c, $i) => ['id' => 'call_mock'.$rounds.$i, 'type' => 'function', 'function' => ['name' => $c[0], 'arguments' => json_encode((object) $c[1])]], $calls, array_keys($calls)); }
       $j = ['id' => 'chatcmpl-mock', 'object' => 'chat.completion', 'model' => $body['model'] ?? 'mock-openai', 'choices' => [['index' => 0, 'message' => $msg, 'finish_reason' => $calls ? 'tool_calls' : 'stop']], 'usage' => ['prompt_tokens' => $in, 'completion_tokens' => $out]]; }
-    // Round-trip through JSON like a real HTTP response.
     return ['code' => 200, 'json' => json_decode((string) json_encode($j), true), 'raw' => '']; }
+
+  /** Meeting summary JSON built only from the transcript lines (decisions, "will" action items, requests, questions), merged for map-reduce. */
+  private static function meetingSummary(string $q): string {
+    if (str_contains($q, 'Merge these partial summaries') && ($p = strpos($q, '[')) !== false && is_array($parts = json_decode(substr($q, $p), true))) {
+      $m = ['overview' => '', 'decisions' => [], 'action_items' => [], 'client_requests' => [], 'open_questions' => [], 'next_meeting' => ''];
+      foreach ($parts as $x) { $m['overview'] = trim($m['overview'].' '.($x['overview'] ?? '')); foreach (['decisions', 'action_items', 'client_requests', 'open_questions'] as $k) { $m[$k] = array_merge($m[$k], $x[$k] ?? []); } $m['next_meeting'] = $m['next_meeting'] ?: ($x['next_meeting'] ?? ''); }
+      $m['overview'] = 'Merged summary of '.count($parts).' parts. '.mb_substr($m['overview'], 0, 300);
+      return json_encode($m, JSON_UNESCAPED_UNICODE); }
+    $title = preg_match('/^Meeting:\s*(.+)$/m', $q, $tm) ? trim($tm[1]) : 'the meeting';
+    $body = ($p = strpos($q, "Transcript:\n")) !== false ? substr($q, $p + 12) : $q;
+    $o = ['overview' => '', 'decisions' => [], 'action_items' => [], 'client_requests' => [], 'open_questions' => [], 'next_meeting' => ''];
+    $speakers = [];
+    foreach (explode("\n", $body) as $line) {
+      $line = trim($line);
+      if ($line === '') { continue; }
+      $who = ''; $say = $line;
+      if (preg_match('/^([^:]{2,40}):\s+(.+)$/', $line, $m)) { $who = $m[1]; $say = $m[2]; $speakers[$who] = true; }
+      $l = strtolower($say);
+      if (preg_match('/\b(decided|agreed|approved|we will go with|final(ised|ized))\b/', $l)) { $o['decisions'][] = $say; }
+      elseif (preg_match('/\b(i|we|you|he|she|they) will\b|\baction( item)?:|\bi\'ll\b/', $l)) { $o['action_items'][] = ['text' => $say, 'owner' => $who, 'due' => preg_match('/\b(20\d{2}-\d{2}-\d{2})\b/', $say, $d) ? $d[1] : (preg_match('/\bby (monday|tuesday|wednesday|thursday|friday|tomorrow|next week)\b/', $l, $d) ? 'by '.$d[1] : '')]; }
+      elseif (preg_match('/\b(we need|we want|would like|please add|can you|request)\b/', $l)) { $o['client_requests'][] = $say; }
+      if (str_ends_with($say, '?')) { $o['open_questions'][] = $say; }
+      if (!$o['next_meeting'] && preg_match('/\bnext (meeting|call|sync|review)\b/', $l)) { $o['next_meeting'] = $say; } }
+    $o['overview'] = 'Mock summary of '.$title.' with '.max(1, count($speakers)).' speaker'.(count($speakers) === 1 ? '' : 's').': '.count($o['decisions']).' decisions and '.count($o['action_items']).' action items.';
+    return json_encode($o, JSON_UNESCAPED_UNICODE); }
 
   /** [last user text, tool results after it [[name, content]], assistant rounds after it] */
   private static function readOpenAi(array $msgs): array {

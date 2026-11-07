@@ -23,7 +23,7 @@ final class SettingsSchema {
     'system' => ['System', 'Health, data retention, demo data, backups, scheduler and updates.', 'server', 'lemon']];
 
   /** Tab => features it configures: the tab (nav entry, home card, URL and save) exists only while at least one is on. "ai" is the AI assistant switch. */
-  public const TAB_FEATURES = ['ai' => ['ai'], 'employees' => ['employees', 'attendance', 'leave', 'payroll'], 'leave' => ['leave'], 'attendance' => ['attendance'], 'payroll' => ['payroll', 'reimbursements'], 'projects' => ['projects', 'work_reports'], 'invoicing' => ['quotations', 'invoices']];
+  public const TAB_FEATURES = ['ai' => ['ai'], 'employees' => ['employees', 'attendance', 'leave', 'payroll'], 'leave' => ['leave'], 'attendance' => ['attendance'], 'payroll' => ['payroll', 'reimbursements'], 'projects' => ['projects', 'work_reports'], 'invoicing' => ['quotations', 'invoices'], 'meetings' => ['meetings']];
 
   public static function tabOn(string $tab): bool { $f = self::TAB_FEATURES[$tab] ?? null; return $f === null || (bool) array_filter($f, 'feature_on'); }
 
@@ -33,7 +33,7 @@ final class SettingsSchema {
    */
   public const KEY_FEATURES = ['attendance.' => 'attendance', 'tracker.' => 'attendance', 'payroll.' => 'payroll', 'reimbursements.' => 'reimbursements', 'hr.leave.' => 'leave', 'hr.holidays.' => 'leave', 'hr.optional_holidays' => 'leave',
     'hr.onboarding' => 'employees', 'hr.exit' => 'employees', 'hr.upload_self_delete' => 'employees', 'hr.documents' => 'employees', 'hr.company_docs' => 'company_docs', 'crm.invoice' => 'invoices', 'crm.quotation' => 'quotations', 'crm.reports' => 'finance_reports',
-    'crm.clients' => 'clients', 'projects.' => 'projects', 'work_reports.' => 'work_reports', 'todos.' => 'todos', 'ai.' => 'ai', 'retention.ai_usage' => 'ai'];
+    'crm.clients' => 'clients', 'projects.' => 'projects', 'work_reports.' => 'work_reports', 'todos.' => 'todos', 'ai.' => 'ai', 'retention.ai_usage' => 'ai', 'meetings.' => 'meetings'];
 
   /** Feature owning a setting key (KEY_FEATURES), or null for workspace-wide settings. */
   public static function keyFeature(string $key): ?string {
@@ -77,7 +77,7 @@ final class SettingsSchema {
     $g = self::GROUPS;
     $g['people'][1] = ucfirst(self::join(['work schedule', feature_on('leave') ? 'leave & holidays' : null, feature_on('attendance') ? 'attendance' : null, feature_on('payroll') ? 'payroll' : null, feature_on('reimbursements') ? 'reimbursements' : null])).'.';
     $g['work'][1] = ucfirst(self::join([feature_on('projects') ? 'projects, tasks' : null, feature_on('work_reports') ? 'work reports' : null])).'.';
-    $g['clients'][1] = ucfirst(self::join([feature_on('quotations') ? 'quotations' : null, feature_on('invoices') ? 'invoices and payment reminders' : null])).'.';
+    $g['clients'][1] = ucfirst(self::join([feature_on('quotations') ? 'quotations' : null, feature_on('invoices') ? 'invoices and payment reminders' : null, feature_on('meetings') ? 'meeting notes' : null])).'.';
     $g['workspace'][1] = 'Company details, brand, email delivery and access'.(feature_on('ai') ? ', plus the AI assistant.' : '.');
     return $g; }
 
@@ -98,6 +98,7 @@ final class SettingsSchema {
       'payroll' => [$pay && $reimb ? 'Payroll & reimbursements' : ($pay ? 'Payroll' : 'Reimbursements'), $pay ? 'wallet' : 'receipt', $pay ? 'Payslip footer note.' : 'How expense claims are submitted and approved.', $g('people'), 'pink', 'people', 'people'],
       'projects' => [$proj ? 'Projects & tasks' : 'Work reports', $proj ? 'kanban' : 'clipboard', $proj && $wr ? 'Reminders and defaults for projects and work reports.' : ($proj ? 'Reminders and defaults for projects and tasks.' : 'How daily and weekly work reports are reviewed.'), $g('work'), 'lav', 'work', 'work'],
       'invoicing' => [$qt && $inv ? 'Quotations & invoicing' : ($inv ? 'Invoicing' : 'Quotations'), $inv ? 'receipt' : 'file-text', $inv ? 'Document numbering, tax, payment terms and reminders.' : 'Quotation numbering, tax and default terms.', $g('clients'), 'peach', 'clients', 'clients'],
+      'meetings' => ['Meeting notes', 'message', 'Notes inbox, notetaker senders, Fireflies, AI summaries and transcript retention.', $g('clients'), 'lav', 'clients', 'clients'],
       'overview' => ['System health', 'activity', 'Health of your installation at a glance.', $g('system'), 'mint', 'system', null],
       'retention' => ['Storage & data retention', 'database', 'Disk usage, upload limits and how long logs and activity data are kept.', $g('system'), 'lav', 'system', null],
       'demo' => ['Demo data', 'layers', 'Load a realistic sample agency to explore, then remove it.', $g('system'), 'sky', 'system', null],
@@ -123,6 +124,7 @@ final class SettingsSchema {
       'invoicing' => ['Numbering' => 'New documents get the next number after the highest existing one with this prefix.', 'Tax & payment terms' => 'Defaults for new '.self::join([feature_on('invoices') ? 'invoices' : null, feature_on('quotations') ? 'quotations' : null]).'; editable per document.', 'Default terms' => 'Pre-filled on new documents.'],
       'retention' => ['Logs & activity' => 'Older rows are deleted permanently by the nightly cleanup job. 0 keeps them forever.', 'Files & sessions' => feature_on('attendance') ? 'Screenshot files and expired login sessions on disk.' : 'Expired login sessions on disk.', 'Uploads' => 'Largest file a user can upload anywhere in the app.', 'Backups' => 'Older automatic backups are removed after each new backup.'],
       'backups' => ['Schedule & retention' => 'Automatic backups run from the scheduler at this time (server time).'],
+      'meetings' => ['Notes inbox' => 'One mailbox for meeting notes, read every 5 minutes over IMAP (no PHP extension needed). Use a dedicated address, e.g. notes@yourcompany.com: people invite it to meetings or forward recaps to it.', 'Senders' => 'Mail is accepted only from active team members and these notetaker domains; anything else is dropped and counted.', 'Logs & summaries' => 'How arriving notes become client logs and how Goraiya summarises them.', 'Fireflies' => 'Optional company-wide key; each person can also connect their own key under Meetings › Connections.'],
       default => [] }; }
 
   public static function fields(string $tab): array {
@@ -199,6 +201,19 @@ final class SettingsSchema {
         ['key' => 'crm.invoice_due_days', 'label' => 'Invoices due after (days)', 'type' => 'number', 'rules' => 'nullable|integer|min:0|max:365', 'default' => '15', 'hint' => 'Due date = issue date + this many days.', 'feature' => 'invoices'],
         ['key' => 'crm.invoice_terms', 'label' => 'Invoice terms', 'type' => 'textarea', 'rules' => 'nullable|max:2000', 'span' => true, 'section' => 'Default terms', 'placeholder' => 'Payment due within 15 days by bank transfer or UPI.', 'feature' => 'invoices'],
         ['key' => 'crm.quotation_terms', 'label' => 'Quotation terms', 'type' => 'textarea', 'rules' => 'nullable|max:2000', 'span' => true, 'section' => 'Default terms', 'placeholder' => 'This quotation is valid for 30 days.', 'feature' => 'quotations']],
+      'meetings' => [
+        ['key' => 'meetings.inbox_address', 'label' => 'Notes address shown to users', 'type' => 'email', 'rules' => 'nullable|email|max:190', 'section' => 'Notes inbox', 'placeholder' => 'notes@yourcompany.com', 'span' => true, 'hint' => 'Projects get notes+p{id}@ and clients notes+c{id}@ addresses on the same mailbox (plus-addressing; most providers support it).'],
+        ['key' => 'meetings.imap_host', 'label' => 'IMAP host', 'type' => 'text', 'rules' => 'nullable|max:190|regex:/^[A-Za-z0-9.\-]+$/', 'placeholder' => 'imap.example.com'],
+        ['key' => 'meetings.imap_port', 'label' => 'Port', 'type' => 'number', 'rules' => 'nullable|integer|min:1|max:65535', 'default' => '993'],
+        ['key' => 'meetings.imap_encryption', 'label' => 'Encryption', 'type' => 'select', 'options' => ['ssl' => 'SSL/TLS (usually port 993)', 'tls' => 'STARTTLS (usually port 143)', 'none' => 'None (not recommended)'], 'rules' => 'required|in:ssl,tls,none', 'default' => 'ssl'],
+        ['key' => 'meetings.imap_folder', 'label' => 'Folder', 'type' => 'text', 'rules' => 'nullable|max:120', 'default' => 'INBOX'],
+        ['key' => 'meetings.imap_username', 'label' => 'Username', 'type' => 'text', 'rules' => 'nullable|max:190', 'autocomplete' => 'off'],
+        ['key' => 'meetings.imap_password', 'label' => 'Password / app password', 'type' => 'secret', 'rules' => 'nullable|max:500', 'hint' => 'Stored encrypted.'],
+        ['key' => 'meetings.allowed_domains', 'label' => 'Allowed notetaker domains', 'type' => 'textarea', 'rules' => 'nullable|max:1000', 'section' => 'Senders', 'default' => implode(', ', \Modules\Meetings\Services\Inbox::DOMAINS), 'hint' => 'Comma separated. Subdomains count (e.g. e.read.ai). Mail from active team members is always accepted.'],
+        ['key' => 'meetings.auto_create', 'label' => 'Create the meeting log automatically when the match is certain', 'type' => 'toggle', 'default' => '1', 'section' => 'Logs & summaries', 'span' => true, 'hint' => 'High confidence (a plus-address, or a client contact taking part plus a clear project). Anything less waits in Meetings › To sort.'],
+        ['key' => 'meetings.summary_language', 'label' => 'Summary language', 'type' => 'select', 'options' => ['same' => 'Same as the meeting', 'English' => 'English', 'Hindi' => 'Hindi', 'Spanish' => 'Spanish', 'French' => 'French', 'German' => 'German', 'Portuguese' => 'Portuguese', 'Arabic' => 'Arabic'], 'rules' => 'required', 'default' => 'same'],
+        ['key' => 'meetings.retention_days', 'label' => 'Keep full transcript text for', 'type' => 'number', 'rules' => 'nullable|integer|min:1|max:3650', 'default' => '365', 'unit' => 'days', 'hint' => 'Empty keeps it forever. The summary in the client log always stays.'],
+        ['key' => 'meetings.fireflies_key', 'label' => 'Company Fireflies API key (optional)', 'type' => 'secret', 'rules' => 'nullable|max:200', 'section' => 'Fireflies', 'span' => true, 'hint' => 'From Fireflies › Integrations › Fireflies API. Stored encrypted. Meetings of this account arrive for everyone with meetings access to sort.']],
       'retention' => [
         $days('retention.audit_days', 'Audit log', 'Who changed what. Keep at least a year for accountability.', (int) Settings::get('security.audit_retention_days', 365)) + ['section' => 'Logs & activity'],
         $days('retention.notifications_days', 'Read notifications', 'Unread notifications are never deleted.', 90),

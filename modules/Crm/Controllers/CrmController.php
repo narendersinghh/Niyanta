@@ -47,4 +47,21 @@ abstract class CrmController extends Controller {
     $clients = $this->clientOptions();
     return ['clients' => $clients, 'projects' => \Modules\Crm\Services\Finance::projects(array_map('intval', array_keys($clients))), 'taxRate' => (float) setting('crm.default_tax_rate', 0), 'styles' => ['css/crm.css'], 'scripts' => ['js/crm.js']]; }
 
-  protected function now(): string { return date('Y-m-d H:i:s'); } }
+  protected function now(): string { return date('Y-m-d H:i:s'); }
+
+  /* ---------- meeting transcripts attached from the Log activity dialog (Meetings feature) ---------- */
+
+  /** Parsed transcript / notes posted with a Meeting entry, or null (feature off, no permission, other type, nothing attached). */
+  protected function meetingInput(string $type): ?array {
+    if ($type !== 'meeting' || !feature_on('meetings') || !$this->can('meetings.use') || !class_exists(\Modules\Meetings\Services\Attach::class)) { return null; }
+    return \Modules\Meetings\Services\Attach::fromRequest($this->request, $this->user()); }
+
+  /** Redirect to the existing log when the attached meeting was already logged (manual upload, email or Fireflies), else null. */
+  protected function meetingDuplicate(array $doc, ?int $activityId): ?\Core\Response {
+    $dup = \Modules\Meetings\Services\Attach::duplicateLog($doc, $this->user(), $activityId);
+    if (!$dup) { return null; }
+    $this->flash('This meeting is already logged as "'.$dup['title'].'". Opened the existing entry instead of creating a second one.', 'error');
+    return $this->redirect($dup['url']); }
+
+  /** Store the transcript on the saved entry; returns a short note for the flash message. */
+  protected function meetingSave(array $doc, int $activityId, ?int $clientId, ?int $projectId): string { return \Modules\Meetings\Services\Attach::save($doc, $this->user(), $activityId, $clientId, $projectId); } }

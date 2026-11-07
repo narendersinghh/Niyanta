@@ -28,19 +28,25 @@ final class JourneyController extends CrmController {
     $this->flash('Contact removed.');
     return $this->redirect('/clients/'.$id.'#overview'); }
 
+  /** Validation rules and labels of a journey entry (client page and project page). */
+  public static function activityRules(): array {
+    return [['type' => 'required|in:'.implode(',', array_keys(self::TYPES)), 'title' => 'required|max:190', 'body' => 'nullable|max:5000', 'occurred_at' => 'required|datetime', 'follow_up_at' => 'nullable|datetime', 'is_internal' => 'boolean', 'project_id' => 'nullable|integer'], ['occurred_at' => 'Date & time', 'follow_up_at' => 'Follow-up date']]; }
+
   public function saveActivity(int $id, ?int $activityId = null): Response {
     $this->client($id);
     if ($activityId && !DB::value('SELECT 1 FROM client_activities WHERE id=? AND client_id=?', [$activityId, $id])) { $this->abort(404, 'Entry not found.'); }
-    $d = $this->validate(['type' => 'required|in:'.implode(',', array_keys(self::TYPES)), 'title' => 'required|max:190', 'body' => 'nullable|max:5000', 'occurred_at' => 'required|datetime', 'follow_up_at' => 'nullable|datetime', 'is_internal' => 'boolean', 'project_id' => 'nullable|integer'], ['occurred_at' => 'Date & time', 'follow_up_at' => 'Follow-up date']);
+    $d = $this->validate(...self::activityRules());
     if ($d['project_id'] && (!feature_on('projects') || !DB::value('SELECT 1 FROM projects WHERE id=? AND client_id=?', [$d['project_id'], $id]))) { throw new ValidationException(['project_id' => 'Pick a project that belongs to this client.']); }
     if (!$d['project_id']) { $d['project_id'] = null; }
     if ($d['type'] === 'note') { $d['is_internal'] = 1; }
+    $mt = $this->meetingInput($d['type']);
+    if ($mt && ($dup = $this->meetingDuplicate($mt, $activityId))) { return $dup; }
     if ($activityId) {
       if (!$d['follow_up_at']) { $d['follow_up_done'] = 0; }
       DB::update('client_activities', $d, 'id=? AND client_id=?', [$activityId, $id]); }
     else { $activityId = DB::insert('client_activities', $d + ['client_id' => $id, 'user_id' => $this->uid(), 'created_at' => $this->now()]); }
-    Audit::log('crm.activity.save', 'client', $id, ['activity_id' => $activityId, 'type' => $d['type']]);
-    $this->flash('Journey updated.');
+    Audit::log('crm.activity.save', 'client', $id, ['activity_id' => $activityId, 'type' => $d['type'], 'project_id' => $d['project_id']]);
+    $this->flash('Journey updated.'.($mt ? ' '.$this->meetingSave($mt, $activityId, $id, $d['project_id']) : ''));
     return $this->redirect('/clients/'.$id.'#journey'); }
 
   public function deleteActivity(int $id, int $activityId): Response {

@@ -1,5 +1,5 @@
 <?php
-use Modules\Crm\Controllers\{ClientController, JourneyController, QuotationController, InvoiceController, ReportController};
+use Modules\Crm\Controllers\{ClientController, JourneyController, ProjectLogController, QuotationController, InvoiceController, ReportController};
 use Modules\Crm\Services\{ClientAccess, Hooks};
 
 return [
@@ -40,6 +40,12 @@ return [
     $r->post('/clients/{id}/activities/{activity_id}/delete', [JourneyController::class, 'deleteActivity'], $m);
     $r->post('/clients/{id}/activities/{activity_id}/done', [JourneyController::class, 'followUpDone'], $m);
     $r->post('/clients/{id}/documents', [JourneyController::class, 'upload'], 'crm.documents.manage');
+    /* Client log written from the project page (also for internal projects without a client); needs the projects feature too. */
+    $pl = ['perm' => $m, 'feature' => 'projects'];
+    $r->post('/projects/{id}/activities', [ProjectLogController::class, 'save'], $pl);
+    $r->post('/projects/{id}/activities/{activity_id}', [ProjectLogController::class, 'save'], $pl);
+    $r->post('/projects/{id}/activities/{activity_id}/delete', [ProjectLogController::class, 'delete'], $pl);
+    $r->post('/projects/{id}/activities/{activity_id}/done', [ProjectLogController::class, 'done'], $pl);
     $r->get('/quotations', [QuotationController::class, 'index'], 'crm.quotations.view');
     $r->get('/quotations/create', [QuotationController::class, 'create'], 'crm.quotations.manage');
     $r->post('/quotations', [QuotationController::class, 'store'], 'crm.quotations.manage');

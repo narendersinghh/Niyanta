@@ -3,7 +3,7 @@
  * Product structure: 3 bundles, each with switchable features. A feature owns permission
  * prefixes; disabling a feature (or its whole bundle) denies those permissions for everyone,
  * hides navigation/widgets and blocks the routes, data is never deleted. 'url' is the feature's main page (linked from
- * Settings › Features and the feature's settings section).
+ * Settings › Features and the feature's settings section). 'requires' lists features it depends on: it is off while any of them is off.
  */
 return [
   'people' => ['name' => 'HR & Employee Management', 'icon' => 'users', 'color' => '#12B5A0', 'description' => 'Employees, attendance & time, leave & holidays, payroll, reimbursements and company documents.', 'features' => [
@@ -21,5 +21,6 @@ return [
     'clients' => ['name' => 'Clients & journey', 'module' => 'crm', 'url' => '/clients', 'icon' => 'briefcase', 'perms' => ['crm.clients', 'crm.documents'], 'description' => 'Client profiles, contacts, timeline and documents.'],
     'quotations' => ['name' => 'Quotations', 'module' => 'crm', 'url' => '/quotations', 'icon' => 'file-text', 'perms' => ['crm.quotations'], 'description' => 'Estimates that convert to invoices.'],
     'invoices' => ['name' => 'Invoices & payments', 'module' => 'crm', 'url' => '/invoices', 'icon' => 'receipt', 'perms' => ['crm.finance'], 'description' => 'Invoices, partial payments, PDFs and reminders.'],
-    'finance_reports' => ['name' => 'Financial reports', 'module' => 'crm', 'url' => '/crm/reports', 'icon' => 'chart', 'perms' => ['crm.reports'], 'description' => 'Collections, aging and project financials.']]],
+    'finance_reports' => ['name' => 'Financial reports', 'module' => 'crm', 'url' => '/crm/reports', 'icon' => 'chart', 'perms' => ['crm.reports'], 'description' => 'Collections, aging and project financials.'],
+    'meetings' => ['name' => 'Meeting notes & AI summaries', 'module' => 'meetings', 'url' => '/meetings', 'icon' => 'message', 'perms' => ['meetings'], 'requires' => ['clients'], 'description' => 'Transcripts and notes from any meeting platform (upload, notes inbox, Fireflies) become client logs with Goraiya AI summaries. Never records audio. Needs Clients & journey.']]],
 ];

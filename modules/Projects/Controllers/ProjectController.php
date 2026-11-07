@@ -104,6 +104,7 @@ final class ProjectController extends Controller {
     $files = DB::column("SELECT id FROM files WHERE module='projects' AND ((entity_type='project' AND entity_id=?) OR (entity_type='task' AND entity_id IN (SELECT id FROM tasks WHERE project_id=?)))", [$id, $id]);
     DB::transaction(static function () use ($id, $files) {
       foreach ($files as $f) { Storage::remove((int) $f); }
+      DB::delete('client_activities', 'project_id=? AND client_id IS NULL', [$id]); /* the log of an internal project goes with it; client logs stay on the client */
       DB::delete('projects', 'id=?', [$id]); });
     Audit::log('projects.project.delete', 'project', $id, ['name' => $p['name']]);
     $this->flash('Project deleted.');
@@ -121,11 +122,14 @@ final class ProjectController extends Controller {
   public function show(int $id): Response {
     $u = $this->user();
     $pr = $this->visible($id);
-    $tab = in_array($t = $this->request->str('tab', 'overview'), ['overview', 'board', 'list', 'milestones', 'changes', 'files'], true) ? $t : 'overview';
+    [$logView, $logWrite] = class_exists(\Modules\Crm\Services\ProjectLog::class) ? \Modules\Crm\Services\ProjectLog::access($u, $pr) : [false, false];
+    $tab = in_array($t = $this->request->str('tab', 'overview'), ['overview', 'board', 'list', 'milestones', 'changes', 'files', ...($logView ? ['log'] : [])], true) ? $t : 'overview';
     $team = DB::all('SELECT u.id, u.name, u.avatar, u.designation, pm.role FROM project_members pm JOIN users u ON u.id=pm.user_id WHERE pm.project_id=? ORDER BY u.name', [$id]);
     $sc = DB::pairs('SELECT status, COUNT(*) FROM tasks WHERE project_id=? AND parent_id IS NULL GROUP BY status', [$id]);
     $nums = DB::first("SELECT (SELECT COUNT(*) FROM milestones WHERE project_id=?) AS ms, (SELECT COUNT(*) FROM milestones WHERE project_id=? AND status='completed') AS ms_done, (SELECT COUNT(*) FROM change_requests WHERE project_id=? AND status='pending') AS cr, (SELECT COUNT(*) FROM files WHERE module='projects' AND entity_type='project' AND entity_id=?) AS files", [$id, $id, $id, $id]);
-    $data = ['title' => $pr['name'], 'pr' => $pr, 'tab' => $tab, 'team' => $team, 'sc' => $sc, 'nums' => array_map('intval', $nums), 'styles' => ['css/projects.css', 'css/todos.css'], 'scripts' => ['js/projects.js', 'js/taskdialog.js'],
+    $nums['log'] = $logView ? \Modules\Crm\Services\ProjectLog::count($id) : 0;
+    $data = ['title' => $pr['name'], 'pr' => $pr, 'tab' => $tab, 'team' => $team, 'sc' => $sc, 'nums' => array_map('intval', $nums), 'logView' => $logView, 'logWrite' => $logWrite,
+      'styles' => ['css/projects.css', 'css/todos.css', ...($logView ? ['css/crm.css'] : []), ...($logWrite && feature_on('meetings') ? ['css/meetings.css'] : [])], 'scripts' => ['js/projects.js', 'js/taskdialog.js', ...($logWrite ? ['js/crm.js'] : []), ...($logWrite && feature_on('meetings') ? ['js/meetings.js'] : [])],
       'canManage' => PA::canManageProject($u, $id), 'canTasks' => PA::canManageTasks($u, $id), 'canCr' => $this->can('projects.change_requests.manage'), 'canDelete' => $this->can('projects.delete')];
     $data += match ($tab) {
       'overview' => $this->overview($pr),
@@ -133,6 +137,7 @@ final class ProjectController extends Controller {
       'list' => $this->taskList($id),
       'milestones' => ['milestones' => $this->milestones($id)],
       'changes' => ['crs' => DB::all('SELECT cr.*, d.name AS decided_name, c.name AS creator FROM change_requests cr LEFT JOIN users d ON d.id=cr.decided_by LEFT JOIN users c ON c.id=cr.created_by WHERE cr.project_id=? ORDER BY cr.id DESC', [$id])],
+      'log' => \Modules\Crm\Services\ProjectLog::tab($pr, $this->request, $logWrite),
       'files' => ['files' => Storage::files('project', $id), 'taskFiles' => DB::all("SELECT f.id, f.original_name, f.size, f.created_at, t.id AS task_id, t.title AS task_title FROM files f JOIN tasks t ON t.id=f.entity_id WHERE f.module='projects' AND f.entity_type='task' AND t.project_id=? ORDER BY f.id DESC LIMIT 50", [$id])] };
     return $this->view('projects::projects/show', $data); }
 

@@ -74,6 +74,7 @@ final class SettingsController extends Controller {
       'payroll' => feature_on('payroll') ? [Settings::get('payroll.payslip_footer') ? 'Payslip note set' : 'Default payslips', 'info'] : ['Claims & approvals', 'info'],
       'projects' => [feature_on('projects') ? 'Reminders daily 09:00' : 'Reviewed by managers', 'info'],
       'invoicing' => [(feature_on('invoices') ? Settings::get('crm.invoice_prefix', 'INV-') : Settings::get('crm.quotation_prefix', 'QT-')).'00001 · '.Settings::get('crm.default_tax_rate', '18').'% tax', 'info'],
+      'meetings' => feature_on('meetings') ? [(\Modules\Meetings\Services\Inbox::configured() ? 'Inbox on' : 'Inbox not set up').' · '.(\Modules\Meetings\Services\Summarizer::available() ? 'AI summaries' : 'no AI summaries'), \Modules\Meetings\Services\Inbox::configured() ? 'ok' : 'info'] : ['Off', 'off'],
       'overview' => [['healthy' => 'Scheduler healthy', 'stale' => 'Scheduler stale', 'never' => 'Scheduler never ran'][$h['state']], $h['state'] === 'healthy' ? 'ok' : 'warn'],
       'retention' => [$clean ? 'Last cleanup '.ago($clean['at']) : 'No cleanup yet', $clean ? 'ok' : 'info'],
       'demo' => [$demo ? number_format($demo).' demo records' : 'Not imported', $demo ? 'warn' : 'info'],

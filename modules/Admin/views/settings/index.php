@@ -45,6 +45,15 @@ $info = static fn (string $ic, string $c, string $title, string $html) => '<div 
     <?= feature_on('invoices') ? $info('alert', 'peach', 'Overdue & reminders', 'At <b>00:20</b> unpaid invoices past their due date are marked overdue. At <b>09:10</b> each client\'s account managers get a digest of overdue invoices'.(feature_on('clients') ? ' and today\'s follow-ups' : '').'.') : '' ?>
     <?= $info('building', 'sky', 'Your company on documents', 'Address, billing email, phone and tax ID come from <a href="'.e(url('/admin/settings/general')).'">General › Company</a>; your logo from Branding.') ?>
   </div>
+<?php break; case 'meetings': $st = \Core\Settings::json('meetings.inbox_state'); ?>
+  <?= partial('admin::settings/_head', ['tabs' => $tabs, 'tab' => $tab, 'actions' => '<a class="btn ghost" href="'.e(url('/meetings')).'">'.icon('message', 'sm').' Meetings page</a>'.(\Modules\Meetings\Services\Inbox::configured() ? '<form method="post" action="'.e(url('/meetings/inbox/check')).'">'.csrf_field().'<input type="hidden" name="return" value="settings"><button class="btn ghost">'.icon('refresh', 'sm').' Check inbox now</button></form>' : '')]) ?>
+  <?= $info('shield', 'mint', 'Privacy', e(\Modules\Meetings\Services\Ui::PRIVACY).(feature_on('ai') ? '' : ' The AI assistant is off, so transcripts are stored and attached without a summary until you turn it on under <a href="'.e(url('/ai/settings')).'">AI assistant</a>.')) ?>
+  <?php if ($st): ?><div class="alert <?= !empty($st['ok']) ? 'ok' : 'warn' ?>"><?= icon(!empty($st['ok']) ? 'check-circle' : 'alert') ?><div>Last inbox check <?= e(ago($st['at'] ?? null)) ?>: <?= e($st['status'] ?? '') ?></div></div><?php endif ?>
+  <?= $form() ?>
+  <div class="grid g2">
+    <?= $info('server', 'sky', 'No outbound IMAP on your host?', 'Pipe the mailbox into Niyanta instead: in cPanel › Forwarders choose "Pipe to a program" with <code>php '.e(NY_ROOT).'/cron.php --meeting-mail</code>, or test with <code>php cron.php --meeting-mail &lt; message.eml</code>. The same sender rules apply.') ?>
+    <?= $info('send', 'lav', 'Other tools', 'Otter, tl;dv, Tactiq, Read.ai, Zoom AI Companion, Microsoft Teams and Google Gemini notes have no free API: share or forward their recap e-mails to the notes address (or a project plus-address). Fireflies can also be connected with an API key.') ?>
+  </div>
 <?php break; default: ?>
   <?= partial('admin::settings/_head', ['tabs' => $tabs, 'tab' => $tab]) ?>
   <?= $form() ?>
