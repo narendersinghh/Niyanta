@@ -23,7 +23,7 @@ $hm = static fn (int $h, int $m): string => date($tf, mktime($h, $m, 0));
     $sub = ($pj ? $first['task_title'] : null) ?: $first['description'];
     $range = $hm($h, $k * 10).' - '.$hm($k === 5 ? ($h + 1) % 24 : $h, $k === 5 ? 0 : $k * 10 + 10); ?>
     <button type="button" class="shot-card" id="slot-<?= (int) $h ?>-<?= (int) $k ?>" data-shot-at="<?= $at ?>" aria-haspopup="dialog" aria-label="Open the day's screenshots at <?= e($range) ?> (<?= count($list) ?> in this slot)">
-      <span class="sc-img<?= count($list) > 1 ? ' stack' : '' ?>"><img src="<?= e($gallery[$at]['src']) ?>" alt="" loading="lazy"><?php if (count($list) > 1): ?><span class="sc-more"><?= count($list) - 1 ?> more</span><?php endif ?></span>
+      <span class="sc-img<?= count($list) > 1 ? ' stack' : '' ?>"><img src="<?= e($gallery[$at]['th'] ?? $gallery[$at]['src']) ?>" alt="" loading="lazy" data-retry><?php if (count($list) > 1): ?><span class="sc-more"><?= count($list) - 1 ?> more</span><?php endif ?></span>
       <span class="sc-time"><b><?= e($range) ?></b><?php if (array_filter(array_column($list, 'meeting'))): ?> <span class="pill pill-sky" title="Meeting mode was on: this activity is not counted in the day's average">Meeting</span><?php endif ?><?php if ($a !== null): ?><span class="sc-act lv-<?= $a >= 60 ? 'hi' : ($a >= 30 ? 'mid' : 'lo') ?>" title="<?= $a ?>% activity, about <?= (int) round($a / 10) ?> active minutes"><span class="ds-bar"><i class="<?= $a >= 60 ? 'hi' : ($a >= 30 ? 'mid' : 'lo') ?>" style="width:<?= $a ?>%"></i></span><?= $a ?>%</span><?php endif ?></span>
       <span class="sc-head"><b class="truncate"><?= e($label) ?></b><?php if ($sub): ?><span class="truncate"><?= e(str_limit($sub, 50)) ?></span><?php endif ?></span>
     </button>

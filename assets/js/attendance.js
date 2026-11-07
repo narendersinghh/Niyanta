@@ -57,7 +57,7 @@ const E=s=>N().esc(String(s??"")),lvl=a=>a>=60?"hi":a>=30?"mid":"lo",pre={},rm=(
 const load=k=>{const s=L[k];if(s&&!pre[k]){pre[k]=new Image();pre[k].src=s.src}};
 const setZoom=z=>{zoom=z;SV.classList.toggle("zoomed",z);zb.setAttribute("aria-pressed",z?"true":"false");zl.textContent=z?"Fit to screen":"Actual size";zb.title=z?"Fit the screenshot to the screen":"Show at actual size";fig.scrollTo(0,0)};
 const build=()=>{let h=null,html="";L.forEach((s,k)=>{if(s.h!==h){html+=(h===null?"":"</div></div>")+'<div class="sv-grp" role="group" aria-label="'+E(s.h)+'"><span class="sv-hl" aria-hidden="true">'+E(s.h)+'</span><div class="sv-row">';h=s.h}
-html+='<button type="button" tabindex="-1" data-sv-go="'+k+'" aria-label="'+E(s.t+(s.d?", screen "+s.d:""))+'"><img data-src="'+E(s.src)+'" alt=""></button>'});strip.innerHTML=html+"</div></div>";
+html+='<button type="button" tabindex="-1" data-sv-go="'+k+'" aria-label="'+E(s.t+(s.d?", screen "+s.d:""))+'"><img data-src="'+E(s.th||s.src)+'" alt="" data-retry></button>'});strip.innerHTML=html+"</div></div>";
 const th=$$("img[data-src]",strip),go=t=>{t.src=t.dataset.src;t.removeAttribute("data-src")};
 if("IntersectionObserver" in window){const io=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting){go(e.target);io.unobserve(e.target)}}),{root:strip,rootMargin:"0px 480px"});th.forEach(t=>io.observe(t))}else th.forEach(go)};
 const show=n=>{if(!L.length)return;i=Math.max(0,Math.min(L.length-1,n));const s=L[i];setZoom(false);SV.classList.add("loading");img.onload=img.onerror=()=>SV.classList.remove("loading");img.src=s.src;if(img.complete)SV.classList.remove("loading");
@@ -83,3 +83,5 @@ AC.forEach(p=>{p.addEventListener("mouseover",e=>{const b=e.target.closest(".ac-
 p.addEventListener("click",e=>{const b=e.target.closest("[data-ac-slot]"),c=b&&d.getElementById("slot-"+b.dataset.acSlot);if(!c)return;hide();c.scrollIntoView({behavior:matchMedia("(prefers-reduced-motion: reduce)").matches?"auto":"smooth",block:"center"});c.classList.remove("flash");void c.offsetWidth;c.classList.add("flash");setTimeout(()=>c.focus({preventScroll:true}),450)})});
 addEventListener("scroll",hide,{passive:true})}
 })();
+/* screenshot images: a busy shared host can refuse a few of many parallel requests; retry each up to 3 times */
+document.addEventListener("error",e=>{const t=e.target;if(!(t instanceof HTMLImageElement)||!t.hasAttribute("data-retry")||!t.src)return;const n=+(t.dataset.tries||0);if(n>=3)return;t.dataset.tries=n+1;setTimeout(()=>{const u=new URL(t.src,location.href);u.searchParams.set("r",n+1);t.src=u.href},800*(n+1))},true);

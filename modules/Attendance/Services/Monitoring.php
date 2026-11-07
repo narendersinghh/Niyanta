@@ -70,13 +70,26 @@ final class Monitoring {
     Audit::log('monitoring.screenshot', 'screenshot', $id, ['source' => $source, 'display' => $display], $uid);
     return $id; }
 
+  /** Small JPEG copy (480 px wide) next to the capture for cards and the gallery strip, made once; null when GD is missing or the image cannot be read. */
+  public static function thumb(string $path): ?string {
+    $t = $path.'.t.jpg';
+    if (is_file($t)) { return $t; }
+    if (!is_file($path) || !function_exists('imagecreatefromstring')) { return null; }
+    $src = @imagecreatefromstring((string) file_get_contents($path));
+    if (!$src) { return null; }
+    $w = imagesx($src); $h = imagesy($src); $nw = min(480, $w); $nh = max(1, (int) round($h * $nw / max(1, $w)));
+    $dst = imagecreatetruecolor($nw, $nh); imagecopyresampled($dst, $src, 0, 0, 0, 0, $nw, $nh, $w, $h);
+    $ok = imagejpeg($dst, $t.'.tmp', 72) && rename($t.'.tmp', $t);
+    imagedestroy($src); imagedestroy($dst);
+    return $ok ? $t : null; }
+
   /** Cron: delete screenshots (files + rows) older than the retention period. */
   public static function cleanup(): string {
     $cut = date('Y-m-d H:i:s', strtotime('-'.self::retention().' days'));
     $n = 0; $end = microtime(true) + 40;
     do {
       $rows = DB::all('SELECT id, disk_path FROM screenshots WHERE taken_at<? ORDER BY id LIMIT 500', [$cut]);
-      foreach ($rows as $r) { @unlink(Storage::path($r['disk_path'])); }
+      foreach ($rows as $r) { $p = Storage::path($r['disk_path']); @unlink($p); @unlink($p.'.t.jpg'); }
       if ($rows) { DB::query('DELETE FROM screenshots WHERE id IN '.DB::in(array_column($rows, 'id')), array_column($rows, 'id')); $n += count($rows); } }
     while (count($rows) === 500 && microtime(true) < $end);
     return "deleted $n".(count($rows) === 500 ? ' (more tomorrow)' : ''); }

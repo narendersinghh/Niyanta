@@ -41,7 +41,7 @@ final class HubController extends BaseController {
 
   /** One screenshot for the gallery viewer: image URL, time, activity %, screen number, meeting mode (keystroke and mouse counts are not shown). */
   public static function shot(array $r): array {
-    return ['src' => url('/time/screenshots/'.$r['id'].'/image'), 't' => ftime($r['taken_at']), 'a' => $r['activity_pct'] === null ? null : (int) $r['activity_pct'], 'd' => $r['display_index'] === null ? null : (int) $r['display_index'] + 1,
+    return ['src' => url('/time/screenshots/'.$r['id'].'/image'), 'th' => url('/time/screenshots/'.$r['id'].'/image?s=t'), 't' => ftime($r['taken_at']), 'a' => $r['activity_pct'] === null ? null : (int) $r['activity_pct'], 'd' => $r['display_index'] === null ? null : (int) $r['display_index'] + 1,
       'g' => !empty($r['meeting'])]; }
 
   /** Whether $table (activity_slots, screenshots) has the meeting-mode flag (migration 2026_11_07_000100). */
