@@ -21,7 +21,7 @@ src/main/      main.js (lifecycle, tray, window, tracking dot on the app icon, I
                toast.js (capture notice), store.js (prefs + encrypted token), errors.js (error reporting),
                updater.js (update check, Update now, manual download), selfupdate.js (pure helpers: feed parsing,
                macOS helper script), guard.js (pure: IPC argument validation, link allowlist, rate limiter, safe file
-               names, screenshot encryption)
+               names, screenshot encryption, deep links, PKCE), connect.js (sign in with the browser)
 src/preload/   contextIsolation bridge (window.tracker) and the notice window bridge
 src/shared/    status.js (what the big counter shows; used by the window and the checks)
 src/renderer/  index.html / app.js / styles.css (384 x 700 window, brand colours only), toast.html (capture notice)
@@ -238,6 +238,30 @@ Escape closes them).
   `userData/logs/tracker.log` and sent to the workspace error log (Audit log › Error logs, source *desktop*, with the version).
 - **Updates**: see *Updates (in the app)* above.
 
+## Sign in with your browser
+
+The sign-in screen's main button is **Sign in with your browser**; nobody has to type the workspace address or a password.
+
+- **From the website** (download page, *Connect the desktop app*, or the install script): the browser opens
+  `niyanta-tracker://connect?ws=<workspace>&code=<one-time code>`. The app asks *Connect to <host> as the person signed in
+  on that website?* the first time it sees that host (and always when it would switch from another workspace), then trades
+  the code at `POST <ws>/api/agent/connect {code, device_name, device_os, app_version}` for a device token (same answer as
+  `/api/agent/login`). Already signed in to that workspace: the window comes up with *Already connected*.
+- **From the app**: with the stored workspace (or the address typed after *Change*) the app opens
+  `<ws>time/desktop/connect?challenge=&state=&device=&os=` and shows *Waiting for your browser... Cancel*. The link that
+  comes back must carry the same state; the code is traded together with the PKCE verifier. Errors (`code_invalid`,
+  `code_expired`, `verifier_mismatch`, `disabled`, ...) show a short message and *Try again*.
+- *Use email and password instead* keeps the old form.
+- The device token does not depend on the website session: signing out of the website leaves the app signed in. The app
+  signs out only on *Sign out*, a `401` (token revoked or expired, account deactivated) or a `403` `disabled` / `forbidden`.
+- The scheme is registered by the installers (`package.json` `build.protocols`: macOS `CFBundleURLTypes`, the Linux
+  `.desktop` `MimeType=x-scheme-handler/niyanta-tracker`; `build/installer.nsh`: `HKCU\Software\Classes\niyanta-tracker`
+  on Windows) and by the app at every start (`app.setAsDefaultProtocolClient`, development runs with the app path; an
+  AppImage writes `~/.local/share/applications/niyanta-tracker-url.desktop` and sets it with `xdg-mime`).
+- Try it: macOS `open "niyanta-tracker://connect?ws=https%3A%2F%2Fteam.example.com%2F&code=<code>"`; Windows
+  `start "" "niyanta-tracker://connect?ws=...&code=..."` (or `reg query HKCU\Software\Classes\niyanta-tracker\shell\open\command`);
+  Linux `xdg-open "niyanta-tracker://connect?..."` (`xdg-mime query default x-scheme-handler/niyanta-tracker`).
+
 ## Security
 
 What the app does to keep the device token, the screenshots and the computer safe; `npm run check` runs
@@ -248,8 +272,9 @@ policy, storage, fuses, package contents).
   `webviewTag: false`, `webSecurity`, no plugins or experimental features, devtools only in development. The pages are the
   two bundled files (`file://` inside `src/renderer`): navigation anywhere else, redirects, `window.open`, `<webview>` and page
   downloads are refused for every web contents; every permission request (camera, notifications, clipboard read, devices...)
-  is denied (screenshots are taken by the main process with `desktopCapturer`). Certificate errors are never accepted. No
-  custom protocol is registered. `ELECTRON_RUN_AS_NODE` and `NODE_OPTIONS` are removed from the environment at start.
+  is denied (screenshots are taken by the main process with `desktopCapturer`). Certificate errors are never accepted. The
+  only custom protocol is the OS-level `niyanta-tracker://` scheme for sign-in links (see below); no scheme is registered
+  inside the app (`protocol.handle`). `ELECTRON_RUN_AS_NODE` and `NODE_OPTIONS` are removed from the environment at start.
 - **Fuses** (`scripts/after-pack.js`, `@electron/fuses`): in every installer `runAsNode` is off (the binary cannot be used as
   a Node runtime), `NODE_OPTIONS` and `--inspect` are ignored, cookie encryption is on, the app loads only from `app.asar`,
   and on macOS and Windows the asar is validated against the hash electron-builder embeds (a modified `app.asar` does not
@@ -277,6 +302,15 @@ policy, storage, fuses, package contents).
   and files no queued job refers to are deleted at start. Nothing is captured while the screen is locked or the computer
   asleep. Sign-out deletes the token, the key, the queue, the cached bootstrap and the saved session. Logs rotate at 2 MB
   (two backups) and bearer tokens / password fields are scrubbed from every line before it is written or sent.
+- **Sign in with your browser** (`src/main/connect.js`, `guard.parseDeepLink`): a `niyanta-tracker://connect` link is
+  parsed strictly (scheme, host `connect`, no credentials or port, `ws` https or http only for localhost, no credentials in
+  it, code 20 to 128 of `[A-Za-z0-9_-]`, state 16 to 64 of `[A-Za-z0-9._~-]`, each once, at most 2048 characters) and
+  links are limited to 20 a minute. A link the app did not start asks before it does anything (first time a host is seen,
+  always when it would switch workspace); a link for the workspace already signed in trades nothing. The app's own
+  sign-in uses PKCE S256 (32-byte verifier) and a 24-byte state, compared in constant time, valid 10 minutes, used once,
+  kept sealed with the OS keychain; links with another state are ignored. The code is traded on a separate client with
+  no token, so a failed attempt never touches the current session. The connect page opens in the browser only on the
+  workspace's own host.
 - **Quitting**: the sync before quitting is bounded (at most 60 s, Quit anyway at any time) and a hard ceiling of 75 s
   guarantees the app exits even if a request hangs. A crashed page is reloaded (at most 3 times in 5 minutes).
 - **Package**: one runtime dependency (`electron-updater`, `npm audit --omit=dev` is clean); the installer contains `src/`

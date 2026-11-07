@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld('tracker', {
   getState: () => call('state'),
   signIn: (data) => call('signIn', { url: text(data && data.url, 300), email: text(data && data.email, 200), password: text(data && data.password, 1000) }),
   signOut: () => call('signOut'),
+  connect: (op, url) => call('connect', { op: text(op, 20), url: text(url, 300) }),
   startDay: (s) => call('action', { name: 'start', body: sel(s) }),
   pause: () => call('action', { name: 'pause', body: {} }),
   resume: (s) => call('action', { name: 'resume', body: sel(s) }),

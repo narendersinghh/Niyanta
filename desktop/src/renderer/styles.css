@@ -59,6 +59,12 @@ input:focus,select:focus{border-color:var(--primary);box-shadow:0 0 0 3px color-
 .si-form{display:grid;gap:11px;background:var(--surface);border:1px solid var(--border);border-radius:22px;padding:16px;box-shadow:var(--shadow)}
 .si-form label{display:grid;gap:5px;font-size:.8rem;font-weight:650;color:var(--muted)}
 .si-foot{font-size:.74rem;color:var(--muted);text-align:center;line-height:1.5}
+.si-intro{margin:0;font-size:.8rem;color:var(--muted);line-height:1.5;text-align:center}.si-intro b{color:var(--text)}
+.si-ws{margin:0;font-size:.78rem;color:var(--muted);text-align:center;display:flex;justify-content:center;align-items:center;gap:5px;min-width:0}.si-ws b{color:var(--text);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.si-wait{display:flex;align-items:center;gap:9px;background:var(--lav-s);color:var(--lav-d);border-radius:14px;padding:12px 14px;font-weight:700;font-size:.86rem}.si-wait .grow{flex:1;min-width:0}
+.si-spin{width:16px;height:16px;border-radius:50%;border:2px solid color-mix(in srgb,currentColor 25%,transparent);border-top-color:currentColor;animation:spin .9s linear infinite;flex:none}
+.si-alt{justify-self:center}
+@media (prefers-reduced-motion:reduce){.si-spin{animation-duration:3s}}
 /* header */
 .top{display:flex;align-items:center;gap:10px;padding:2px 0}
 .logo{border-radius:9px}

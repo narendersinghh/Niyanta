@@ -22,6 +22,9 @@
   let pomoDirty = false;
   let sheetReturn = null;
   let meetBusy = false;
+  let wsOpen = false;
+  let pwOpen = false;
+  const hostOf = u => { try { return u ? new URL(/^https?:\/\//i.test(u) ? u : 'https://' + u).host : ''; } catch (e) { return ''; } };
 
   window.addEventListener('error', e => T.reportError({ message: e.message, stack: e.error && e.error.stack }));
   window.addEventListener('unhandledrejection', e => T.reportError({ message: 'Unhandled rejection: ' + (e.reason && e.reason.message || e.reason), stack: e.reason && e.reason.stack }));
@@ -37,13 +40,38 @@
     renderModal();
     tick(); }
 
+  /* Sign in: the big "Sign in with your browser" button; the workspace field only when no workspace is known yet or after
+     Change; email and password stay available behind "Use email and password instead". */
   function renderSignin() {
     if (!$('si-url').value && ui.login.url) $('si-url').value = ui.login.url;
     if (!$('si-email').value && ui.login.email) $('si-email').value = ui.login.email;
-    $('si-submit').disabled = ui.busy;
-    $('si-submit').textContent = ui.busy ? 'Signing in...' : 'Sign in';
-    $('si-error').textContent = ui.error || '';
-    $('si-error').classList.toggle('hide', !ui.error); }
+    const cn = ui.connect || {};
+    const host = hostOf(ui.login.url);
+    const field = wsOpen || !host;
+    const show = (id, on) => $(id).classList.toggle('hide', !on);
+    show('si-intro', !host && !cn.phase);
+    show('si-ws-field', field && cn.phase !== 'waiting');
+    show('si-ws-line', !field || cn.phase === 'waiting');
+    $('si-host').textContent = (cn.phase && cn.host) || host;
+    show('si-change-wrap', cn.phase !== 'waiting');
+    $('si-change').setAttribute('aria-expanded', String(field));
+    show('si-browser', cn.phase !== 'waiting');
+    show('si-wait', cn.phase === 'waiting');
+    const working = cn.phase === 'working';
+    $('si-browser').disabled = ui.busy || working;
+    $('si-browser-label').textContent = working ? 'Connecting...' : 'Sign in with your browser';
+    const msg = cn.message || (!pwOpen && ui.error ? { text: ui.error, kind: 'error' } : null);
+    show('si-cn-msg', !!msg);
+    $('si-cn-msg').className = 'alert ' + (msg && msg.kind === 'info' ? 'info' : 'error') + (msg ? '' : ' hide');
+    $('si-cn-text').textContent = msg ? msg.text : '';
+    show('si-retry', !!(cn.message && cn.retry));
+    show('si-form', pwOpen);
+    $('si-pw-toggle').setAttribute('aria-expanded', String(pwOpen));
+    $('si-pw-toggle').textContent = pwOpen ? 'Hide email and password' : 'Use email and password instead';
+    $('si-submit').disabled = ui.busy || working;
+    $('si-submit').textContent = ui.busy && !working ? 'Signing in...' : 'Sign in';
+    $('si-error').textContent = pwOpen && ui.error ? ui.error : '';
+    $('si-error').classList.toggle('hide', !(pwOpen && ui.error)); }
 
   function renderTracker() {
     const st = ui.state || { state: 'not_started', totals: {}, day: {} };
@@ -207,6 +235,7 @@
 
   function wantedModal() {
     if (ui.quitSync) return 'sync';
+    if (ui.connect && ui.connect.phase === 'confirm') return 'connect';
     if (ui.screen !== 'tracker') return null;
     if (ui.consent && ui.consent.needed && (modalKind === 'consent' || (ui.state && ui.state.state === 'tracking' && !consentLater))) return 'consent';
     if (ui.update && ui.update.prompt && promptLater !== ui.update.latest) return 'update';
@@ -219,7 +248,7 @@
     $('modal').classList.toggle('hide', !kind);
     if (!kind) { modalKey = ''; if (was && modalReturn && document.contains(modalReturn)) modalReturn.focus(); modalReturn = null; return; }
     if (!was) modalReturn = document.activeElement;
-    const key = kind + '|' + (kind === 'update' ? ui.update.latest : '');
+    const key = kind + '|' + (kind === 'update' ? ui.update.latest : kind === 'connect' ? ui.connect.host + '|' + ui.connect.switching : '');
     const fresh = key !== modalKey;
     modalKey = key;
     if (kind === 'sync') { renderSync(fresh); return; }
@@ -231,6 +260,15 @@
       $('m-body').className = 'm-body';
       $('m-body').innerHTML = `<p>Your workspace uses screenshots while you track time (policy ${esc(p.version)}):</p><ul>${p.points.map(x => `<li>${esc(x)}</li>`).join('')}</ul>`;
       $('m-actions').innerHTML = '<button class="btn ghost" data-consent-later>Not now</button><button class="btn primary" data-consent-accept>I accept</button>'; }
+    if (kind === 'connect') {
+      const c = ui.connect;
+      $('m-art').innerHTML = `<div class="bubble">${icon('shield')}</div>`;
+      $('m-title').textContent = c.switching ? 'Switch workspace?' : 'Connect this computer?';
+      $('m-body').className = 'm-body center';
+      $('m-body').innerHTML = `<p>Connect to <b>${esc(c.host)}</b> as the person signed in on that website?</p>`
+        + (c.switching ? `<p>You are signed in to <b>${esc(c.current)}</b>. Tracking there is paused and this computer is signed out of it first.</p>` : '')
+        + '<p class="note">Only continue if you just clicked Connect the desktop app on that website.</p>';
+      $('m-actions').innerHTML = `<button class="btn ghost" data-cn="decline">Cancel</button><button class="btn primary" data-cn="confirm">${c.switching ? 'Switch' : 'Connect'}</button>`; }
     if (kind === 'update') {
       const up = ui.update;
       $('m-art').innerHTML = `<div class="bubble">${icon('download')}</div>`;
@@ -316,9 +354,19 @@
   $('si-form').addEventListener('submit', async e => {
     e.preventDefault();
     const url = $('si-url').value.trim(), email = $('si-email').value.trim(), password = $('si-pass').value;
-    if (!url || !email || !password) { $('si-error').textContent = 'Enter your workspace address, email and password.'; $('si-error').classList.remove('hide'); return; }
+    if (!url || !email || !password) { if (!url) { wsOpen = true; renderSignin(); } $('si-error').textContent = 'Enter your workspace address, email and password.'; $('si-error').classList.remove('hide'); return; }
     const r = await T.signIn({ url, email, password });
     if (r && r.ok) $('si-pass').value = ''; });
+
+  $('si-browser').addEventListener('click', () => {
+    const url = $('si-url').value.trim() || ui.login.url;
+    if (!url) { wsOpen = true; renderSignin(); $('si-url').focus(); $('si-cn-text').textContent = 'Enter your workspace address first.'; $('si-cn-msg').className = 'alert error'; return; }
+    T.connect('browser', url); });
+  $('si-url').addEventListener('keydown', e => { if (e.key === 'Enter' && !pwOpen) { e.preventDefault(); $('si-browser').click(); } });
+  $('si-cancel').addEventListener('click', () => T.connect('cancel'));
+  $('si-retry').addEventListener('click', () => T.connect('retry', $('si-url').value.trim()));
+  $('si-change').addEventListener('click', () => { wsOpen = true; renderSignin(); $('si-url').focus(); $('si-url').select(); });
+  $('si-pw-toggle').addEventListener('click', () => { pwOpen = !pwOpen; renderSignin(); if (pwOpen) $(!$('si-url').value ? 'si-url' : !$('si-email').value ? 'si-email' : 'si-pass').focus(); });
 
   $('project').addEventListener('change', () => { fillTasks(null); T.select(currentSel()); });
   $('task').addEventListener('change', () => T.select(currentSel()));
@@ -369,6 +417,7 @@
   document.addEventListener('keydown', e => {
     if (e.key !== 'Escape') return;
     if (modalKind === 'update') { laterPrompt(); return; }
+    if (modalKind === 'connect') { T.connect('decline'); return; }
     closeSheet(); });
 
   function laterPrompt() { const v = ui.update && ui.update.latest; promptLater = v || ''; T.updatePrompted(v); renderModal(); }
@@ -392,6 +441,7 @@
     if ('consentAccept' in t.dataset) { t.disabled = true; T.acceptConsent().then(() => { modalKind = null; }); }
     if ('promptLater' in t.dataset) laterPrompt();
     if ('promptUpdate' in t.dataset) { const up = ui.update; promptLater = up.latest; T.updatePrompted(up.latest); if (up.auto) T.installUpdate(); else T.downloadInstaller(); renderModal(); }
+    if (t.dataset.cn) { t.disabled = true; T.connect(t.dataset.cn); }
     if ('quitAnyway' in t.dataset) { t.disabled = true; t.textContent = 'Closing...'; T.quitAnyway(); } });
 
   /* "Message alert tone": a short two-note chime (Web Audio, no sound file) */

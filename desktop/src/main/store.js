@@ -50,6 +50,17 @@ function getToken() { load(); return unseal(data.tokenEnc, data.token); }
 
 function tokenProtected() { return !!load().tokenEnc; }
 
+/** A small object kept like the token (sealed with the OS keychain when available); null / undefined removes it. */
+function setSealed(key, value) {
+  load(); delete data[key];
+  if (value !== null && value !== undefined) data[key] = seal(JSON.stringify(value));
+  save(); }
+
+function getSealed(key) {
+  const v = load()[key];
+  if (!v || typeof v !== 'object') return null;
+  try { return JSON.parse(unseal(v.enc, v.plain) || 'null'); } catch (e) { return null; } }
+
 /**
  * The 32-byte key that encrypts screenshots waiting in the offline queue: created on first use, kept like the token. When
  * the keychain becomes available later the key is re-sealed. Returns null only when a stored key cannot be read (then the
@@ -74,4 +85,4 @@ function getQueueKey() {
 /** New key (sign-out: whatever was queued is deleted with it). */
 function resetQueueKey() { load(); queueKey = null; delete data.queueKeyEnc; delete data.queueKey; save(); }
 
-module.exports = { get, set, setToken, getToken, tokenProtected, canEncrypt, getQueueKey, resetQueueKey };
+module.exports = { get, set, setToken, getToken, tokenProtected, setSealed, getSealed, canEncrypt, getQueueKey, resetQueueKey };

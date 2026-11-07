@@ -1,6 +1,6 @@
 'use strict';
 /* Niyanta Tracker: main process. Single instance, tray icon + menu, compact window, tracking dot on the taskbar / dock icon,
-   IPC bridge, auto-launch, power events, sync of the offline queue before quitting. */
+   IPC bridge, auto-launch, power events, sync of the offline queue before quitting, niyanta-tracker:// sign-in links. */
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -12,6 +12,8 @@ const toast = require('./toast');
 const badge = require('./badge');
 const guard = require('./guard');
 const { Tracker } = require('./tracker');
+const { Connect } = require('./connect');
+const { normaliseUrl } = require('./api');
 
 /* ---------- process hardening (before anything else runs) ---------- */
 /* Every renderer runs in the Chromium sandbox (also set per window; the fuses of the packaged app turn off runAsNode,
@@ -24,6 +26,33 @@ if (process.platform === 'win32') app.setAppUserModelId('app.niyanta.tracker');
 if (process.env.NIYANTA_TRACKER_PROFILE) app.setPath('userData', path.resolve(process.env.NIYANTA_TRACKER_PROFILE));
 
 if (!app.requestSingleInstanceLock()) { app.quit(); return; } // eslint-disable-line no-useless-return
+
+/* ---------- niyanta-tracker:// links ("Sign in with your browser", src/main/connect.js) ---------- */
+/* The scheme is registered by the installers too (package.json build.protocols: macOS CFBundleURLTypes, the Linux .desktop
+   MimeType; build/installer.nsh: the Windows registry); here for development runs and AppImages. A link arrives with
+   open-url (macOS, also before ready), the argv of a second instance (Windows, Linux) or the argv of the first launch.
+   Everything is parsed strictly by guard.parseDeepLink before anything happens. */
+function registerProtocol() {
+  try {
+    if (process.defaultApp && process.argv.length >= 2) app.setAsDefaultProtocolClient(guard.SCHEME, process.execPath, [path.resolve(process.argv[1])]);
+    else app.setAsDefaultProtocolClient(guard.SCHEME);
+    if (process.platform === 'linux' && process.env.APPIMAGE) linuxHandler(process.env.APPIMAGE); }
+  catch (e) { errors.report('protocol', e, {}, 'warning'); } }
+/** AppImage: a hidden .desktop entry that hands niyanta-tracker:// links to this AppImage, made the default with xdg-mime. */
+function linuxHandler(exe) {
+  const dir = path.join(os.homedir(), '.local', 'share', 'applications');
+  const name = 'niyanta-tracker-url.desktop';
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, name), `[Desktop Entry]\nType=Application\nName=Niyanta Tracker\nExec=${guard.desktopExecArg(exe)} %u\nNoDisplay=true\nTerminal=false\nMimeType=x-scheme-handler/${guard.SCHEME};\n`, { mode: 0o644 });
+  require('child_process').execFile('xdg-mime', ['default', name, 'x-scheme-handler/' + guard.SCHEME], { timeout: 10000 }, () => { /* best effort */ }); }
+registerProtocol();
+let connect = null;
+let earlyLink = null;
+const linkIn = argv => (Array.isArray(argv) ? argv : []).find(a => typeof a === 'string' && a.slice(0, guard.SCHEME.length + 1).toLowerCase() === guard.SCHEME + ':') || null;
+function deepLink(url) {
+  if (!connect || !connect.ready) { earlyLink = url; return; }
+  connect.link(url).catch(e => errors.report('connect', e)); }
+app.on('open-url', (e, url) => { e.preventDefault(); deepLink(url); });
 
 /* TLS: a certificate the OS does not trust is never accepted (the default; stated here so nothing can loosen it later). */
 app.on('certificate-error', (_e, _wc, _url, _err, _cert, callback) => callback(false));
@@ -290,6 +319,12 @@ function openTarget(what) {
   shell.openExternal(url, { activate: true });
   return true; }
 
+/** The workspace's "connect the desktop app" page (flow B): only an http(s) URL on that workspace goes to the browser. */
+function openConnectPage(url, ws) {
+  if (!guard.allowedLink(url, ws)) { errors.log('connect: refused a sign-in page outside the workspace'); return false; }
+  shell.openExternal(url, { activate: true });
+  return true; }
+
 /* ---------- IPC ---------- */
 
 /**
@@ -297,7 +332,7 @@ function openTarget(what) {
  * validates its arguments (types, ranges, lengths: guard.js) and is rate limited per channel. Errors never leak stacks to
  * the page, only the message.
  */
-const limiter = new guard.RateLimiter({ state: 240, select: 120, action: 60, error: 10, signIn: 10, copy: 30, updates: 10, refresh: 10 }, 60000, 60);
+const limiter = new guard.RateLimiter({ state: 240, select: 120, action: 60, error: 10, signIn: 10, connect: 20, copy: 30, updates: 10, refresh: 10 }, 60000, 60);
 function validSender(e) {
   if (!win || win.isDestroyed() || e.sender !== win.webContents) return false;
   const f = e.senderFrame;
@@ -312,6 +347,7 @@ function registerIpc() {
   h('state', () => tracker.ui());
   h('signIn', d => { d = obj(d); return tracker.signIn({ url: guard.str(d.url, 300), email: guard.str(d.email, 200), password: guard.str(d.password, 1000) }); });
   h('signOut', () => tracker.signOut());
+  h('connect', c => { c = obj(c); const op = guard.str(c.op, 20); return guard.CONNECT_OPS.includes(op) ? connect.op(op, guard.str(c.url, 300)) : { ok: false }; });
   h('action', a => { a = obj(a); const name = guard.str(a.name, 10); return ['start', 'pause', 'resume', 'switch'].includes(name) ? tracker.action(name, guard.selection(a.body)) : { ok: false }; });
   h('select', sel => { tracker.setSelection(guard.selection(sel)); return { ok: true }; });
   h('consent', () => tracker.acceptConsent());
@@ -345,7 +381,7 @@ function registerIpc() {
 
 /* ---------- lifecycle ---------- */
 
-app.on('second-instance', () => showWindow());
+app.on('second-instance', (_e, argv) => { if (!app.isReady()) return; showWindow(); const url = linkIn(argv); if (url) deepLink(url); });
 app.on('activate', () => showWindow());
 app.on('window-all-closed', e => { /* keep running in the tray */ });
 /*
@@ -405,6 +441,8 @@ app.whenReady().then(async () => {
   tracker.on('update-restart', () => restartToUpdate(true));
   tracker.on('quit-sync-show', () => showWindow());
   tracker.on('app-moved', () => { if (store.get('launchAtLogin', true)) setLaunchAtLogin(true); });
+  connect = new Connect({ tracker, store, open: openConnectPage, focus: showWindow, device: os.hostname(), platform: process.platform, normalise: normaliseUrl, log: errors.log });
+  tracker.connectUi = () => connect.view();
   registerIpc();
   createWindow();
   createTray();
@@ -413,6 +451,11 @@ app.whenReady().then(async () => {
   powerMonitor.on('shutdown', e => { if (quitting) return; e.preventDefault(); tracker.onShutdown(); prepareQuit().then(() => app.quit()); });
   if (store.get('launchAtLogin') === undefined) setLaunchAtLogin(true);
   await tracker.restore();
+  /* a link that started the app (or came before the session was restored) is handled now */
+  connect.ready = true;
+  const first = earlyLink || linkIn(process.argv);
+  earlyLink = null;
+  if (first) deepLink(first);
   if (process.platform === 'darwin' && tracker.settings.screenshots_enabled && capture.screenPermission() === 'denied') {
     dialog.showMessageBox({ type: 'info', message: 'Allow screen recording', detail: 'Your organisation uses screenshots while you track time. Open System Settings › Privacy & Security › Screen Recording and turn on Niyanta Tracker, then restart the app.', buttons: ['Open Settings', 'Later'] })
       .then(r => { if (r.response === 0) capture.openPermissionSettings(); }); } });

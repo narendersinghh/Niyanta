@@ -30,12 +30,20 @@
 
 <main id="signin" class="screen hide" aria-labelledby="si-title">
   <div class="si-brand"><img src="logo.svg" alt="" width="64" height="64"><h1 id="si-title">Niyanta Tracker</h1><p>Sign in to your Niyanta workspace</p></div>
-  <form id="si-form" class="si-form" novalidate>
-    <label>Workspace address<input id="si-url" name="url" type="url" inputmode="url" autocomplete="url" placeholder="https://team.example.com" required></label>
+  <section class="si-form" aria-label="Sign in with your browser">
+    <p id="si-intro" class="si-intro hide">Open the download page of your workspace and click <b>Connect the desktop app</b>, or enter your workspace address.</p>
+    <label id="si-ws-field" class="hide">Workspace address<input id="si-url" name="url" type="url" inputmode="url" autocomplete="url" placeholder="https://team.example.com" required></label>
+    <button id="si-browser" class="btn primary block big" type="button"><svg class="ic"><use href="#i-ext"/></svg> <span id="si-browser-label">Sign in with your browser</span></button>
+    <div id="si-wait" class="si-wait hide" role="status" aria-live="polite"><span class="si-spin" aria-hidden="true"></span><span class="grow">Waiting for your browser...</span><button id="si-cancel" class="link" type="button">Cancel</button></div>
+    <p id="si-ws-line" class="si-ws hide">Workspace: <b id="si-host"></b><span id="si-change-wrap"> · <button id="si-change" class="link" type="button" aria-controls="si-ws-field" aria-expanded="false">Change</button></span></p>
+    <div id="si-cn-msg" class="alert error hide" role="alert"><span id="si-cn-text" class="grow"></span><button id="si-retry" class="btn hide" type="button">Try again</button></div>
+    <button id="si-pw-toggle" class="link si-alt" type="button" aria-controls="si-form" aria-expanded="false">Use email and password instead</button>
+  </section>
+  <form id="si-form" class="si-form hide" novalidate>
     <label>Email<input id="si-email" name="email" type="email" autocomplete="username" placeholder="you@company.com" required></label>
     <label>Password<input id="si-pass" name="password" type="password" autocomplete="current-password" required></label>
     <div id="si-error" class="alert error hide" role="alert"></div>
-    <button id="si-submit" class="btn primary block" type="submit">Sign in</button>
+    <button id="si-submit" class="btn ghost block" type="submit">Sign in</button>
   </form>
   <p class="si-foot">Your tracked time and, if your company turns it on, screenshots are shared with your workspace. You can always see what is recorded on the Time Tracking page.</p>
 </main>

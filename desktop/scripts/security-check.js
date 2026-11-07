@@ -8,6 +8,9 @@
  *   checksummed and file names sanitised, fuses config, package whitelist, no secrets in log lines
  * - functional (Electron stubbed): guard.js validators, allowlist, rate limiter, encryption round trip, the queue's
  *   encrypted files / orphan sweep / caps, normaliseUrl, log scrubbing, the fuse wire of a packed build when one exists
+ * - sign in with the browser: niyanta-tracker:// is registered (package.json, installer.nsh, main.js) and every way a link
+ *   arrives is handled; deep link parsing, PKCE (RFC 7636 vector), state matching and expiry, and the connect flow
+ *   (src/main/connect.js with a fake tracker): confirmation, remembered hosts, already connected, mismatched / expired state
  */
 const fs = require('fs');
 const os = require('os');
@@ -16,9 +19,9 @@ const Module = require('module');
 const root = path.join(__dirname, '..');
 const read = f => fs.readFileSync(path.join(root, f), 'utf8');
 const src = {};
-for (const f of ['src/main/main.js', 'src/main/toast.js', 'src/main/api.js', 'src/main/store.js', 'src/main/queue.js', 'src/main/updater.js', 'src/main/tracker.js', 'src/main/capture.js', 'src/main/errors.js',
+for (const f of ['src/main/main.js', 'src/main/toast.js', 'src/main/api.js', 'src/main/connect.js', 'src/main/guard.js', 'build/installer.nsh', 'src/main/store.js', 'src/main/queue.js', 'src/main/updater.js', 'src/main/tracker.js', 'src/main/capture.js', 'src/main/errors.js',
   'src/preload/preload.js', 'src/preload/toast-preload.js', 'src/renderer/index.html', 'src/renderer/toast.html', 'src/renderer/app.js', 'src/renderer/toast.js', 'src/shared/status.js', 'package.json']) src[f] = read(f);
-const code = Object.entries(src).filter(([f]) => f.endsWith('.js')).map(([, s]) => s).join('\n');
+const code = Object.entries(src).filter(([f]) => f.endsWith('.js') && f !== 'src/main/guard.js').map(([, s]) => s).join('\n');
 /* source without comments and strings, for "this must not appear" checks */
 const strip = s => s.replace(/\/\*[^]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 
@@ -50,7 +53,9 @@ has('src/main/main.js', /wc\.on\('will-redirect', e => e\.preventDefault\(\)\)/,
 has('src/main/main.js', /delete process\.env\[k\]/, 'ELECTRON_RUN_AS_NODE / NODE_OPTIONS removed from the environment');
 has('src/main/main.js', /render-process-gone/, 'renderer crash recovery');
 has('src/main/main.js', /QUIT_CEILING_MS/, 'quit never waits forever');
-not('src/main/main.js', /setAsDefaultProtocolClient|registerSchemesAsPrivileged|protocol\.(handle|register)/, 'no custom protocol handlers');
+not('src/main/main.js', /registerSchemesAsPrivileged|protocol\.(handle|register)/, 'no privileged schemes or protocol handlers inside the app');
+eq((main.match(/setAsDefaultProtocolClient\(/g) || []).length, 2, 'the OS hands niyanta-tracker:// to the app (one call for development, one packaged)');
+has('src/main/main.js', /process\.defaultApp && process\.argv\.length >= 2\) app\.setAsDefaultProtocolClient\(guard\.SCHEME, process\.execPath, \[path\.resolve\(process\.argv\[1\]\)\]\)/, 'development runs register with the app path');
 ok(!/\.loadURL\(/.test(strip(code)), 'renderer loads local files only (no loadURL)');
 ok((code.match(/\.loadFile\(/g) || []).length === 2 && /loadFile\(asset\('renderer', 'index\.html'\)\)/.test(main) && /loadFile\(path\.join\(__dirname, '\.\.', 'renderer', 'toast\.html'\)\)/.test(src['src/main/toast.js']), 'only the two bundled pages are loaded');
 
@@ -67,7 +72,8 @@ has('src/main/main.js', /guard\.POMODORO_OPS\.includes\(op\)/, 'pomodoro ops all
 has('src/main/main.js', /guard\.OPEN_TARGETS\.includes\(what\)/, 'open targets allowlisted');
 has('src/main/main.js', /guard\.str\(d\.url, 300\), email: guard\.str\(d\.email, 200\), password: guard\.str\(d\.password, 1000\)/, 'sign-in fields typed and bounded');
 has('src/main/main.js', /clipboard\.writeText\(guard\.str\(text, 2000\)\)/, 'clipboard text bounded');
-eq((code.match(/shell\.openExternal\(/g) || []).length, 2, 'shell.openExternal appears exactly twice (openTarget and the macOS settings pane)');
+eq((code.match(/shell\.openExternal\(/g) || []).length, 3, 'shell.openExternal appears exactly three times (openTarget, the connect page and the macOS settings pane)');
+has('src/main/main.js', /function openConnectPage\(url, ws\) \{\n  if \(!guard\.allowedLink\(url, ws\)\) \{[^\n]*return false; \}\n  shell\.openExternal\(url/, 'the connect page opens only on the workspace host');
 has('src/main/main.js', /if \(!guard\.allowedLink\(url, [^)]*\)\) \{[^]*?return false; \}\n  shell\.openExternal\(url/, 'links go to the browser only after the allowlist');
 has('src/main/capture.js', /shell\.openExternal\(SETTINGS_PANE\)/, 'settings pane is a constant');
 not('src/main/main.js', /shell\.openPath\(/, 'main.js never opens arbitrary paths');
@@ -156,6 +162,29 @@ for (const plat of ['darwin', 'win32', 'linux']) {
     [false, true, false, false, true, plat !== 'linux'], 'fuses for ' + plat); }
 ok(fuseConfig('darwin', true).resetAdHocDarwinSignature === true && fuseConfig('win32', false).resetAdHocDarwinSignature === false, 'ad-hoc signature reset only on macOS');
 
+/* ---------- sign in with the browser: registration and handlers ---------- */
+eq(pkg.build.protocols, [{ name: 'Niyanta Tracker', schemes: ['niyanta-tracker'], role: 'Viewer' }], 'package.json build.protocols (macOS CFBundleURLTypes, Linux MimeType x-scheme-handler)');
+eq(pkg.build.nsis.include, 'build/installer.nsh', 'NSIS include wired');
+has('build/installer.nsh', /!macro customInstall[^]*WriteRegStr SHCTX "Software\\Classes\\niyanta-tracker" "URL Protocol" ""[^]*shell\\open\\command" "" '"\$appExe" "%1"'[^]*!macroend/, 'Windows registry: URL Protocol and open command');
+has('build/installer.nsh', /!macro customUnInstall[^]*\$\{ifNot\} \$\{isUpdated\}[^]*DeleteRegKey SHCTX "Software\\Classes\\niyanta-tracker"/, 'Windows uninstall removes the scheme (not on updates)');
+has('src/main/main.js', /app\.on\('open-url', \(e, url\) => \{ e\.preventDefault\(\); deepLink\(url\); \}\);/, 'macOS open-url handled (registered before ready)');
+ok(main.indexOf("app.on('open-url'") < main.indexOf('app.whenReady()'), 'open-url listener exists before ready');
+has('src/main/main.js', /app\.on\('second-instance', \(_e, argv\) => \{[^\n]*const url = linkIn\(argv\); if \(url\) deepLink\(url\);/, 'second-instance argv handled (Windows, Linux)');
+has('src/main/main.js', /const first = earlyLink \|\| linkIn\(process\.argv\);/, 'first launch argv and early links handled after the session is restored');
+has('src/main/main.js', /MimeType=x-scheme-handler\/\$\{guard\.SCHEME\};/, 'AppImage gets a scheme handler entry');
+has('src/main/main.js', /h\('connect', c => \{ c = obj\(c\); const op = guard\.str\(c\.op, 20\); return guard\.CONNECT_OPS\.includes\(op\)/, 'connect IPC ops allowlisted');
+has('src/main/main.js', /connect: 20/, 'connect IPC rate limited');
+has('src/preload/preload.js', /connect: \(op, url\) => call\('connect', \{ op: text\(op, 20\), url: text\(url, 300\) \}\)/, 'preload types the connect call');
+has('src/main/connect.js', /const l = guard\.parseDeepLink\(raw\);/, 'every link goes through guard.parseDeepLink');
+ok(!/require\('electron'\)/.test(src['src/main/connect.js']), 'connect.js has no Electron dependency (tested here)');
+has('src/main/tracker.js', /const api = new Api\(\); api\.configure\(ws, null\);\n      const res = await api\.post\('connect'[^\n]*\{ auth: false/, 'the code is traded on a separate client without the current token');
+has('src/main/tracker.js', /if \(e\.status === 401 \|\| \(e\.status === 403 && \['disabled', 'forbidden'\]\.includes\(e\.code\)\)\) \{ this\.signOutLocal/, 'signed out only on 401 or access removed (never because of the website session)');
+not('src/main/connect.js', /signOut|signedOutRemotely/, 'a failed connect never signs anyone out');
+has('src/renderer/index.html', /id="si-browser" class="btn primary block big"[^]*Sign in with your browser/, 'big Sign in with your browser button');
+has('src/renderer/index.html', /Use email and password instead/, 'email and password fallback');
+has('src/renderer/app.js', /as the person signed in on that website\?/, 'confirmation text');
+ok(!/\u2014/.test(src['src/renderer/index.html'] + src['src/renderer/app.js'] + src['src/main/connect.js']), 'no em dashes in UI text');
+
 /* ---------- functional: guard.js ---------- */
 const guard = require(path.join(root, 'src', 'main', 'guard.js'));
 const base = 'https://ws.example.com/';
@@ -238,6 +267,121 @@ eq(errors.scrub('Authorization: Bearer abcdefgh12345678 x'), 'Authorization: Bea
 eq(errors.scrub('{"password":"hunter22","token":"abcd1234"}'), '{"password":"[redacted]","token":"[redacted]"}', 'password / token fields scrubbed');
 eq(errors.scrub('sync: Request failed (HTTP 500).'), 'sync: Request failed (HTTP 500).', 'ordinary messages untouched');
 
+/* ---------- functional: sign in with the browser ---------- */
+const WS = 'https://team.example.com/', CODE = 'A'.repeat(20) + '_-b9' + 'z'.repeat(19), STATE = 'S'.repeat(32);
+const dl = (q, scheme = 'niyanta-tracker://connect') => scheme + '?' + q;
+const wsq = u => 'ws=' + encodeURIComponent(u);
+eq(guard.parseDeepLink(dl(`${wsq(WS)}&code=${CODE}`)), { ws: WS, code: CODE, state: null }, 'deep link: web / install link');
+eq(guard.parseDeepLink(dl(`${wsq('https://team.example.com/app')}&code=${CODE}&state=${STATE}`, 'niyanta-tracker://connect/')), { ws: 'https://team.example.com/app/', code: CODE, state: STATE }, 'deep link: with state, path normalised to a trailing slash');
+eq(guard.parseDeepLink(dl(`${wsq('http://localhost:8080/')}&code=${CODE}`)).ws, 'http://localhost:8080/', 'deep link: http for localhost');
+eq(guard.parseDeepLink(dl(`${wsq('http://127.0.0.1/')}&code=${CODE}`)).ws, 'http://127.0.0.1/', 'deep link: http for 127.0.0.1');
+const badLinks = {
+  'wrong scheme': dl(`${wsq(WS)}&code=${CODE}`, 'niyanta://connect'), 'https scheme': dl(`${wsq(WS)}&code=${CODE}`, 'https://connect'),
+  'wrong host': dl(`${wsq(WS)}&code=${CODE}`, 'niyanta-tracker://login'), 'path': dl(`${wsq(WS)}&code=${CODE}`, 'niyanta-tracker://connect/x'),
+  'credentials on the link': dl(`${wsq(WS)}&code=${CODE}`, 'niyanta-tracker://u:p@connect'), 'port on the link': dl(`${wsq(WS)}&code=${CODE}`, 'niyanta-tracker://connect:1'),
+  'http non-local ws': dl(`${wsq('http://team.example.com/')}&code=${CODE}`), 'credentials in ws': dl(`${wsq('https://user:pw@team.example.com/')}&code=${CODE}`),
+  'user only in ws': dl(`${wsq('https://user@team.example.com/')}&code=${CODE}`), 'javascript ws': dl(`${wsq('javascript:alert(1)')}&code=${CODE}`), 'file ws': dl(`${wsq('file:///etc/')}&code=${CODE}`),
+  'no ws': dl(`code=${CODE}`), 'no code': dl(wsq(WS)), 'bad code chars': dl(`${wsq(WS)}&code=${'a'.repeat(30)}%3Cx%3E`), 'code with dot': dl(`${wsq(WS)}&code=${'a'.repeat(30)}.b`),
+  'short code': dl(`${wsq(WS)}&code=abc`), 'overlong code': dl(`${wsq(WS)}&code=${'a'.repeat(129)}`), 'bad state chars': dl(`${wsq(WS)}&code=${CODE}&state=${'s'.repeat(20)}%2F`),
+  'short state': dl(`${wsq(WS)}&code=${CODE}&state=abc`), 'overlong state': dl(`${wsq(WS)}&code=${CODE}&state=${'s'.repeat(65)}`), 'empty state': dl(`${wsq(WS)}&code=${CODE}&state=`),
+  'duplicate code': dl(`${wsq(WS)}&code=${CODE}&code=${CODE}`), 'duplicate ws': dl(`${wsq(WS)}&${wsq('https://evil.com/')}&code=${CODE}`),
+  'overlong link': dl(`${wsq(WS)}&code=${CODE}&x=${'a'.repeat(2100)}`), 'overlong ws': dl(`${wsq('https://team.example.com/' + 'a'.repeat(300))}&code=${CODE}`),
+  'space / argv injection': dl(`${wsq(WS)}&code=${CODE}`) + ' --inspect', 'hash': dl(`${wsq(WS)}&code=${CODE}`) + '#x', 'not a string': 42, 'empty': '' };
+for (const [why, l] of Object.entries(badLinks)) ok(guard.parseDeepLink(l) === null, 'deep link rejected: ' + why);
+eq([guard.sameWorkspace('https://team.example.com', WS), guard.sameWorkspace('https://TEAM.example.com/?x', WS), guard.sameWorkspace('https://team.example.com:444/', WS), guard.sameWorkspace('https://team.example.com/app/', WS), guard.sameWorkspace('', WS)], [true, true, false, false, false], 'sameWorkspace');
+eq(guard.pkceChallenge('dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk'), 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM', 'PKCE S256 challenge (RFC 7636 appendix B vector)');
+const vs = [guard.pkceVerifier(), guard.pkceVerifier()];
+ok(vs.every(v => /^[A-Za-z0-9_-]{43}$/.test(v)) && vs[0] !== vs[1], 'PKCE verifier: 32 random bytes, 43 base64url characters');
+ok(/^[A-Za-z0-9_-]{43}$/.test(guard.pkceChallenge(vs[0])), 'PKCE challenge is 43 base64url characters');
+const st0 = guard.newState();
+ok(/^[A-Za-z0-9_-]{32}$/.test(st0) && st0 !== guard.newState() && guard.parseDeepLink(dl(`${wsq(WS)}&code=${CODE}&state=${st0}`)) !== null, 'state: 24 random bytes, accepted by the parser');
+const pend = { ws: WS, state: st0, verifier: vs[0], at: 1000000 };
+eq([guard.checkState(pend, st0, 1000000 + 60000), guard.checkState(pend, st0, 1000000 + guard.CONNECT_TTL_MS + 1), guard.checkState(pend, st0.slice(0, -1) + (st0.slice(-1) === 'a' ? 'b' : 'a'), 1000001), guard.checkState(pend, 'short', 1000001), guard.checkState(null, st0, 0), guard.checkState(pend, st0, 1000000 - 120000)],
+  ['ok', 'expired', 'mismatch', 'mismatch', 'none', 'expired'], 'state matching and expiry (10 minutes)');
+eq(guard.CONNECT_TTL_MS, 600000, 'pending sign-in lives at most 10 minutes');
+eq([guard.deviceName('Ana\u0007s-MacBook\n<script>'), guard.deviceName(''), guard.deviceName('x'.repeat(150)).length], ['Ana s-MacBook script', 'Computer', 100], 'device name sanitised, at most 100');
+eq([guard.osCode('win32'), guard.osCode('darwin'), guard.osCode('linux'), guard.osCode('freebsd')], ['win', 'mac', 'linux', 'linux'], 'os codes');
+const page = new URL(guard.connectPageUrl('https://team.example.com/app', { challenge: 'c'.repeat(43), state: st0, device: 'My PC', os: 'win' }));
+ok(page.origin + page.pathname === 'https://team.example.com/app/time/desktop/connect' && page.searchParams.get('challenge') === 'c'.repeat(43) && page.searchParams.get('state') === st0 && page.searchParams.get('device') === 'My PC' && page.searchParams.get('os') === 'win', 'connect page URL');
+ok(guard.allowedLink(page.toString(), 'https://team.example.com/app/') && guard.connectPageUrl('http://team.example.com/', {}) === null, 'connect page is on the workspace host only');
+eq(guard.CONNECT_OPS, ['browser', 'cancel', 'confirm', 'decline', 'retry', 'dismiss'], 'connect ops');
+
+async function connectChecks() {
+  const { Connect, friendly } = require(path.join(root, 'src', 'main', 'connect.js'));
+  const mem = {};
+  const fakeStore = { get: (k, d) => (k in mem ? JSON.parse(JSON.stringify(mem[k])) : d), set: (k, v) => { if (v === undefined) delete mem[k]; else mem[k] = v; }, getSealed: k => mem['sealed:' + k] || null, setSealed: (k, v) => { if (v == null) delete mem['sealed:' + k]; else mem['sealed:' + k] = v; } };
+  let clock = 5000000;
+  const calls = [], flashes = [], opened = [];
+  const tracker = { signedIn: false, api: { base: null }, boot: null, changed() {}, flash(t, k) { flashes.push([k, t]); },
+    async connect(ws, body) { calls.push({ ws, body }); if (body.code.startsWith('bad')) return { ok: false, code: 'code_expired', error: 'x' }; this.signedIn = true; this.api.base = ws; this.boot = { user: { name: 'Ana' } }; return { ok: true, user: { name: 'Ana' } }; } };
+  const mk = () => new Connect({ tracker, store: fakeStore, open: (u, ws) => { opened.push(u); return guard.allowedLink(u, ws); }, device: 'ana-pc', platform: 'win32', now: () => clock });
+  let c = mk();
+  /* flow A, first time this host is seen: asks */
+  let r = await c.link(dl(`${wsq(WS)}&code=${CODE}`));
+  ok(r.asked && c.phase === 'confirm' && c.view().host === 'team.example.com' && !c.view().switching && calls.length === 0, 'flow A: first time a host is seen, the app asks');
+  c.decline();
+  ok(c.phase === null && calls.length === 0, 'flow A: Cancel trades nothing');
+  await c.link(dl(`${wsq(WS)}&code=${CODE}`));
+  r = await c.confirm();
+  ok(r.ok && calls.length === 1 && calls[0].ws === WS && calls[0].body.code === CODE && !('verifier' in calls[0].body) && calls[0].body.device_name === 'ana-pc', 'flow A: confirmed, the code is traded (no verifier)');
+  ok((mem.connectHosts || []).includes('https://team.example.com'), 'confirmed host remembered');
+  /* signed in to the same workspace: nothing is traded */
+  r = await c.link(dl(`${wsq('https://team.example.com')}&code=${CODE}`));
+  ok(r.already && calls.length === 1 && /^Already connected to team\.example\.com as Ana/.test(flashes[flashes.length - 1][1]), 'same workspace: Already connected, code untouched');
+  /* signed in, another workspace: always asks, as a switch */
+  r = await c.link(dl(`${wsq('https://other.example.org/')}&code=${CODE}`));
+  ok(r.asked && c.view().switching && c.view().current === 'team.example.com' && c.view().host === 'other.example.org', 'another workspace: asks to switch');
+  c.decline();
+  mem.connectHosts.unshift('https://other.example.org');
+  r = await c.link(dl(`${wsq('https://other.example.org/')}&code=${CODE}`));
+  ok(r.asked && c.view().switching, 'switching workspace asks even for a known host');
+  c.decline();
+  /* signed out, known host: straight through */
+  tracker.signedIn = false; tracker.api.base = null;
+  r = await c.link(dl(`${wsq(WS)}&code=${CODE}`));
+  ok(r.ok && !r.asked && calls.length === 2, 'signed out, confirmed host: no question');
+  /* flow B */
+  tracker.signedIn = false;
+  r = c.browser('https://team.example.com');
+  const u = new URL(opened[opened.length - 1]);
+  const p = c.pending;
+  ok(r.ok && c.phase === 'waiting' && u.pathname === '/time/desktop/connect' && u.searchParams.get('state') === p.state && u.searchParams.get('challenge') === guard.pkceChallenge(p.verifier) && u.searchParams.get('os') === 'win' && u.searchParams.get('device') === 'ana-pc', 'flow B: browser opened with challenge, state, device, os');
+  ok(mem['sealed:connectPending'] && mem['sealed:connectPending'].state === p.state, 'flow B: pending sign-in kept (sealed) for a relaunch');
+  const relaunched = mk();
+  ok(relaunched.pending && relaunched.pending.verifier === p.verifier && relaunched.phase === 'waiting', 'relaunch restores the pending sign-in');
+  r = await c.link(dl(`${wsq(WS)}&code=${CODE}&state=${guard.newState()}`));
+  ok(!r.ok && c.phase === 'waiting' && calls.length === 2 && /not started from this app/.test(c.message.text), 'flow B: mismatched state ignored with a message, still waiting');
+  r = await c.link(dl(`${wsq('https://evil.example.com/')}&code=${CODE}&state=${p.state}`));
+  ok(!r.ok && calls.length === 2, 'flow B: right state for another workspace ignored');
+  r = await c.link(dl(`${wsq(WS)}&code=${CODE}&state=${p.state}`));
+  ok(r.ok && calls.length === 3 && calls[2].body.verifier === p.verifier && !c.pending && !mem['sealed:connectPending'], 'flow B: matching state traded with the verifier, pending cleared');
+  r = await c.link(dl(`${wsq(WS)}&code=${CODE}&state=${p.state}`));
+  ok(!r.ok && calls.length === 3, 'flow B: a state is used once');
+  tracker.signedIn = false;
+  c.browser(WS);
+  const p2 = c.pending;
+  clock += guard.CONNECT_TTL_MS + 1000;
+  r = await c.link(dl(`${wsq(WS)}&code=${CODE}&state=${p2.state}`));
+  ok(!r.ok && calls.length === 3 && c.phase === 'error' && c.retry && /expired/.test(c.message.text) && !mem['sealed:connectPending'], 'flow B: expired state refused, Try again offered');
+  const stale = mk();
+  ok(!stale.pending && stale.phase === null, 'an expired pending sign-in is not restored');
+  /* server errors */
+  c.browser(WS);
+  r = await c.link(dl(`${wsq(WS)}&code=bad${'x'.repeat(20)}&state=${c.pending.state}`));
+  ok(!r.ok && c.phase === 'error' && c.retry && c.message.text === 'This sign-in link has expired. Please try again.' && !tracker.signedIn, 'server error code_expired: friendly message, Try again, nobody signed out');
+  r = c.op('retry');
+  ok(r.ok && c.phase === 'waiting' && c.pending, 'Try again starts a new browser sign-in');
+  c.cancel();
+  ok(c.phase === null && !c.pending && !mem['sealed:connectPending'], 'Cancel drops the pending sign-in');
+  eq([friendly('code_invalid'), friendly('verifier_mismatch'), friendly('disabled'), friendly(null, 'Server says no')], [
+    'This sign-in link was already used or is not valid any more. Please try again.', 'This sign-in was started on another computer or in another app. Please try again from here.',
+    'Time tracking is turned off for this workspace. Ask your administrator.', 'Server says no'], 'friendly error messages');
+  r = c.browser('http://team.example.com');
+  ok(!r.ok && c.phase === 'error' && opened.every(x => x.startsWith('https://')), 'flow B refuses a non-https workspace');
+  r = await c.link('niyanta-tracker://connect?code=x');
+  ok(!r.ok && /not valid/.test(c.message.text), 'invalid link: message, nothing traded');
+  clearTimeout(c.timer); clearTimeout(relaunched.timer); }
+
 /* ---------- a packed build, when one is around (dist/*-unpacked): read its fuse wire ---------- */
 async function distChecks() {
   const dist = path.join(root, 'dist');
@@ -254,7 +398,7 @@ async function distChecks() {
     if (process.env.NIYANTA_CHECK_DIST) ok(!diff.length, `dist/${d}: fuses differ from scripts/after-pack.js (${diff.join(',')})`);
     else console.log(`  dist/${d}: fuses ${diff.length ? 'NOT yet flipped (build again with npm run dist)' : 'flipped as configured'}`); } }
 
-queueChecks().then(distChecks).catch(e => { bad++; console.error('FAIL ' + (e && e.stack || e)); }).then(() => {
+queueChecks().then(connectChecks).then(distChecks).catch(e => { bad++; console.error('FAIL ' + (e && e.stack || e)); }).then(() => {
   fs.rmSync(tmp, { recursive: true, force: true });
   console.log(`security: ${n - bad}/${n} checks passed`);
   process.exit(bad ? 1 : 0); });

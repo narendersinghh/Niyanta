@@ -130,7 +130,9 @@ class Tracker extends EventEmitter {
     this.api.configure(url, token);
     try { this.applyBoot(await this.api.get('bootstrap')); }
     catch (e) {
-      if (e.status === 401 || e.status === 403) { this.signOutLocal(e.message); return false; }
+      /* signed out only when the token is dead (401: revoked, expired, account deactivated) or access is gone for good
+         (403 disabled / forbidden); never because of the website session, a proxy page or a server error */
+      if (e.status === 401 || (e.status === 403 && ['disabled', 'forbidden'].includes(e.code))) { this.signOutLocal(e.message); return false; }
       const cached = store.get('bootCache');
       if (!cached) { this.error = e.message; this.offline = !!e.offline; this.changed(); setTimeout(() => this.restore(), 15000); return false; }
       this.offline = !!e.offline;
@@ -145,18 +147,43 @@ class Tracker extends EventEmitter {
     this.busy = true; this.error = null; this.changed();
     try {
       this.api.configure(url, null);
-      const res = await this.api.post('login', { email, password, device_name: (os.hostname() || 'Computer').slice(0, 90), os: `${osName()} ${os.release()}`.slice(0, 40), app_version: app.getVersion() }, { auth: false });
-      store.set('workspaceUrl', this.api.base); store.set('email', email); store.setToken(res.token); store.set('session', undefined);
-      this.api.configure(this.api.base, res.token);
-      this.queue.clear(); this.queue.resume();
-      this.applyBoot(res);
-      this.start();
-      this.emit('signed-in');
+      const res = await this.api.post('login', { email, password, device_name: (os.hostname() || 'Computer').slice(0, 90), os: osLabel(), app_version: app.getVersion() }, { auth: false });
+      this.adopt(this.api.base, res, email);
       return { ok: true }; }
     catch (e) {
       this.error = e.message;
       if (!(e.status && e.status < 500) && e.body && e.body.code !== 'input') this.report('signin', e, { status: e.status });
       return { ok: false, error: e.message }; }
+    finally { this.busy = false; this.changed(); } }
+
+  /** The answer of /login or /connect (token + bootstrap): keep the token in the keychain, the workspace, start tracking. */
+  adopt(base, res, email) {
+    if (!validLogin(res)) throw new ApiError('Unexpected answer from the server.', 0, { code: 'not_json' });
+    store.set('workspaceUrl', base); store.set('email', email || res.user.email || ''); store.setToken(res.token); store.set('session', undefined);
+    this.api.configure(base, res.token);
+    this.queue.clear(); this.queue.resume();
+    this.applyBoot(res);
+    this.start();
+    this.emit('signed-in'); }
+
+  /**
+   * "Sign in with your browser": trade a one-time code (and the PKCE verifier when the app started it) at POST
+   * <ws>/api/agent/connect, on a separate client (the current session is untouched until it worked). The answer is the
+   * login answer. Signed in to another workspace: that one is signed out first (tracking paused, token revoked).
+   * A failure never signs anyone out; it returns {ok: false, error, code}.
+   */
+  async connect(ws, body) {
+    this.busy = true; this.error = null; this.changed();
+    try {
+      const api = new Api(); api.configure(ws, null);
+      const res = await api.post('connect', Object.assign({ device_os: osLabel(), app_version: app.getVersion() }, body), { auth: false, timeout: 30000 });
+      if (!validLogin(res)) throw new ApiError('Unexpected answer from the server.', 0, { code: 'not_json' });
+      if (this.signedIn) await this.signOut();
+      this.adopt(api.base, res, res.user.email);
+      return { ok: true, user: { name: String(res.user.name || ''), email: String(res.user.email || '') } }; }
+    catch (e) {
+      if (!(e.status && e.status < 500) && e.body && e.body.code !== 'input') this.report('connect', e, { status: e.status });
+      return { ok: false, error: e.message, code: (e.body && typeof e.body.code === 'string' && e.body.code.slice(0, 40)) || null, status: e.status }; }
     finally { this.busy = false; this.changed(); } }
 
   async signOut() {
@@ -765,7 +792,7 @@ class Tracker extends EventEmitter {
       screen: this.signedIn ? 'tracker' : 'signin',
       version: app.getVersion(), platform: process.platform,
       busy: this.busy, error: this.error, notice: this.notice,
-      login: { url: store.get('workspaceUrl') || '', email: store.get('email') || '' },
+      login: { url: store.get('workspaceUrl') || '', email: store.get('email') || '' }, connect: this.connectUi ? this.connectUi() : null,
       account: this.boot ? { name: this.boot.user.name, email: this.boot.user.email, initials: this.boot.user.initials, workspace: this.boot.workspace } : null,
       state: v, chip, idle, offline: this.offline, pending: this.queue.size, pendingShots: this.queue.pendingShots,
       skew: this.snap && this.snap.server_time ? Date.parse(this.snap.server_time) - this.snapAt : 0,
@@ -781,5 +808,8 @@ class Tracker extends EventEmitter {
       at: Date.now() }; } }
 
 function osName() { return { win32: 'Windows', darwin: 'macOS', linux: 'Linux' }[process.platform] || process.platform; }
+/** A login / connect answer: a printable token and the bootstrap's user and workspace. */
+function validLogin(res) { return !!res && typeof res.token === 'string' && /^[\x21-\x7e]{16,200}$/.test(res.token) && !!res.user && typeof res.user === 'object' && !!res.workspace && typeof res.workspace === 'object'; }
+function osLabel() { return `${osName()} ${os.release()}`.slice(0, 40); }
 
 module.exports = { Tracker, ApiError, osName };

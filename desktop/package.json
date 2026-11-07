@@ -53,6 +53,15 @@
       }
     ],
     "asar": true,
+    "protocols": [
+      {
+        "name": "Niyanta Tracker",
+        "schemes": [
+          "niyanta-tracker"
+        ],
+        "role": "Viewer"
+      }
+    ],
     "win": {
       "target": [
         {
@@ -73,7 +82,8 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "shortcutName": "Niyanta Tracker",
-      "artifactName": "niyanta-tracker-${version}-win-${arch}.${ext}"
+      "artifactName": "niyanta-tracker-${version}-win-${arch}.${ext}",
+      "include": "build/installer.nsh"
     },
     "mac": {
       "target": [
