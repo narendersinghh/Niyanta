@@ -191,7 +191,8 @@ final class TimeService {
   /**
    * Activity slots from the desktop app (batch, idempotent per slot_start): [{slot_start (ISO 8601), slot_seconds (tracked
    * seconds in the slot, 1 to 3600), active_seconds (seconds with keyboard or mouse input, clamped to slot_seconds),
-   * keystrokes?, mouse_events? (null = unknown)}]. Each slot is tied to the entry that overlaps it most (null when none). A
+   * meeting? (1 = meeting mode was on for most of the slot: stored, never averaged, see dayActivity())}]. Keystroke and mouse
+   * counts are no longer collected: counts an old app still sends are ignored (the columns stay NULL, older rows keep theirs). Each slot is tied to the entry that overlaps it most (null when none). A
    * repeated slot_start replaces the stored slot only when it covers at least as many seconds (retries and partial reports
    * after a restart never shrink a slot). Slots older than 7 days or in the future are skipped. Returns saved/skipped counts.
    */
@@ -199,7 +200,6 @@ final class TimeService {
     return DB::transaction(static function () use ($uid, $slots, $tokenId): array {
       AttendanceService::lock($uid);
       $now = time(); $out = ['saved' => 0, 'skipped' => 0];
-      $int = static fn ($v, int $max): ?int => is_numeric($v) && (int) $v >= 0 ? min($max, (int) $v) : null;
       foreach (array_slice(array_values($slots), 0, 500) as $sl) {
         $t = is_array($sl) && is_string($sl['slot_start'] ?? null) ? strtotime($sl['slot_start']) : false;
         $sec = is_array($sl) && is_numeric($sl['slot_seconds'] ?? null) ? (int) $sl['slot_seconds'] : 0;
@@ -209,11 +209,22 @@ final class TimeService {
         $old = DB::first('SELECT id, slot_seconds FROM activity_slots WHERE user_id=? AND slot_start=?', [$uid, $start]);
         if ($old && (int) $old['slot_seconds'] > $sec) { $out['skipped']++; continue; }
         $entry = DB::value('SELECT id FROM time_entries WHERE user_id=? AND started_at<? AND (is_running=1 OR ended_at>?) AND started_at>? ORDER BY TIMESTAMPDIFF(SECOND, GREATEST(started_at, ?), LEAST(COALESCE(ended_at, NOW()), ?)) DESC, id DESC LIMIT 1', [$uid, $end, $start, date('Y-m-d H:i:s', $t - 2 * 86400), $start, $end]);
-        $row = ['time_entry_id' => $entry ? (int) $entry : null, 'slot_seconds' => $sec, 'active_seconds' => min($sec, $act), 'keystrokes' => $int($sl['keystrokes'] ?? null, 1000000), 'mouse_events' => $int($sl['mouse_events'] ?? null, 1000000), 'agent_token_id' => $tokenId];
+        $row = ['time_entry_id' => $entry ? (int) $entry : null, 'slot_seconds' => $sec, 'active_seconds' => min($sec, $act), 'keystrokes' => null, 'mouse_events' => null, 'meeting' => filter_var($sl['meeting'] ?? false, FILTER_VALIDATE_BOOLEAN) ? 1 : 0, 'agent_token_id' => $tokenId];
         if ($old) { DB::update('activity_slots', $row, 'id=?', [$old['id']]); }
         else { DB::insert('activity_slots', $row + ['user_id' => $uid, 'slot_start' => $start, 'created_at' => date('Y-m-d H:i:s')]); }
         $out['saved']++; }
       return $out; }); }
+
+  /**
+   * Activity of one day from the desktop app's slots, meeting slots excluded: pct (active / tracked seconds of the slots
+   * without meeting mode; null when there are none, then the average of the screenshots outside meetings, else null),
+   * seconds (slot seconds averaged) and meeting (tracked seconds in meeting mode). Every activity average uses this.
+   */
+  public static function dayActivity(int $uid, string $date): array {
+    $range = [$uid, $date.' 00:00:00', date('Y-m-d', strtotime($date.' +1 day')).' 00:00:00'];
+    $r = DB::first('SELECT COALESCE(SUM(CASE WHEN meeting=0 THEN slot_seconds END),0) AS s, COALESCE(SUM(CASE WHEN meeting=0 THEN active_seconds END),0) AS a, COALESCE(SUM(CASE WHEN meeting=1 THEN slot_seconds END),0) AS m FROM activity_slots WHERE user_id=? AND slot_start>=? AND slot_start<?', $range);
+    $pct = (int) $r['s'] ? 100 * (int) $r['a'] / (int) $r['s'] : DB::value('SELECT AVG(activity_pct) FROM screenshots WHERE user_id=? AND taken_at>=? AND taken_at<? AND activity_pct IS NOT NULL AND meeting=0', $range);
+    return ['pct' => $pct !== null ? (int) round((float) $pct) : null, 'seconds' => (int) $r['s'], 'meeting' => (int) $r['m']]; }
 
   /**
    * Cron (every 5 min): stop timers without a heartbeat for more than 10 minutes at their last heartbeat (never at the time the

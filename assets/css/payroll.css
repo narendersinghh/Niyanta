@@ -92,3 +92,30 @@ a.tile:hover{transform:translateY(-2px);color:var(--text)}
 @media (max-width:900px){.pay-current{align-items:flex-start;text-align:left;width:100%}.pay-review{flex-wrap:wrap}.pay-review input{width:100%}.pay-facts{grid-template-columns:1fr 1fr}.pay-facts>div:nth-child(3){border-left:0}.pay-facts>div:nth-child(n+3){border-top:1px solid var(--border)}.pay-banner-id{padding-top:0;flex-basis:100%}.pay-banner-body{align-items:flex-start}}
 @media (max-width:560px){.pay-hero{padding:20px}.pay-hero .illus{display:none}.pay-hero-amt{font-size:2rem}.pay-search{max-width:none;flex-basis:100%}.pay-toolbar select{flex:1}.tile .num.pay-num{font-size:1.2rem}.pay-net-amt{font-size:1.7rem}.pay-banner-body{padding:0 16px 16px}.pay-facts>div{padding:12px 16px}}
 .pay-claim{min-width:220px}.pay-who b{white-space:nowrap}
+/* Run flow, editable draft payslips */
+.pay-step>span{display:flex;flex-direction:column;line-height:1.2}
+.pay-step small{font-size:.7rem;font-weight:550;color:var(--muted)}
+.pay-mini{font-size:.68rem;padding:1px 7px;vertical-align:middle}
+.pay-modal-foot{padding:0 24px 22px}
+.pay-picks{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:6px 12px;max-height:220px;overflow:auto;border:1px solid var(--border);border-radius:var(--r-sm);padding:10px 12px;background:var(--surface-2)}
+.pay-note{display:flex;gap:.6rem;align-items:flex-end;flex-wrap:wrap}
+.pay-note textarea{flex:1 1 280px}
+.pay-hours{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;align-items:start}
+.pay-hbox{display:flex;flex-direction:column;gap:4px;padding:12px 14px;border-radius:16px;background:var(--surface-2);border:1px solid var(--border)}
+.pay-hbox b{font-size:1.2rem;font-variant-numeric:tabular-nums}
+.pay-cover{margin-top:12px;display:flex;gap:.4rem;align-items:center;color:var(--sky-d);font-weight:600}
+.pay-edit-table td{vertical-align:top}
+.pay-edit-table input,.pay-edit-table select{min-width:0;width:100%}
+.pay-edit-table .pay-amt{min-width:110px;max-width:150px;text-align:right;font-variant-numeric:tabular-nums}
+.pay-edit-table td:first-child{min-width:190px}
+.pay-edit-table .mt-xs{margin-top:6px}
+.pay-edit-table tr.pay-removed td:not(.actions){opacity:.45;text-decoration:line-through}
+.pay-edit-table .actions{white-space:nowrap}
+.pay-manual td{background:color-mix(in srgb,var(--lemon-s) 45%,transparent)}
+.pay-edit-card.ded .card-head h3{color:var(--red-d)}
+.pay-add{display:flex;gap:.5rem;flex-wrap:wrap;margin-top:12px}
+.pay-live{position:sticky;top:84px}
+.pay-live .pay-line{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)}
+.pay-changes{margin:4px 0 0;padding-left:16px}
+@media (max-width:720px){.pay-live{position:static}.pay-edit-table .pay-amt{max-width:none}}
+.pay-lnote{display:block;font-weight:500}

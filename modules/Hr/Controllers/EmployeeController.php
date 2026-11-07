@@ -1,7 +1,7 @@
 <?php
 namespace Modules\Hr\Controllers;
 use Core\{Audit, Auth, Controller, Crypto, DB, Modules, Notify, Response, Storage, ValidationException};
-use Modules\Hr\Services\{HrAccess, LeaveService};
+use Modules\Hr\Services\{HrAccess, LeaveService, ProcessService as PS};
 
 /** Employee list / directory, HR profile, documents, onboarding & offboarding checklists. */
 final class EmployeeController extends Controller {
@@ -23,11 +23,12 @@ final class EmployeeController extends Controller {
     $progress = $ids ? DB::all("SELECT user_id, type, COUNT(*) AS total, SUM(done_at IS NOT NULL) AS done FROM employee_checklists WHERE user_id IN ".DB::in($ids).' GROUP BY user_id, type', $ids) : [];
     $prog = [];
     foreach ($progress as $r) { $prog[(int) $r['user_id']][$r['type']] = $r; }
+    if ($ids) { foreach (DB::all("SELECT p.user_id, COUNT(t.id) AS total, SUM(t.status IN ('done','skipped')) AS done FROM hr_processes p JOIN hr_process_tasks t ON t.process_id=p.id WHERE p.kind='onboarding' AND p.status<>'cancelled' AND p.user_id IN ".DB::in($ids).' AND p.id=(SELECT MAX(x.id) FROM hr_processes x WHERE x.user_id=p.user_id AND x.kind=\'onboarding\' AND x.status<>\'cancelled\') GROUP BY p.user_id', $ids) as $r) { $prog[(int) $r['user_id']]['onboarding'] = $r; } }
     $today = date('Y-m-d');
     $out = array_fill_keys(array_map('intval', DB::column("SELECT DISTINCT user_id FROM leave_requests WHERE status='approved' AND start_date<=? AND end_date>=?", [$today, $today])), true);
     $kpi = DB::first("SELECT SUM(status='active') AS headcount, SUM(status='active' AND joined_on BETWEEN ? AND ?) AS joined FROM users", [date('Y-m-01'), date('Y-m-t')]);
     $kpi['out'] = (int) DB::value("SELECT COUNT(DISTINCT lr.user_id) FROM leave_requests lr JOIN users u ON u.id=lr.user_id WHERE u.status='active' AND lr.status='approved' AND lr.start_date<=? AND lr.end_date>=?", [$today, $today]);
-    $kpi['onboarding'] = (int) DB::value("SELECT COUNT(*) FROM (SELECT c.user_id FROM employee_checklists c JOIN users u ON u.id=c.user_id WHERE c.type='onboarding' AND u.status<>'inactive' GROUP BY c.user_id HAVING SUM(c.done_at IS NULL)>0) x");
+    $kpi['onboarding'] = (int) DB::value("SELECT COUNT(DISTINCT p.user_id) FROM hr_processes p JOIN users u ON u.id=p.user_id WHERE p.kind='onboarding' AND p.status IN ('active','paused') AND u.status<>'inactive'") + (int) DB::value("SELECT COUNT(*) FROM (SELECT c.user_id FROM employee_checklists c JOIN users u ON u.id=c.user_id WHERE c.type='onboarding' AND u.status<>'inactive' AND NOT EXISTS (SELECT 1 FROM hr_processes p WHERE p.user_id=c.user_id AND p.kind='onboarding') GROUP BY c.user_id HAVING SUM(c.done_at IS NULL)>0) x");
     return $this->view('hr::employees/index', ['title' => 'Employees', 'p' => $page, 'prog' => $prog, 'out' => $out, 'kpi' => $kpi, 'departments' => $this->departments(), 'sched' => $ids ? LeaveService::schedules($ids) : [], 'styles' => ['css/hr.css']]); }
 
   private function directory(): Response {
@@ -72,13 +73,20 @@ final class EmployeeController extends Controller {
     $cl = DB::all('SELECT c.*, d.name AS done_by_name FROM employee_checklists c LEFT JOIN users d ON d.id=c.done_by WHERE c.user_id=? ORDER BY c.type, c.position, c.id', [$id]);
     $data['checklists'] = ['onboarding' => [], 'offboarding' => []];
     foreach ($cl as $c) { $data['checklists'][$c['type']][] = $c; }
-    if ($tab === 'overview') { $data['reports'] = DB::all("SELECT id, name, avatar, designation FROM users WHERE manager_id=? AND status='active' ORDER BY name LIMIT 12", [$id]); }
+    if ($tab === 'overview') { $data['procs'] = PS::forEmployee($id); $data['reports'] = DB::all("SELECT id, name, avatar, designation FROM users WHERE manager_id=? AND status='active' ORDER BY name LIMIT 12", [$id]); }
     if ($tab === 'documents') { $data['docs'] = DB::all("SELECT f.*, u.name AS uploader FROM files f LEFT JOIN users u ON u.id=f.uploaded_by WHERE f.module='hr' AND f.entity_type='employee' AND f.entity_id=? ORDER BY f.category, f.id DESC", [$id]); $data['cats'] = self::DOC_CATS; }
     if ($tab === 'leave') { $data['history'] = DB::paginate('SELECT lr.*, t.name AS type_name, t.color, r.name AS reviewer FROM leave_requests lr JOIN leave_types t ON t.id=lr.leave_type_id LEFT JOIN users r ON r.id=lr.reviewed_by WHERE lr.user_id=? ORDER BY lr.start_date DESC, lr.id DESC', [$id], 15); }
-    if ($tab === 'checklists') { $data['templateCount'] = DB::pairs('SELECT type, COUNT(*) FROM checklist_templates GROUP BY type'); }
+    if ($tab === 'checklists') { $data += $this->processData($id); }
     $data['schedule'] = LeaveService::scheduleFor($id);
     if ($tab === 'schedule') { $data += $this->scheduleData($id, $year); }
     return $this->view('hr::employees/show', $data); }
+
+  /** Onboarding & exit tab: every process of the employee, full task lists of the open ones, and templates for HR to start a new one. */
+  private function processData(int $id): array {
+    $procs = PS::forEmployee($id);
+    $open = [];
+    foreach ($procs as $p) { if (in_array($p['status'], ['active', 'paused'], true) && !isset($open[$p['kind']])) { $open[$p['kind']] = ['proc' => $p] + PS::details($p); } }
+    return ['procs' => $procs, 'open' => $open, 'templates' => PS::isHr() ? ['onboarding' => PS::templates('onboarding'), 'exit' => PS::templates('exit')] : []]; }
 
   /** Work schedule tab: effective hours/off days, per-type quotas with this year's balances, and the current pay rate (read-only). */
   private function scheduleData(int $id, int $year): array {
@@ -289,10 +297,7 @@ final class EmployeeController extends Controller {
     if ($id === $this->uid()) { $this->abort(422, 'You cannot deactivate your own account.'); }
     if ($emp['role_slug'] === 'super_admin' && !Auth::isSuperAdmin()) { $this->abort(403, 'Only a Super Admin can deactivate a Super Admin.'); }
     if ($emp['status'] === 'inactive') { $this->flash('This account is already inactive.', 'error'); return $this->redirect('/hr/employees/'.$id.'?tab=checklists'); }
-    DB::transaction(static function () use ($id): void {
-      DB::update('users', ['status' => 'inactive', 'updated_at' => date('Y-m-d H:i:s')], 'id=?', [$id]);
-      DB::query("UPDATE leave_requests SET status='cancelled', review_note='Cancelled automatically on exit' WHERE user_id=? AND status='pending'", [$id]);
-      Auth::bumpSessions($id); });
+    PS::deactivateUser($id);
     Audit::log('hr.employee.deactivate', 'employee', $id);
     $this->flash($emp['name'].' has been deactivated and signed out.');
     return $this->redirect('/hr/employees/'.$id.'?tab=checklists'); } }

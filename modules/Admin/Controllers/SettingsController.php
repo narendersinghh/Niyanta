@@ -69,7 +69,7 @@ final class SettingsController extends Controller {
       'features' => [count($bOn).' of '.count(Features::bundles()).' bundles on', count($bOn) ? 'ok' : 'off'],
       'ai' => self::aiStatus(),
       'employees' => [rtrim(rtrim((string) Settings::get('hr.work_hours_per_day', '8'), '0'), '.').' h/day · '.count(array_filter(explode(',', (string) Settings::get('general.weekend_days', '6,7')))).' weekly offs', 'info'],
-      'leave' => [(int) Settings::get('hr.optional_holidays_default', 15).' optional holidays', 'info'],
+      'leave' => [($n = $this->has('leave_types') ? (int) DB::value('SELECT COUNT(*) FROM leave_types WHERE active=1') : 0).' leave type'.($n === 1 ? '' : 's').' · '.($this->has('holidays') ? (int) DB::value('SELECT COUNT(*) FROM holidays WHERE YEAR(holiday_date)=?', [(int) date('Y')]) : 0).' holidays', 'info'],
       'attendance' => [(Settings::bool('attendance.screenshots_enabled') ? 'Screenshots every '.\Modules\Attendance\Services\Monitoring::intervalSeconds().' s' : 'Screenshots off').' · desktop app', 'info'],
       'payroll' => feature_on('payroll') ? [Settings::get('payroll.payslip_footer') ? 'Payslip note set' : 'Default payslips', 'info'] : ['Claims & approvals', 'info'],
       'projects' => [feature_on('projects') ? 'Reminders daily 09:00' : 'Reviewed by managers', 'info'],

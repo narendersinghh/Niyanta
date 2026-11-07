@@ -27,8 +27,47 @@ final class SettingsSchema {
 
   public static function tabOn(string $tab): bool { $f = self::TAB_FEATURES[$tab] ?? null; return $f === null || (bool) array_filter($f, 'feature_on'); }
 
+  /**
+   * Setting key prefixes owned by one feature (longest prefix wins). A field with such a key must be hidden while that feature is off:
+   * it carries 'feature' => that feature, or sits on a tab that maps only to it (checked by modules/Payroll/tests/SettingsFeatureTest).
+   */
+  public const KEY_FEATURES = ['attendance.' => 'attendance', 'tracker.' => 'attendance', 'payroll.' => 'payroll', 'reimbursements.' => 'reimbursements', 'hr.leave.' => 'leave', 'hr.holidays.' => 'leave', 'hr.optional_holidays' => 'leave',
+    'hr.onboarding' => 'employees', 'hr.exit' => 'employees', 'hr.upload_self_delete' => 'employees', 'hr.documents' => 'employees', 'hr.company_docs' => 'company_docs', 'crm.invoice' => 'invoices', 'crm.quotation' => 'quotations', 'crm.reports' => 'finance_reports',
+    'crm.clients' => 'clients', 'projects.' => 'projects', 'work_reports.' => 'work_reports', 'todos.' => 'todos', 'ai.' => 'ai', 'retention.ai_usage' => 'ai'];
+
+  /** Feature owning a setting key (KEY_FEATURES), or null for workspace-wide settings. */
+  public static function keyFeature(string $key): ?string {
+    $best = null; $len = 0;
+    foreach (self::KEY_FEATURES as $p => $f) { if (str_starts_with($key, $p) && strlen($p) > $len) { $best = $f; $len = strlen($p); } }
+    return $best; }
+
+  /** Features a field is shown for: its own 'feature' key, else its tab's features (null = always shown). */
+  public static function fieldFeatures(string $tab, array $field): ?array { return isset($field['feature']) ? (array) $field['feature'] : (self::TAB_FEATURES[$tab] ?? null); }
+
+  /** Settings tab of a feature: the most specific tab that configures it, or null when the feature has no settings. */
+  public static function tabFor(string $feature): ?string {
+    $best = null;
+    foreach (self::TAB_FEATURES as $tab => $fs) { if (in_array($feature, $fs, true) && ($best === null || count($fs) < count(self::TAB_FEATURES[$best]))) { $best = $tab; } }
+    return $best; }
+
+  /** Features a tab switches on/off from its own header: those whose settings live on this tab (tabFor), e.g. the work schedule tab only switches the employee directory. */
+  public static function tabSwitches(string $tab): array { return array_values(array_filter(self::TAB_FEATURES[$tab] ?? [], static fn ($f) => self::tabFor($f) === $tab)); }
+
+  /** URL of a feature's settings (null without settings). */
+  public static function settingsUrl(string $feature): ?string { $t = self::tabFor($feature); return $t === null ? null : (\Modules\Admin\Controllers\SettingsController::PAGES[$t] ?? '/admin/settings/'.$t); }
+
+  /** Main page of a feature (core/features.php 'url'; the AI assistant has its settings page only). */
+  public static function featureUrl(string $feature): ?string { return $feature === 'ai' ? null : (\Core\Features::find($feature)['url'] ?? null); }
+
+  /** "Settings" button for a feature's own pages: Super Admins only, and only when the feature has settings. Use in page_head actions. */
+  public static function settingsLink(string $feature, string $class = 'btn ghost'): string {
+    if (!\Core\Auth::isSuperAdmin() || !feature_on($feature) || !($u = self::settingsUrl($feature))) { return ''; }
+    return '<a class="'.e($class).'" href="'.e(url($u)).'" title="Settings of this feature (Super Admin)">'.icon('settings', 'sm').' Settings</a>'; }
+
   /** "a", "a and b", "a, b and c". */
   public static function join(array $words): string { $words = array_values(array_filter($words)); $last = array_pop($words); return $words ? implode(', ', $words).' and '.$last : (string) $last; }
+  /** Whether the company keeps an Optional Holiday (OH) pool: its yearly allowance setting only shows then. */
+  private static function hasOptionalPool(): bool { static $v = null; try { return $v ??= (bool) \Core\DB::value("SELECT 1 FROM leave_types WHERE code='OH' AND active=1"); } catch (\Throwable) { return false; } }
 
   /** Documents the company identity is printed on, limited to switched-on features. */
   public static function documents(): string { return self::join([feature_on('invoices') ? 'invoices' : null, feature_on('quotations') ? 'quotations' : null, feature_on('payroll') ? 'payslips' : null]); }
@@ -54,7 +93,7 @@ final class SettingsSchema {
       'features' => ['Features', 'puzzle', 'Which bundles and features are switched on.', $g('workspace'), 'mint', 'workspace', null],
       'ai' => ['AI assistant', 'sparkles', 'Goraiya chat assistant, AI models, budgets and privacy.', $g('workspace'), 'pink', 'workspace', null],
       'employees' => [feature_on('employees') ? 'Employees & schedule' : 'Work schedule', 'id-card', 'Company default working hours and weekly off days.', $g('people'), 'mint', 'people', 'people'],
-      'leave' => ['Leave & holidays', 'umbrella', 'Default optional-holiday allowance.', $g('people'), 'sky', 'people', 'people'],
+      'leave' => ['Leave & holidays', 'umbrella', 'Leave types and policies, monthly accrual, hour shortage cover and holidays.', $g('people'), 'sky', 'people', 'people'],
       'attendance' => ['Attendance & time tracking', 'timer', 'Desktop tracker, idle detection, screenshots and app downloads.', $g('people'), 'lemon', 'people', 'people'],
       'payroll' => [$pay && $reimb ? 'Payroll & reimbursements' : ($pay ? 'Payroll' : 'Reimbursements'), $pay ? 'wallet' : 'receipt', $pay ? 'Payslip footer note.' : 'How expense claims are submitted and approved.', $g('people'), 'pink', 'people', 'people'],
       'projects' => [$proj ? 'Projects & tasks' : 'Work reports', $proj ? 'kanban' : 'clipboard', $proj && $wr ? 'Reminders and defaults for projects and work reports.' : ($proj ? 'Reminders and defaults for projects and tasks.' : 'How daily and weekly work reports are reviewed.'), $g('work'), 'lav', 'work', 'work'],
@@ -77,8 +116,8 @@ final class SettingsSchema {
       'appearance' => ['Brand' => 'How your workspace is named across the app, emails and the sign-in page.', 'Colours' => 'Leave a colour at its default to follow the built-in palette (and future design updates).', 'Typography & shape' => 'Font, base size, corner radius and the default light/dark theme.'],
       'email' => ['SMTP server' => 'Filled in by the provider you pick, adjust if your provider says otherwise.', 'Sender' => 'Use an address on a domain you verified with your provider (SPF/DKIM).', 'Delivery' => 'In-app notifications are always on; email copies are optional.'],
       'users' => ['Passwords & sessions' => 'Applies to every user the next time they sign in or change their password.'],
-      'employees' => ['Work schedule' => 'Company defaults.'.(feature_on('employees') ? ' Hours per day and weekly offs can be overridden per employee on their HR profile.' : ''), 'Joining' => 'Defaults used when onboarding new employees.'],
-      'leave' => ['Holidays' => 'Fixed holidays apply to everyone; optional holidays are a personal pool for festivals or personal needs.', 'Leave year' => 'Balances are allocated for this cycle.'],
+      'employees' => ['Work schedule' => 'Company defaults.'.(feature_on('employees') ? ' Hours per day and weekly offs can be overridden per employee on their HR profile.' : ''), 'Joining' => 'Defaults used when onboarding new employees.', 'Onboarding & exit' => 'Task templates (documents to upload, agreements to sign, policies, handover and settlement) are managed by HR under Employees › Onboarding & exit › Templates (/hr/process-templates).'],
+      'leave' => ['Holidays' => 'Fixed holidays apply to everyone; optional holidays are a personal pool for festivals or personal needs.', 'Leave year' => 'Balances are allocated for this cycle.', 'Leave policies' => 'Allowance, accrual, carry forward, notice and eligibility are set per leave type on the Leave types page (Leave › Leave types).'],
       'attendance' => ['Time tracking' => 'Applies to the Niyanta Tracker desktop app. Starting tracking clocks the person in; only tracked time counts as worked time.', 'Screenshot monitoring' => 'Only for people who accepted the monitoring notice, only while tracking. Screenshots older than the retention period are deleted nightly.', ],
       'payroll' => ['Pay from working hours' => feature_on('attendance') ? 'Expected hours of a month = hours per day on the employee\'s schedule for each working day (weekly offs, Saturday half days and alternate Saturdays, fixed holidays applied) minus approved paid leave. Unpaid leave is not deducted from expected hours, so it lowers pay. Only approved tracked time counts as worked.' : 'Needs Attendance & time tracking, which is switched off: monthly salaries are paid in full, prorated by working days and unpaid leave, and hourly pay uses any approved time on record.', 'Overtime' => 'Hours worked beyond the expected hours, counted the same way as the flexible hours setting (per day, per week or over the month).', 'Payslips' => 'Shown on every payslip PDF.'],
       'invoicing' => ['Numbering' => 'New documents get the next number after the highest existing one with this prefix.', 'Tax & payment terms' => 'Defaults for new '.self::join([feature_on('invoices') ? 'invoices' : null, feature_on('quotations') ? 'quotations' : null]).'; editable per document.', 'Default terms' => 'Pre-filled on new documents.'],
@@ -132,9 +171,14 @@ final class SettingsSchema {
       'employees' => [
         ['key' => 'hr.work_hours_per_day', 'label' => 'Work hours per day', 'type' => 'number', 'rules' => 'required|numeric|min:1|max:24', 'step' => '0.5', 'section' => 'Work schedule', 'default' => '8', 'hint' => ($use = self::join([feature_on('attendance') ? 'attendance targets, timesheets' : null, feature_on('payroll') ? 'hourly payroll' : null])) ? 'Used for '.$use.'.' : 'The standard working day of the company.'],
         ['key' => 'general.weekend_days', 'label' => 'Weekly off days', 'type' => 'days', 'hint' => 'Company default.'.(feature_on('employees') ? ' Override per employee on their profile (Work schedule'.(feature_on('leave') ? ' & leave' : '').').' : ''), 'span' => true, 'default' => '6,7'],
-        ['key' => 'general.saturday_rule', 'label' => 'Saturdays', 'type' => 'select', 'options' => \Core\WorkWeek::RULES, 'rules' => 'required|in:'.implode(',', array_keys(\Core\WorkWeek::RULES)), 'default' => 'full', 'hint' => 'When Saturday is a working day: full day, half day, or alternate Saturdays off (the 2nd & 4th or 1st & 3rd of the month). Half days count as half a working day for leave, salary and attendance targets.']],
+        ['key' => 'general.saturday_rule', 'label' => 'Saturdays', 'type' => 'select', 'options' => \Core\WorkWeek::RULES, 'rules' => 'required|in:'.implode(',', array_keys(\Core\WorkWeek::RULES)), 'default' => 'full', 'hint' => 'When Saturday is a working day: full day, half day, or alternate Saturdays off (the 2nd & 4th or 1st & 3rd of the month). Half days count as half a working day for leave, salary and attendance targets.'],
+        ['key' => 'hr.exit_auto_deactivate', 'label' => 'Deactivate the account automatically on the last working day', 'type' => 'toggle', 'default' => '1', 'span' => true, 'section' => 'Onboarding & exit', 'feature' => 'employees', 'hint' => 'Default for new exits (HR can untick it per exit). The account is deactivated and signed out at the end of the last working day by the scheduler.'],
+        $num('hr.upload_self_delete_minutes', 'Employees can delete their own upload for', 0, 1440, 'After this many minutes only HR, the manager or an admin can delete an onboarding or exit file; the employee can request deletion instead. 0 = never, empty = 20.', ['default' => '20', 'unit' => 'min', 'feature' => 'employees', 'rules' => 'nullable|integer|min:0|max:1440'])],
       'leave' => [
-        $num('hr.optional_holidays_default', 'Optional holidays per year', 0, 60, 'Default yearly allowance of the Optional Holiday (OH) leave type. Can be changed per employee.', ['default' => '15', 'section' => 'Holidays'])],
+        ...(self::hasOptionalPool() ? [$num('hr.optional_holidays_default', 'Optional holidays per year', 0, 60, 'Default yearly allowance of the Optional Holiday (OH) leave type. Can be changed per employee.', ['default' => '15', 'section' => 'Holidays'])] : []),
+        ['key' => 'hr.holidays.auto_next_year', 'label' => 'Create next year\'s holiday list automatically in December', 'type' => 'toggle', 'default' => '1', 'span' => true, 'hint' => 'Fixed dates are copied; festival dates (Holi, Diwali, Eid...) are asked from the AI assistant when it is set up, otherwise copied and marked "Check date".'],
+        ['key' => 'hr.leave.shortage_cover', 'label' => 'Cover a shortage of working hours from Paid Leave', 'type' => 'toggle', 'default' => '1', 'section' => 'Leave policies', 'span' => true, 'hint' => 'When someone works fewer hours than expected in a month, payroll takes the shortage (hours ÷ hours per day, rounded to half days) from the leave type marked "covers hour shortages", up to the available balance, so pay is not cut for those days.'],
+        $num('hr.leave.accrual_cutoff_day', 'Monthly accrual: joiners up to day', 1, 28, 'People who join on or before this day of the month get that month\'s accrual; later joiners start the next month.', ['default' => '15'])],
       'attendance' => [
         $num('attendance.idle_minutes', 'Idle detection after (minutes)', 1, 60, 'No mouse or keyboard input for this long marks the person idle. The timer keeps running and the time since the last input is saved as idle time automatically.', ['section' => 'Time tracking', 'default' => '5']),
         $num('attendance.idle_auto_pause_minutes', 'Pause tracking after idle (minutes)', 2, 240, 'Still idle this long after the last input: tracking pauses at that moment (the idle minutes until then are kept as idle time) and the app offers Resume when the person is back. Must be more than the idle detection time; a lower value is raised to idle detection + 1.', ['default' => '15']),

@@ -5,6 +5,8 @@ $size = static fn ($b) => $b >= 1048576 ? round($b / 1048576, 1).' MB' : ($b >= 
 $q = $_GET['q'] ?? ''; $showPending = ($_GET['show'] ?? '') === 'pending';
 $aud = count($audience);
 $maxMb = (int) setting('storage.max_upload_mb', 10);
+$mySigs ??= []; $allSigs ??= []; $sigReqs ??= [];
+$sigState = static function (array $list): array { $st = array_column($list, 'status'); return in_array('approved', $st, true) ? ['Signed', 'mint'] : (in_array('pending', $st, true) ? ['Signed copy under review', 'lemon'] : (in_array('rejected', $st, true) ? ['Please upload again', 'red'] : ['Please sign', 'lemon'])); };
 $docForm = static function (?array $d) use ($cats, $maxMb): string { ob_start(); $fid = 'd'.($d['id'] ?? 'new'); ?>
   <div class="field"><label for="<?= $fid ?>-t">Title *</label><input id="<?= $fid ?>-t" type="text" name="title" maxlength="190" value="<?= e($d['title'] ?? old('title')) ?>" placeholder="<?= feature_on('leave') ? 'e.g. Leave & holiday policy 2026' : 'e.g. Employee handbook 2026' ?>" required></div>
   <div class="form-grid">
@@ -13,7 +15,8 @@ $docForm = static function (?array $d) use ($cats, $maxMb): string { ob_start();
   </div>
   <div class="field"><label for="<?= $fid ?>-d">Short description</label><textarea id="<?= $fid ?>-d" name="description" rows="3" maxlength="2000" placeholder="What is it and who should read it?"><?= e($d['description'] ?? old('description')) ?></textarea></div>
   <label class="check"><input type="checkbox" name="requires_ack" value="1"<?= checked($d['requires_ack'] ?? old('requires_ack')) ?>> Requires acknowledgement, everyone confirms “I have read this”</label>
-  <?php if ($d): ?><label class="check small"><input type="checkbox" name="reset_acks" value="1"> When replacing the file, ask everyone to acknowledge again</label><?php else: ?><label class="check small"><input type="checkbox" name="notify" value="1" checked> Notify everyone when acknowledgement is required</label><?php endif ?>
+  <label class="check"><input type="checkbox" name="requires_signature" value="1"<?= checked($d['requires_signature'] ?? old('requires_signature')) ?>> Requires signature, everyone downloads it, signs and uploads the signed copy</label>
+  <?php if ($d): ?><label class="check small"><input type="checkbox" name="reset_acks" value="1"> When replacing the file, ask everyone to acknowledge again</label><?php else: ?><label class="check small"><input type="checkbox" name="notify" value="1" checked> Notify everyone when acknowledgement or a signature is required</label><?php endif ?>
 <?php return (string) ob_get_clean(); };
 ?>
 <?= partial('partials/page_head', ['title' => 'Company documents', 'subtitle' => 'Policies, the handbook, forms and benefits, always the latest version.', 'crumbs' => [['My HR'], ['Company documents']], 'actions' => $manage ? '<button type="button" class="btn primary" data-modal="doc-new">'.icon('upload', 'sm').' Upload document</button>' : '']) ?>
@@ -47,19 +50,24 @@ $docForm = static function (?array $d) use ($cats, $maxMb): string { ob_start();
       <span class="hr-ft hr-ft-<?= e($ftCls) ?>" aria-hidden="true"><?= e($ftLabel) ?></span>
       <div class="grow">
         <h3><?= e($d['title']) ?></h3>
-        <div class="chips"><span class="pill pill-<?= e($catCol) ?>"><?= icon($catIc, 'sm') ?> <?= e($catLabel) ?></span><?php if ((int) $d['requires_ack']): ?><?= $d['my_ack'] ? '<span class="pill pill-mint">'.icon('check', 'sm').' Read</span>' : '<span class="pill pill-lemon">Please acknowledge</span>' ?><?php endif ?></div>
+        <div class="chips"><span class="pill pill-<?= e($catCol) ?>"><?= icon($catIc, 'sm') ?> <?= e($catLabel) ?></span><?php if ((int) $d['requires_ack']): ?><?= $d['my_ack'] ? '<span class="pill pill-mint">'.icon('check', 'sm').' Read</span>' : '<span class="pill pill-lemon">Please acknowledge</span>' ?><?php endif ?><?php if ((int) ($d['requires_signature'] ?? 0)): [$sgl, $sgc] = $sigState($mySigs[$id] ?? []); ?><span class="pill pill-<?= e($sgc) ?>"><?= icon('edit', 'sm') ?> <?= e($sgl) ?></span><?php endif ?></div>
       </div>
       <?php if ($manage): ?><details class="dd"><summary class="btn icon sm ghost" aria-label="Manage <?= e($d['title']) ?>"><?= icon('more-v', 'sm') ?></summary><div class="dd-menu"><button type="button" data-modal="doc-<?= $id ?>"><?= icon('edit', 'sm') ?> Edit or replace file</button><form method="post" action="<?= e(url('/hr/documents/'.$id.'/delete')) ?>" data-confirm="Delete “<?= e($d['title']) ?>” and its file? Acknowledgements are removed too."><?= csrf_field() ?><button><?= icon('trash', 'sm') ?> Delete</button></form></div></details><?php endif ?>
     </div>
     <?php if ($d['description']): ?><p class="hr-doc-desc"><?= e($d['description']) ?></p><?php endif ?>
     <div class="hr-doc-meta"><span><?= icon('clock', 'sm') ?> Updated <?= e(fdate($d['updated_at'] ?? $d['created_at'])) ?></span><?php if ($d['size']): ?><span><?= icon('file', 'sm') ?> <?= e($size($d['size'])) ?></span><?php endif ?><?php if ($d['author']): ?><span><?= icon('user', 'sm') ?> <?= e($d['author']) ?></span><?php endif ?></div>
+    <?php if ($manage && (int) ($d['requires_signature'] ?? 0)): $sg = $allSigs[$id] ?? []; $sgN = count(array_filter($sg, static fn ($l) => in_array('approved', array_column($l, 'status'), true))); $sgW = count(array_filter($sg, static fn ($l) => in_array('pending', array_column($l, 'status'), true))); $sgPct = $aud ? (int) round($sgN / $aud * 100) : 0; ?>
+      <button type="button" class="hr-doc-ack btn ghost" data-modal="sig-<?= $id ?>" aria-label="Signature progress"><span class="nowrap b"><?= $sgN ?>/<?= $aud ?></span><span class="progress" role="progressbar" aria-valuenow="<?= $sgPct ?>" aria-valuemin="0" aria-valuemax="100"><span style="width:<?= $sgPct ?>%"></span></span><span class="xs muted nowrap">signed<?= $sgW ? ' · '.$sgW.' to review' : '' ?></span></button>
+    <?php endif ?>
     <?php if ($manage && (int) $d['requires_ack']): ?>
       <button type="button" class="hr-doc-ack btn ghost" data-modal="ack-<?= $id ?>" aria-label="Acknowledgement progress"><span class="nowrap b"><?= $ackN ?>/<?= $aud ?></span><span class="progress" role="progressbar" aria-valuenow="<?= $ackPct ?>" aria-valuemin="0" aria-valuemax="100"><span style="width:<?= $ackPct ?>%"></span></span><span class="xs muted nowrap">acknowledged</span></button>
     <?php endif ?>
     <div class="hr-doc-foot">
       <?php if ($d['file_id']): ?><a class="btn sm soft" href="<?= e(url('/files/'.$d['file_id'].'/view')) ?>" target="_blank" rel="noopener"><?= icon('eye', 'sm') ?> Open</a><a class="btn sm ghost" href="<?= e(url('/files/'.$d['file_id'])) ?>" title="Download <?= e($d['original_name']) ?>" aria-label="Download"><?= icon('download', 'sm') ?></a><?php endif ?>
+      <?php if ((int) ($d['requires_signature'] ?? 0) && $d['file_id'] && !in_array('approved', array_column($mySigs[$id] ?? [], 'status'), true)): ?><details class="hr-pop"><summary class="btn sm primary"><?= icon('upload', 'sm') ?> Upload signed copy</summary><form class="hr-pop-body" method="post" enctype="multipart/form-data" action="<?= e(url('/hr/documents/'.$id.'/sign')) ?>"><?= csrf_field() ?><p class="xs muted mb0">1. Download the document. 2. Sign it (print and scan, or sign digitally). 3. Upload the signed copy here.</p><input type="file" name="file" accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx" required><button class="btn sm primary"><?= icon('upload', 'sm') ?> Upload</button></form></details><?php endif ?>
       <?php if ($need): ?><form method="post" action="<?= e(url('/hr/documents/'.$id.'/ack')) ?>" data-confirm="Confirm that you have read “<?= e($d['title']) ?>”?"><?= csrf_field() ?><button class="btn sm primary"><?= icon('check', 'sm') ?> I have read this</button></form><?php endif ?>
     </div>
+    <?php if (!empty($mySigs[$id])): ?><div class="hr-ups mt"><div class="xs b muted">Your signed copy</div><?php foreach ($mySigs[$id] as $up): ?><?= partial('hr::processes/_upload', ['up' => $up, 'req' => $sigReqs[(int) $up['id']] ?? null, 'return' => '/hr/documents#doc-'.$id]) ?><?php endforeach ?></div><?php endif ?>
   </article>
   <?php endforeach ?>
 </div>
@@ -72,6 +80,14 @@ $docForm = static function (?array $d) use ($cats, $maxMb): string { ob_start();
 <dialog class="modal" id="doc-<?= $id ?>"><div class="modal-head"><h3>Edit document</h3><button type="button" class="btn icon sm ghost" data-close aria-label="Close"><?= icon('x', 'sm') ?></button></div>
   <form class="modal-body form" method="post" action="<?= e(url('/hr/documents/'.$id)) ?>" enctype="multipart/form-data"><?= csrf_field() ?><?php if ($d['original_name']): ?><div class="hr-note"><?= icon('paperclip', 'sm') ?><div>Current file: <b><?= e($d['original_name']) ?></b></div></div><?php endif ?><?= $docForm($d) ?>
     <div class="form-actions"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary"><?= icon('check', 'sm') ?> Save changes</button></div></form></dialog>
+<?php if ((int) ($d['requires_signature'] ?? 0)): $sg = $allSigs[$id] ?? []; $notYet = array_diff_key($audience, $sg); ?>
+<dialog class="modal modal-lg" id="sig-<?= $id ?>"><div class="modal-head"><h3>Signed copies</h3><button type="button" class="btn icon sm ghost" data-close aria-label="Close"><?= icon('x', 'sm') ?></button></div>
+  <div class="modal-body">
+    <p class="small muted"><b><?= e($d['title']) ?></b> · <?= count(array_filter($sg, static fn ($l) => in_array('approved', array_column($l, 'status'), true))) ?> of <?= $aud ?> signed and approved.</p>
+    <?php if ($sg): ?><div class="hr-ups"><?php foreach ($sg as $suid => $list): ?><div class="hr-rev-row"><div class="flex"><?= avatar($list[0]['emp_name'], $list[0]['emp_avatar'], 'sm') ?><b class="small grow"><?= e($list[0]['emp_name']) ?></b><?php [$sgl, $sgc] = $sigState($list); ?><span class="pill pill-<?= e($sgc) ?>"><?= e($sgl === 'Please sign' ? 'Not signed' : $sgl) ?></span></div><?php foreach ($list as $up): ?><?= partial('hr::processes/_upload', ['up' => $up, 'req' => $sigReqs[(int) $up['id']] ?? null, 'return' => '/hr/documents#doc-'.$id]) ?><?php endforeach ?></div><?php endforeach ?></div><?php endif ?>
+    <h4 class="small mt">Not uploaded yet (<?= count($notYet) ?>)</h4><div class="list hr-ack-list"><?php if (!$notYet): ?><p class="small muted">Everyone has uploaded a signed copy.</p><?php endif ?><?php foreach ($notYet as $nuid => $name): ?><div class="list-item"><?= avatar($name, null, 'sm') ?><b class="small grow"><?= e($name) ?></b></div><?php endforeach ?></div>
+  </div></dialog>
+<?php endif ?>
 <?php if ((int) $d['requires_ack']): $acked = $progress[$id] ?? []; $missing = array_diff_key($audience, $acked); ?>
 <dialog class="modal" id="ack-<?= $id ?>"><div class="modal-head"><h3>Acknowledgements</h3><button type="button" class="btn icon sm ghost" data-close aria-label="Close"><?= icon('x', 'sm') ?></button></div>
   <div class="modal-body">

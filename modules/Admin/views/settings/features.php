@@ -1,2 +1,2 @@
 <?= partial('admin::settings/_head', ['tabs' => $tabs, 'tab' => 'features']) ?>
-<?= partial('admin::modules/_bundles') ?>
+<?= partial('admin::settings/_features') ?>

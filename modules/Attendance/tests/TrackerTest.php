@@ -399,7 +399,7 @@ return [
     assert_eq(6, trk_api('GET', '/api/agent/state', [], $tok)[1]['settings']['idle_auto_pause_minutes'], 'clamped above idle_minutes');
     Settings::set('attendance.idle_auto_pause_minutes', '15'); },
 
-  'activity slots: stored per slot, tied to the entry, clamped, idempotent; screenshots carry the counts' => function () {
+  'activity slots: stored per slot, tied to the entry, clamped, idempotent; keystroke and mouse counts from old apps are ignored' => function () {
     ['a' => $a, 'emp' => $emp] = trk_fixture();
     $tok = trk_login();
     DB::query('DELETE FROM attendance WHERE user_id=?', [$emp]); DB::query('DELETE FROM time_entries WHERE user_id=?', [$emp]); DB::query('DELETE FROM activity_slots WHERE user_id=?', [$emp]);
@@ -415,9 +415,9 @@ return [
       ['slot_start' => gmdate('c', time() + 3600), 'slot_seconds' => 60, 'active_seconds' => 1]], 7);
     assert_eq(['saved' => 2, 'skipped' => 3], $r);
     $s = DB::first('SELECT * FROM activity_slots WHERE user_id=? AND slot_start=?', [$emp, date('Y-m-d H:i:s', $t0)]);
-    assert_true($s && (int) $s['time_entry_id'] === $entry && (int) $s['active_seconds'] === 120 && (int) $s['keystrokes'] === 340 && (int) $s['mouse_events'] === 85 && (int) $s['agent_token_id'] === 7, 'stored: '.json_encode($s));
+    assert_true($s && (int) $s['time_entry_id'] === $entry && (int) $s['active_seconds'] === 120 && $s['keystrokes'] === null && $s['mouse_events'] === null && (int) $s['agent_token_id'] === 7, 'stored without counts: '.json_encode($s));
     $s2 = DB::first('SELECT * FROM activity_slots WHERE user_id=? AND slot_start=?', [$emp, date('Y-m-d H:i:s', $t0 + 180)]);
-    assert_true((int) $s2['active_seconds'] === 180 && $s2['keystrokes'] === null, 'active clamped to the slot, unknown counts stay null');
+    assert_true((int) $s2['active_seconds'] === 180 && $s2['keystrokes'] === null, 'active clamped to the slot, counts stay null');
     TimeService::activitySlots($emp, [['slot_start' => gmdate('c', $t0), 'slot_seconds' => 180, 'active_seconds' => 120, 'keystrokes' => 340, 'mouse_events' => 85]]);
     assert_eq(['saved' => 0, 'skipped' => 1], TimeService::activitySlots($emp, [['slot_start' => gmdate('c', $t0), 'slot_seconds' => 40, 'active_seconds' => 40]]), 'a smaller report never shrinks a slot');
     assert_eq(2, (int) DB::value('SELECT COUNT(*) FROM activity_slots WHERE user_id=?', [$emp]), 'retries are idempotent');
@@ -428,7 +428,40 @@ return [
     [$code, $j] = trk_api('POST', '/api/agent/screenshot', ['activity_pct' => 67, 'keystrokes' => 340, 'mouse_events' => 85, 'display' => 0, 'captured_at' => date('c')], $tok, trk_jpeg());
     assert_eq(200, $code, json_encode($j));
     $sh = DB::first('SELECT * FROM screenshots WHERE id=?', [$j['id']]);
-    assert_true((int) $sh['activity_pct'] === 67 && (int) $sh['keystrokes'] === 340 && (int) $sh['mouse_events'] === 85, 'screenshot counts: '.json_encode($sh));
+    assert_true((int) $sh['activity_pct'] === 67 && $sh['keystrokes'] === null && $sh['mouse_events'] === null, 'screenshot keeps the activity, ignores counts: '.json_encode($sh));
+    Settings::set('attendance.screenshots_enabled', '0'); },
+
+  'meeting mode: meeting slots and screenshots are flagged, kept and left out of every activity average' => function () {
+    ['a' => $a, 'emp' => $emp] = trk_fixture();
+    $tok = trk_login();
+    DB::query('DELETE FROM attendance WHERE user_id=?', [$emp]); DB::query('DELETE FROM time_entries WHERE user_id=?', [$emp]); DB::query('DELETE FROM activity_slots WHERE user_id=?', [$emp]); DB::query('DELETE FROM screenshots WHERE user_id=?', [$emp]);
+    trk_api('POST', '/api/agent/day/start', ['project_id' => $a], $tok);
+    DB::query('UPDATE time_entries SET started_at=DATE_SUB(NOW(), INTERVAL 3600 SECOND), last_heartbeat_at=NOW() WHERE user_id=?', [$emp]);
+    $t0 = time() - 1200; $t0 -= $t0 % 180;
+    if (date('Y-m-d', $t0) !== date('Y-m-d')) { return; } /* just after midnight: the slots would be on yesterday */
+    [$code, $j] = trk_api('POST', '/api/agent/activity', ['slots' => [
+      ['slot_start' => gmdate('c', $t0), 'slot_seconds' => 180, 'active_seconds' => 162, 'meeting' => 0],
+      ['slot_start' => gmdate('c', $t0 + 180), 'slot_seconds' => 180, 'active_seconds' => 18, 'meeting' => 1],
+      ['slot_start' => gmdate('c', $t0 + 360), 'slot_seconds' => 180, 'active_seconds' => 0, 'meeting' => true]]], $tok);
+    assert_true($code === 200 && $j['saved'] === 3, 'saved: '.json_encode($j));
+    assert_eq([0, 1, 1], array_map('intval', DB::column('SELECT meeting FROM activity_slots WHERE user_id=? ORDER BY slot_start', [$emp])), 'meeting flag stored per slot');
+    assert_eq(['pct' => 90, 'seconds' => 180, 'meeting' => 360], TimeService::dayActivity($emp, date('Y-m-d')), 'average without the meeting slots (162/180), meeting seconds reported');
+    $st = trk_api('GET', '/api/agent/state', [], $tok)[1]['state'];
+    assert_true($st['totals']['activity'] === 90 && $st['totals']['meeting'] === 360, 'state totals: '.json_encode($st['totals']));
+    $ref = new ReflectionMethod(\Modules\Attendance\Controllers\BaseController::class, 'day');
+    $sum = $ref->invoke(null, $emp, date('Y-m-d'))['sum'];
+    assert_true($sum['activity'] === 90 && $sum['meeting'] === 360, 'day summary activity excludes meetings: '.json_encode($sum));
+    DB::query('UPDATE activity_slots SET meeting=1 WHERE user_id=?', [$emp]);
+    assert_eq(null, TimeService::dayActivity($emp, date('Y-m-d'))['pct'], 'a day of meetings only has no activity average');
+    Settings::set('attendance.screenshots_enabled', '1'); DB::query('DELETE FROM screenshots WHERE user_id=?', [$emp]);
+    trk_api('POST', '/api/agent/consent', ['agree' => '1', 'policy_version' => \Modules\Attendance\Services\Monitoring::POLICY_VERSION], $tok);
+    [$code, $j] = trk_api('POST', '/api/agent/screenshot', ['activity_pct' => 5, 'meeting' => '1', 'display' => 0, 'captured_at' => date('c')], $tok, trk_jpeg());
+    assert_eq(200, $code, json_encode($j));
+    assert_eq(1, (int) DB::value('SELECT meeting FROM screenshots WHERE id=?', [$j['id']]), 'screenshot carries the meeting flag');
+    [, $j2] = trk_api('POST', '/api/agent/screenshot', ['activity_pct' => 70, 'display' => 0, 'captured_at' => date('c', time() - 100)], $tok, trk_jpeg());
+    assert_eq(0, (int) DB::value('SELECT meeting FROM screenshots WHERE id=?', [$j2['id']]), 'not a meeting by default');
+    DB::query('DELETE FROM activity_slots WHERE user_id=?', [$emp]);
+    assert_eq(70, TimeService::dayActivity($emp, date('Y-m-d'))['pct'], 'screenshot fallback average skips meeting captures');
     Settings::set('attendance.screenshots_enabled', '0'); },
 
   'nightly auto close keeps today running; stale_timers closes days that are over at their last entry' => function () {

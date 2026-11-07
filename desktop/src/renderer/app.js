@@ -1,24 +1,26 @@
-/* Niyanta Tracker renderer. Talks to the main process only through window.tracker (preload bridge). */
+/* Niyanta Tracker renderer. Talks to the main process only through window.tracker (preload bridge); the status / counter logic
+   is shared with the checks (../shared/status.js, window.NyStatus). */
 (() => {
   'use strict';
   const T = window.tracker;
+  const S = window.NyStatus;
   const $ = id => document.getElementById(id);
-  const pad = n => String(n).padStart(2, '0');
-  const hms = s => { s = Math.max(0, Math.floor(s || 0)); return `${pad(Math.floor(s / 3600))}:${pad(Math.floor(s % 3600 / 60))}:${pad(s % 60)}`; };
-  const hm = s => { s = Math.max(0, Math.floor(s || 0)); return `${Math.floor(s / 3600)}h ${pad(Math.floor(s % 3600 / 60))}m`; };
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const every = s => !s ? '' : (s % 60 ? (s > 60 ? `${Math.floor(s / 60)} min ${s % 60} s` : `${s} s`) : (s === 60 ? 'minute' : `${s / 60} min`));
   const icon = (id, cls = '') => `<svg class="ic ${cls}"><use href="#i-${id}"/></svg>`;
-  const CHIPS = { tracking: 'Tracking', idle: 'Idle', paused: 'Paused', offline: 'Offline', stopped: 'Not tracking', ended: 'Not tracking', not_started: 'Not started' };
   const time = v => new Date(v).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }).replace(/\s?([AP]M)$/i, (m, x) => ' ' + x.toLowerCase());
+  const { hms, hm, mmss } = S;
   let ui = null;
   let noticeShown = 0;
   let pickerKey = '';
   let modalKind = null;
+  let modalKey = '';
+  let modalReturn = null;
   let consentLater = false;
+  let promptLater = '';
   let pomoDirty = false;
   let sheetReturn = null;
-  const mmss = ms => { const s = Math.max(0, Math.ceil(ms / 1000)); return `${Math.floor(s / 60)}:${pad(s % 60)}`; };
+  let meetBusy = false;
 
   window.addEventListener('error', e => T.reportError({ message: e.message, stack: e.error && e.error.stack }));
   window.addEventListener('unhandledrejection', e => T.reportError({ message: 'Unhandled rejection: ' + (e.reason && e.reason.message || e.reason), stack: e.reason && e.reason.stack }));
@@ -38,28 +40,32 @@
     if (!$('si-url').value && ui.login.url) $('si-url').value = ui.login.url;
     if (!$('si-email').value && ui.login.email) $('si-email').value = ui.login.email;
     $('si-submit').disabled = ui.busy;
-    $('si-submit').textContent = ui.busy ? 'Signing in…' : 'Sign in';
+    $('si-submit').textContent = ui.busy ? 'Signing in...' : 'Sign in';
     $('si-error').textContent = ui.error || '';
     $('si-error').classList.toggle('hide', !ui.error); }
 
   function renderTracker() {
     const st = ui.state || { state: 'not_started', totals: {}, day: {} };
-    $('ws-name').textContent = ui.account ? ui.account.workspace.name : '';
-    $('ws-user').textContent = ui.account ? ui.account.name + ' · ' + ui.account.email : '';
+    const acc = ui.account;
+    $('ws-name').textContent = acc ? acc.workspace.name : '';
+    $('ws-user').textContent = acc ? acc.name : '';
+    $('ws-user').title = acc ? acc.email : '';
+    $('avatar').textContent = acc ? (acc.initials || (acc.name || '?').slice(0, 1)).toUpperCase() : '';
     $('today').textContent = new Date().toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' });
-    const chip = ui.chip === 'not_started' && st.state !== 'not_started' ? st.state : ui.chip;
-    $('hero').dataset.state = chip;
-    $('chip-label').textContent = CHIPS[chip] || st.label || '';
     renderPickers(st);
     const s = st.state;
     const show = (id, on) => $(id).classList.toggle('hide', !on);
     show('btn-start', ['not_started', 'ended'].includes(s));
     show('btn-pause', s === 'tracking');
     show('btn-resume', s === 'paused' || s === 'stopped');
+    renderMeeting(st);
     renderBanners(st);
+    $('update-slot').innerHTML = updateCard();
+    document.querySelectorAll('[data-pc]').forEach(el => { el.style.width = el.dataset.pc + '%'; });
     renderMonitoring();
-    const sync = ui.offline ? `Offline · ${ui.pending} waiting to sync` : (ui.pending ? `Syncing ${ui.pending}…` : 'All changes synced');
-    $('sync').textContent = `v${ui.version} · ${sync}`; }
+    const sync = $('sync');
+    sync.classList.toggle('off', !!ui.offline); sync.classList.toggle('busy', !ui.offline && !!ui.pending);
+    $('sync-text').textContent = `v${ui.version} · ` + (ui.offline ? `Offline, ${ui.pending} waiting to sync` : (ui.pending ? `Syncing ${ui.pending}...` : 'All changes synced')); }
 
   function renderPickers(st) {
     const on = ui.projectsEnabled;
@@ -79,15 +85,24 @@
   function fillTasks(taskId) {
     const p = ui.projects.find(x => String(x.id) === $('project').value);
     const tasks = p ? p.tasks : [];
-    $('task').innerHTML = `<option value="">${p ? (tasks.length ? 'No specific task' : 'No open tasks') : 'Select a project first'}</option>` + tasks.map(t => `<option value="${t.id}">${esc(t.title)}${t.mine ? ' ★' : ''}</option>`).join('');
+    $('task').innerHTML = `<option value="">${p ? (tasks.length ? 'No specific task' : 'No open tasks') : 'Select a project first'}</option>` + tasks.map(t => `<option value="${t.id}">${esc(t.title)}${t.mine ? ' (mine)' : ''}</option>`).join('');
     $('task').disabled = !p || !tasks.length;
     $('task').value = taskId ? String(taskId) : ''; }
 
   function currentSel() { return { project_id: +$('project').value || null, task_id: +$('task').value || null }; }
 
-  function banner(kind, html, actions = '') { return `<div class="alert ${kind}"><div class="grow">${html}</div>${actions}</div>`; }
+  /** Meeting mode switch: on while tracking; switching it on when not tracking starts (or resumes) tracking first. */
+  function renderMeeting(st) {
+    const on = !!ui.meeting;
+    $('meet-on').checked = on;
+    $('meet-on').disabled = meetBusy;
+    $('meet').classList.toggle('on', on);
+    $('meet-left').classList.toggle('hide', !on);
+    $('meet-hint').textContent = on ? 'Activity is not counted. Time and screenshots continue.' : (st.state === 'tracking' ? 'Activity is not counted. Turns off after 1 hour.' : 'Starts tracking. Activity is not counted for up to 1 hour.'); }
+
+  function banner(kind, html, actions = '') { return `<div class="alert ${kind}" role="status"><div class="grow">${html}</div>${actions}</div>`; }
   /** Banner with its buttons on a row below the text (pomodoro). */
-  function stackBanner(kind, html, actions) { return `<div class="alert stack ${kind}"><div>${html}</div><div class="acts">${actions}</div></div>`; }
+  function stackBanner(kind, html, actions) { return `<div class="alert stack ${kind}" role="status"><div>${html}</div><div class="acts">${actions}</div></div>`; }
 
   function pomodoroBanners(st) {
     const p = ui.pomodoro;
@@ -99,16 +114,13 @@
 
   function renderBanners(st) {
     const b = [];
-    if (ui.notice && ui.notice.id !== noticeShown) {
-      b.push(banner(ui.notice.kind === 'error' ? 'error' : 'info', esc(ui.notice.text), `<button class="btn" data-dismiss="${ui.notice.id}">OK</button>`)); }
+    if (ui.notice && ui.notice.id !== noticeShown) b.push(banner(ui.notice.kind === 'error' ? 'error' : 'info', esc(ui.notice.text), `<button class="btn" data-dismiss="${ui.notice.id}">OK</button>`));
     b.push(...pomodoroBanners(st));
     if (ui.idlePause && ui.idlePause.back && st.state === 'paused') b.push(banner('info', `${icon('coffee', 'sm')} Tracking paused after ${+ui.idlePause.minutes} min idle. Resume when you are back.`, '<button class="btn" data-resume>Resume</button>'));
-    if (ui.offline) b.push(banner('warn', `${icon('cloud-off', 'sm')} <b>Offline.</b> Your actions are saved and sync automatically. Without a connection for 10 minutes, time is not counted.`));
-    b.push(updateCard());
+    if (ui.offline) b.push(banner('warn', `${icon('cloud-off', 'sm')} <span><b>Offline.</b> Your actions are saved and sync automatically. Without a connection for 10 minutes, time is not counted.</span>`));
     if (ui.monitoring && ui.settings.screenshots_enabled && ui.consent && ui.consent.given && ui.monitoring.permission === 'denied') b.push(banner('error', 'Screenshots need the <b>Screen Recording</b> permission.', '<button class="btn" data-open="permissions">Open settings</button>'));
     if (ui.consent && ui.consent.needed && st.state === 'tracking' && modalKind !== 'consent') b.push(banner('warn', 'Screen monitoring is on in your workspace. Please review the notice.', '<button class="btn" data-consent>Review</button>'));
-    $('banners').innerHTML = b.join('');
-    document.querySelectorAll('[data-pc]').forEach(el => { el.style.width = el.dataset.pc + '%'; }); }
+    $('banners').innerHTML = b.join(''); }
 
   const BUSY = ['downloading', 'verifying', 'ready', 'installing'];
   /** Short steps after the installer was saved to Downloads (fallback, .deb, development builds). */
@@ -118,7 +130,7 @@
     linux: ['The new AppImage is in your Downloads folder and is already executable.', 'Quit Niyanta Tracker, then double-click the new AppImage.', 'You can delete the old AppImage afterwards.'],
     deb: ['The new package opened in your software installer: click <b>Install</b>.', 'Or run the command below in a terminal.', 'Then click <b>Restart app</b>. Tracking continues.'] };
 
-  /** "Niyanta Tracker X is available" with Update now, its progress, the manual download and its steps. */
+  /** The update card at the top: "Niyanta Tracker X is available" with Update now, its progress, the manual download and its steps. */
   function updateCard() {
     const up = ui.update;
     if (!up || !(up.available || up.manual)) return '';
@@ -134,17 +146,18 @@
     if (up.want && BUSY.includes(up.status)) {
       const pc = up.status === 'downloading' ? Math.max(2, +up.percent || 0) : 100;
       const label = { downloading: `Downloading${up.auto && up.mode !== 'deb' ? '' : ' the installer'}... ${+up.percent || 0}%`, verifying: 'Checking the download...', ready: 'Installing. The app restarts in a moment.', installing: 'Installing. The app restarts in a moment.' }[up.status];
-      return card('info', head(`Updating to Niyanta Tracker ${v}`, up.auto ? 'Keep working. Tracking pauses for the restart and continues by itself.' : '') + `<div class="upd-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pc}"><span data-pc="${pc}"></span></div><small class="upd-label">${label}</small>`); }
+      return card('info', head(`Updating to Niyanta Tracker ${v}`, up.auto ? 'Keep working. Tracking pauses for the restart and continues by itself.' : '') + `<div class="upd-bar" role="progressbar" aria-label="Update progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pc}"><span data-pc="${pc}"></span></div><small class="upd-label">${label}</small>`); }
     if (up.status === 'error') {
       return card('error', head(`Niyanta Tracker ${v} is available`, esc(up.error || 'The automatic update did not work.')) + '<p class="upd-p">Get the new version in one step instead: it downloads inside the app (no browser) and opens the installer.</p><div class="acts"><button class="btn primary sm" data-download-installer>Download the new version</button>' + (up.auto ? '<button class="btn sm" data-install-update>Try again</button>' : '') + '</div>'); }
     const notes = up.notes && up.notes.length ? `<ul class="upd-notes">${up.notes.map(n => `<li>${esc(n)}</li>`).join('')}</ul>` : '';
-    const sub = up.auto ? (up.mode === 'deb' ? 'Downloads the new package and opens your software installer.' : 'One click: it downloads, restarts the app and your tracking continues.') : 'Downloads the installer inside the app and opens it.';
-    return card('ok', head(`Niyanta Tracker ${v} is available`, `You have ${esc(up.current)}. ${sub}`) + notes + `<div class="acts">${up.auto ? '<button class="btn primary" data-install-update>Update now</button>' : '<button class="btn primary" data-download-installer>Download the new version</button>'}</div>`); }
+    const sub = up.auto ? (up.mode === 'deb' ? 'Downloads the new package and opens your software installer.' : 'One click: it downloads, installs and restarts. Tracking continues.') : 'Downloads the installer inside the app and opens it.';
+    return card('hot', head(`Niyanta Tracker ${v} is available`, `You have ${esc(up.current)}. ${sub}`) + notes + `<div class="acts">${up.auto ? '<button class="btn light" data-install-update>Update now</button>' : '<button class="btn light" data-download-installer>Download the new version</button>'}</div>`); }
 
   /** One quiet line about screen monitoring (screenshots themselves are never shown in the app) and the last activity level. */
   function renderMonitoring() {
     const m = ui.monitoring || {};
-    const a = ui.activity && ui.activity.last && ui.state && ui.state.state === 'tracking' ? `Activity ${+ui.activity.last.pct}% (last ${esc(every(ui.activity.last.seconds))})` : '';
+    const last = ui.activity && ui.activity.last;
+    const a = last && ui.state && ui.state.state === 'tracking' ? (last.meeting ? `Last ${esc(every(last.seconds))}: meeting` : `Activity ${+last.pct}% (last ${esc(every(last.seconds))})`) : '';
     const mon = !ui.settings.screenshots_enabled ? '' : (m.on ? `${icon('camera', 'sm')} Screenshots every ${esc(every(m.interval))} while tracking` : `${icon('camera', 'sm')} Screen monitoring is on: please review the notice`);
     $('mon-info').innerHTML = [mon, a].filter(Boolean).join(' · '); }
 
@@ -160,7 +173,8 @@
     const m = ui.monitoring || {};
     $('p-monitor').textContent = !ui.settings.screenshots_enabled ? 'Screenshots are off in your workspace. Only your tracked time and activity level (not what you type) are recorded.'
       : (ui.consent.given ? `Screenshots of all screens every ${every(m.interval)} while tracking. You can see them in the web app and revoke consent there.` : 'Screenshots are on in your workspace, but you have not accepted the notice yet.')
-      + (ui.activity && ui.activity.source ? (ui.activity.counting ? ' Activity is measured from keyboard and mouse input in 10-second steps (counts only, never what you type).' : ' Activity is measured from the system idle time in 10-second steps (keyboard and mouse counts are not available on this computer).') : '');
+      + ' Activity is whether there was keyboard or mouse input in each 12-second block, read from the system every second: never what you type, and nothing is counted.'
+      + ' Meeting mode keeps tracking but leaves that time out of your activity average.';
     $('p-perm').classList.toggle('hide', ui.platform !== 'darwin');
     $('p-version').textContent = ui.version;
     const up = ui.update;
@@ -168,7 +182,7 @@
     $('p-update-state').textContent = !up ? 'not checked yet' : (busy ? `updating to ${up.latest} (${+up.percent || 0}%)` : (up.available ? `version ${up.latest} available` : 'up to date'));
     $('p-download').classList.toggle('hide', !(up && up.available && !busy));
     $('p-download').lastChild.textContent = up && up.auto && up.status !== 'error' ? ' Update now' : ' Download the new version';
-    $('p-account').textContent = ui.account ? `${ui.account.name} · ${ui.account.workspace.url}${ui.prefs.tokenProtected ? ' · sign-in stored in the system keychain' : ''}` : ''; }
+    $('p-account').textContent = ui.account ? `${ui.account.name} · ${ui.account.email} · ${ui.account.workspace.url}${ui.prefs.tokenProtected ? ' · sign-in stored in the system keychain' : ''}` : ''; }
 
   function renderPomodoroForm(force = false) {
     const p = ui.pomodoro;
@@ -188,36 +202,99 @@
       : (p && p.on ? `On: a reminder after ${p.work} minutes of tracking.` : 'Off.'));
     return okW && okB; }
 
+  /* ---------- modals: sync before quitting > consent notice > update prompt (once per version) ---------- */
+
+  function wantedModal() {
+    if (ui.quitSync) return 'sync';
+    if (ui.screen !== 'tracker') return null;
+    if (ui.consent && ui.consent.needed && (modalKind === 'consent' || (ui.state && ui.state.state === 'tracking' && !consentLater))) return 'consent';
+    if (ui.update && ui.update.prompt && promptLater !== ui.update.latest) return 'update';
+    return null; }
+
   function renderModal() {
-    const kind = ui.screen === 'tracker' && ui.consent && ui.consent.needed && (modalKind === 'consent' || (ui.state && ui.state.state === 'tracking' && !consentLater)) ? 'consent' : null;
+    const kind = wantedModal();
+    const was = modalKind;
     modalKind = kind;
     $('modal').classList.toggle('hide', !kind);
-    if (!kind) return;
-    const p = ui.consent.policy || { points: [] };
-    $('m-art').innerHTML = `<div class="bubble lav">${icon('shield')}</div>`;
-    $('m-title').textContent = p.title || 'Screen monitoring notice';
-    $('m-body').className = 'm-body';
-    $('m-body').innerHTML = `<p>Your workspace uses screenshots while you track time (policy ${esc(p.version)}):</p><ul>${p.points.map(x => `<li>${esc(x)}</li>`).join('')}</ul>`;
-    $('m-actions').innerHTML = '<button class="btn ghost" data-consent-later>Not now</button><button class="btn primary" data-consent-accept>I accept</button>'; }
+    if (!kind) { modalKey = ''; if (was && modalReturn && document.contains(modalReturn)) modalReturn.focus(); modalReturn = null; return; }
+    if (!was) modalReturn = document.activeElement;
+    const key = kind + '|' + (kind === 'update' ? ui.update.latest : '');
+    const fresh = key !== modalKey;
+    modalKey = key;
+    if (kind === 'sync') { renderSync(fresh); return; }
+    if (!fresh) return;
+    if (kind === 'consent') {
+      const p = ui.consent.policy || { points: [] };
+      $('m-art').innerHTML = `<div class="bubble">${icon('shield')}</div>`;
+      $('m-title').textContent = p.title || 'Screen monitoring notice';
+      $('m-body').className = 'm-body';
+      $('m-body').innerHTML = `<p>Your workspace uses screenshots while you track time (policy ${esc(p.version)}):</p><ul>${p.points.map(x => `<li>${esc(x)}</li>`).join('')}</ul>`;
+      $('m-actions').innerHTML = '<button class="btn ghost" data-consent-later>Not now</button><button class="btn primary" data-consent-accept>I accept</button>'; }
+    if (kind === 'update') {
+      const up = ui.update;
+      $('m-art').innerHTML = `<div class="bubble">${icon('download')}</div>`;
+      $('m-title').textContent = `Niyanta Tracker ${up.latest} is available`;
+      $('m-body').className = 'm-body center';
+      const notes = up.notes && up.notes.length ? `<ul>${up.notes.map(n => `<li>${esc(n)}</li>`).join('')}</ul>` : '';
+      $('m-body').innerHTML = `${notes}<p>${up.auto ? 'Update now downloads and installs it, then the app restarts by itself. Your tracking continues where you left off.' : 'Download the new version: the app saves the installer and opens it.'}</p><p class="note">You have version ${esc(up.current)}.</p>`;
+      $('m-actions').innerHTML = `<button class="btn ghost" data-prompt-later>Later</button><button class="btn primary" data-prompt-update>${up.auto ? 'Update now' : 'Download'}</button>`; }
+    setTimeout(() => { const b = $('m-actions').querySelector('.primary'); if (b) b.focus(); }, 0); }
+
+  function renderSync(fresh) {
+    const q = ui.quitSync;
+    if (fresh) {
+      $('m-art').innerHTML = `<div class="bubble mint spin">${icon('sync')}</div>`;
+      $('m-title').textContent = 'Syncing your data';
+      $('m-body').className = 'm-body center';
+      $('m-body').innerHTML = '<p><b>Syncing your data to the server. The app will close by itself when done.</b></p><div class="pbar" role="progressbar" aria-label="Sync progress" aria-valuemin="0" aria-valuemax="100"><span id="sync-bar"></span></div><p id="sync-line" class="note" role="status" aria-live="polite"></p><p class="note">Quit anyway keeps what is left on this computer; it is sent the next time you open Niyanta Tracker.</p>';
+      $('m-actions').innerHTML = '<button class="btn ghost" data-quit-anyway>Quit anyway</button>';
+      setTimeout(() => { const b = $('m-actions').querySelector('button'); if (b) b.focus(); }, 0); }
+    syncProgress(); }
+
+  function syncProgress() {
+    const q = ui && ui.quitSync;
+    if (!q || !$('sync-bar')) return;
+    const total = Math.max(1, +q.total || 1), sent = Math.max(0, total - (+q.left || 0));
+    const pc = Math.round(100 * sent / total);
+    $('sync-bar').style.width = Math.max(4, pc) + '%';
+    $('sync-bar').parentElement.setAttribute('aria-valuenow', String(pc));
+    const left = Math.max(0, Math.ceil((+q.until - Date.now()) / 1000));
+    $('sync-line').textContent = `${sent} of ${total} sent` + (q.offline ? '. No connection right now, retrying...' : '') + ` · closes in ${left} s at the latest`; }
 
   /* ---------- live clock ---------- */
 
   function tick() {
     if (!ui || ui.screen !== 'tracker' || !ui.state) return;
     const st = ui.state;
+    const cur = S.current(ui);
     const live = st.state === 'tracking' ? Math.max(0, (Date.now() - ui.at) / 1000) : 0;
-    $('clock').textContent = hms(st.totals.tracked + live);
+    $('hero').dataset.kind = ui.offline && st.state === 'tracking' ? 'offline' : cur.kind;
+    $('chip-label').textContent = cur.label;
+    $('clock').textContent = hms(cur.seconds);
+    $('clock').setAttribute('aria-label', `${cur.label}: ${hm(cur.seconds)}`);
+    $('day-total').textContent = hms(cur.total);
     const r = st.running;
-    let sub;
-    if (r) sub = `Current entry <b>${hms(r.elapsed + live)}</b>${ui.projectsEnabled ? '<br>' + esc(r.project || 'No project') + (r.task ? ' · ' + esc(r.task) : '') : ''}`;
-    else sub = { paused: st.day && st.day.paused_since ? `Paused since <b>${esc(time(st.day.paused_since))}</b>. Resume when you are back.` : 'Paused. Resume when you are back.', stopped: 'Not tracking right now. Press Resume to continue.', ended: 'Not tracking. Press Start to track again.', not_started: 'Press Start when you begin working. The day ends by itself at midnight.' }[st.state] || '';
-    $('sub').innerHTML = sub;
+    $('hero-proj').textContent = r && ui.projectsEnabled ? (r.project || 'No project') + (r.task ? ' · ' + r.task : '') : '';
+    const since = cur.since ? `<b>${esc(time(cur.since))}</b>` : '';
+    const pomo = ui.pomodoro && ui.pomodoro.breakUntil && st.state === 'paused' ? ui.pomodoro : null;
+    $('caption').innerHTML = {
+      tracking: since ? `Current session since ${since}` : 'Current session',
+      idle: ui.idleSince ? `Idle since <b>${esc(time(ui.idleSince))}</b>. The timer keeps running.` : 'Idle. The timer keeps running.',
+      meeting: `Meeting mode, ends in <b>${mmss(cur.meetingLeft || 0)}</b>`,
+      paused: pomo ? `On a break, <b>${mmss(pomo.breakUntil - Date.now())}</b> left` : (since ? `Paused since ${since}` : 'Paused. Resume when you are back.'),
+      stopped: 'Not tracking right now. Press Resume to continue.',
+      ended: 'Not tracking. Press Start to track again.',
+      not_started: 'Press Start when you begin working.' }[cur.kind] || '';
+    if (ui.meeting) $('meet-left').textContent = mmss(cur.meetingLeft || 0);
     document.querySelectorAll('[data-countdown]').forEach(el => { el.textContent = mmss(+el.dataset.countdown - Date.now()); });
-    const pausedLive = st.state === 'paused' ? (Date.now() - ui.at) / 1000 : 0;
-    $('t-active').textContent = hm(st.totals.active + (ui.idle ? 0 : live));
-    $('t-idle').textContent = hm(st.totals.idle + (ui.idle ? live : 0));
-    $('t-paused').textContent = hm(st.totals.paused + pausedLive);
-    $('t-total').textContent = hm(st.totals.tracked + live); }
+    const t = st.totals || {};
+    $('t-total').textContent = hm(cur.total);
+    $('t-active').textContent = hm((+t.active || 0) + (ui.idle ? 0 : live));
+    $('t-idle').textContent = hm((+t.idle || 0) + (ui.idle ? live : 0));
+    const act = Number.isFinite(t.activity) ? t.activity : (Number.isFinite(ui.dayActivity) ? ui.dayActivity : null);
+    $('t-act').textContent = act === null ? '-' : act + '%';
+    $('t-act-bar').style.width = (act || 0) + '%';
+    if (ui.quitSync) syncProgress(); }
   setInterval(tick, 1000);
 
   /* ---------- events ---------- */
@@ -235,8 +312,17 @@
   $('btn-start').addEventListener('click', () => T.startDay(currentSel()));
   $('btn-pause').addEventListener('click', () => T.pause());
   $('btn-resume').addEventListener('click', () => T.resume(currentSel()));
+  $('meet-on').addEventListener('change', async e => {
+    meetBusy = true; e.target.disabled = true;
+    try { await T.setMeeting(e.target.checked); } finally { meetBusy = false; e.target.disabled = false; } });
   /* settings sheet: focus moves into it, Tab stays inside, Escape or the backdrop closes it and focus goes back */
-  const focusables = () => [...$('sheet').querySelectorAll('button,input,select,[href]')].filter(el => !el.disabled && el.offsetParent !== null);
+  const focusables = root => [...root.querySelectorAll('button,input,select,[href]')].filter(el => !el.disabled && el.offsetParent !== null);
+  function trap(root, e) {
+    if (e.key !== 'Tab') return;
+    const f = focusables(root); if (!f.length) return;
+    const first = f[0], last = f[f.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); } }
   function openSheet() { sheetReturn = document.activeElement; pomoDirty = false; $('sheet').classList.remove('hide'); renderSheet(); renderPomodoroForm(true); $('close-settings').focus(); }
   function closeSheet() {
     if ($('sheet').classList.contains('hide')) return;
@@ -245,12 +331,8 @@
   $('open-settings').addEventListener('click', openSheet);
   $('close-settings').addEventListener('click', closeSheet);
   $('sheet').addEventListener('click', e => { if (e.target.id === 'sheet') closeSheet(); });
-  $('sheet').addEventListener('keydown', e => {
-    if (e.key !== 'Tab') return;
-    const f = focusables(); if (!f.length) return;
-    const first = f[0], last = f[f.length - 1];
-    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
-    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); } });
+  $('sheet').addEventListener('keydown', e => trap($('sheet'), e));
+  $('modal').addEventListener('keydown', e => trap($('modal'), e));
   $('p-launch').addEventListener('change', e => T.setPref('launchAtLogin', e.target.checked));
   $('p-notify').addEventListener('change', e => T.setPref('notify', e.target.checked));
   $('p-tone').addEventListener('change', e => { T.setPref('tone', e.target.checked); if (e.target.checked) chime(); });
@@ -270,7 +352,12 @@
   $('p-logs').addEventListener('click', () => T.open('logs'));
   $('p-signout').addEventListener('click', () => { closeSheet(); T.signOut(); });
   $('open-web').addEventListener('click', () => T.open('time'));
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSheet(); });
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Escape') return;
+    if (modalKind === 'update') { laterPrompt(); return; }
+    closeSheet(); });
+
+  function laterPrompt() { const v = ui.update && ui.update.latest; promptLater = v || ''; T.updatePrompted(v); renderModal(); }
 
   document.addEventListener('click', e => {
     const t = e.target.closest('button');
@@ -286,9 +373,12 @@
     if (t.dataset.pomo === 'break') { t.disabled = true; T.takeBreak(); }
     if (t.dataset.pomo === 'snooze') T.snoozeBreak();
     if (t.dataset.pomo === 'dismiss') T.dismissBreakOver();
-    if ('consent' in t.dataset) { consentLater = false; modalKind = 'consent'; renderModal(); }
+    if ('consent' in t.dataset) { consentLater = false; modalKind = 'consent'; modalKey = ''; renderModal(); }
     if ('consentLater' in t.dataset) { consentLater = true; modalKind = null; renderModal(); renderBanners(ui.state || {}); }
-    if ('consentAccept' in t.dataset) { t.disabled = true; T.acceptConsent().then(() => { modalKind = null; }); } });
+    if ('consentAccept' in t.dataset) { t.disabled = true; T.acceptConsent().then(() => { modalKind = null; }); }
+    if ('promptLater' in t.dataset) laterPrompt();
+    if ('promptUpdate' in t.dataset) { const up = ui.update; promptLater = up.latest; T.updatePrompted(up.latest); if (up.auto) T.installUpdate(); else T.downloadInstaller(); renderModal(); }
+    if ('quitAnyway' in t.dataset) { t.disabled = true; t.textContent = 'Closing...'; T.quitAnyway(); } });
 
   /* "Message alert tone": a short two-note chime (Web Audio, no sound file) */
   let audio = null;

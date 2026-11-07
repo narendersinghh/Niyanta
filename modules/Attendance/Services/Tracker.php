@@ -25,6 +25,7 @@ final class Tracker {
     $last = DB::first('SELECT te.project_id, te.task_id, te.description, p.name AS project_name, t.title AS task_title FROM time_entries te LEFT JOIN projects p ON p.id=te.project_id LEFT JOIN tasks t ON t.id=te.task_id WHERE te.user_id=? ORDER BY te.started_at DESC, te.id DESC LIMIT 1', [$uid]);
     $device = $run && $run['agent_token_id'] ? DB::first('SELECT name, device_os FROM agent_tokens WHERE id=?', [$run['agent_token_id']]) : null;
     $pj = feature_on('projects');
+    $da = TimeService::dayActivity($uid, $today);
     return ['state' => $state, 'label' => self::STATES[$state], 'server_time' => date('c'),
       'day' => ['date' => $today, 'clock_in' => $att && $att['clock_in'] ? date('c', strtotime($att['clock_in'])) : null, 'clock_out' => $att && $att['clock_out'] ? date('c', strtotime($att['clock_out'])) : null,
         'paused_since' => $att && !empty($att['open_break']) ? date('c', strtotime($att['open_break']['start_at'])) : null],
@@ -32,7 +33,8 @@ final class Tracker {
         'project_id' => $pj && $run['project_id'] ? (int) $run['project_id'] : null, 'project' => $pj ? $run['project_name'] : null, 'task_id' => $pj && $run['task_id'] ? (int) $run['task_id'] : null, 'task' => $pj ? $run['task_title'] : null,
         'description' => $run['description'], 'source' => $run['source'], 'device' => $device['name'] ?? null, 'device_os' => $device['device_os'] ?? null, 'last_heartbeat_at' => $run['last_heartbeat_at'] ? date('c', strtotime($run['last_heartbeat_at'])) : null] : null,
       'last' => $last ? ['project_id' => $pj && $last['project_id'] ? (int) $last['project_id'] : null, 'project' => $pj ? $last['project_name'] : null, 'task_id' => $pj && $last['task_id'] ? (int) $last['task_id'] : null, 'task' => $pj ? $last['task_title'] : null, 'description' => $last['description']] : null,
-      'totals' => ['tracked' => $tracked, 'active' => $tracked - $idle, 'idle' => $idle, 'paused' => AttendanceService::live($att)['break'], 'entries' => (int) $tot['n']]]; }
+      'totals' => ['tracked' => $tracked, 'active' => $tracked - $idle, 'idle' => $idle, 'paused' => AttendanceService::live($att)['break'], 'entries' => (int) $tot['n'],
+        'activity' => $da['pct'], 'meeting' => $da['meeting']]]; }
 
   /**
    * Server time for an action the app queued while offline: the client's time, never in the future, never before the

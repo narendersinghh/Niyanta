@@ -8,7 +8,7 @@ use Core\{Crypto, DB, Gate, Modules};
  * can't be opened" for an ad-hoc signed app); curl and PowerShell's Invoke-WebRequest add neither. The Time Tracking page
  * shows per OS:
  *   macOS / Linux: curl -fsSL "<workspace>/time/desktop/install.sh?k=<key>" | bash
- *   Windows:       irm "<workspace>/time/desktop/install.ps1?k=<key>" | iex
+ *   Windows:       irm "<workspace>/time/desktop/install.ps1?k=<key>" | iex   (saves the setup to Downloads and opens it)
  * The scripts are generated here with this workspace's URL, the mirrored file names and their sha512 (from latest*.yml), and
  * fetch the installers from /time/desktop/get/{file}?k=<key>. No browser session is needed there, so the key is the only
  * credential: "<user id>-<expiry>-<signature>", the signature being an HMAC (app key, purpose-bound subkey) of the purpose,
@@ -140,7 +140,7 @@ install_mac() {
   xattr -cr "$dest" 2>/dev/null || true
   say "Installed to $dest"
   open "$dest"
-  say "Done. Allow Screen Recording and Accessibility when macOS asks, then sign in."; }
+  say "Done. Allow Screen Recording when macOS asks (needed for screenshots only), then sign in."; }
 
 install_linux() {
   local bin="$HOME/.local/bin" dest apps icons
@@ -183,34 +183,38 @@ SH;
       ."# Downloads only from this workspace and checks the sha512. This link works until ".gmdate('Y-m-d H:i', (int) self::expires($key))." UTC.\n"
       ."set -euo pipefail\n".$head."\n".$body."\n"; }
 
-  /** Windows installer (PowerShell 5.1+): silent per-user NSIS install, then starts the app. Never `exit` (it would close the window). */
+  /**
+   * Windows installer (PowerShell 5.1+). It does what a person would do, so antivirus behaviour rules (AMSI, Defender) see a
+   * normal user install and not a "download cradle": the installer is saved to the person's Downloads folder with a visible
+   * progress bar, its sha512 is checked, and it is started normally (no /S silent switch, no hidden window, no -Wait, no
+   * Unblock-File, no TLS or execution-policy tweaks, nothing in %TEMP%); the person clicks through the setup, which starts the
+   * app at the end. Never `exit` (it would close the window).
+   */
   public static function powershell(string $key, array $f): string {
     $w = $f['windows'];
     $head = implode("\n", [
       '  $version = '.self::pq($f['version']),
       '  $url = '.self::pq(self::fileBase().rawurlencode($w['name']).'?k='.$key),
       '  $sha = '.self::pq(strtoupper($w['sha512'])),
-      '  $out = Join-Path $env:TEMP '.self::pq($w['name'])]);
+      '  $name = '.self::pq($w['name'])]);
     $body = <<<'PS'
   $ErrorActionPreference = 'Stop'
-  $ProgressPreference = 'SilentlyContinue'
-  try { [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12 } catch { }
-  Write-Host "==> Downloading Niyanta Tracker $version" -ForegroundColor Magenta
+  $dir = Join-Path $env:USERPROFILE 'Downloads'
+  if (-not (Test-Path -LiteralPath $dir)) { $dir = [Environment]::GetFolderPath('Desktop') }
+  $out = Join-Path $dir $name
+  Write-Host "==> Downloading Niyanta Tracker $version to $dir" -ForegroundColor Magenta
   try { Invoke-WebRequest -Uri $url -OutFile $out -UseBasicParsing }
   catch { Write-Host 'Download failed. Copy a new command from Time Tracking (each command works for 2 hours) and try again.' -ForegroundColor Red; return }
   if ($sha) {
     $got = (Get-FileHash -Algorithm SHA512 -Path $out).Hash
     if ($got -ne $sha) { Remove-Item -LiteralPath $out -Force -ErrorAction SilentlyContinue; Write-Host 'The download is damaged (checksum mismatch). Please run the command again.' -ForegroundColor Red; return }
     Write-Host '==> Checksum OK' -ForegroundColor Magenta }
-  Unblock-File -LiteralPath $out -ErrorAction SilentlyContinue
-  Write-Host '==> Installing (no prompts, about 30 seconds)' -ForegroundColor Magenta
-  $p = Start-Process -FilePath $out -ArgumentList '/S' -Wait -PassThru
-  Remove-Item -LiteralPath $out -Force -ErrorAction SilentlyContinue
-  if ($p.ExitCode -ne 0) { Write-Host "The installer stopped with code $($p.ExitCode). Download it from Time Tracking instead." -ForegroundColor Red; return }
-  $exe = Join-Path $env:LOCALAPPDATA 'Programs\niyanta-tracker\Niyanta Tracker.exe'
-  if (-not (Test-Path -LiteralPath $exe)) { $exe = Get-ChildItem -Path (Join-Path $env:LOCALAPPDATA 'Programs') -Filter 'Niyanta Tracker.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName }
-  if ($exe) { Start-Process -FilePath $exe; Write-Host '==> Done. Niyanta Tracker is starting: sign in with your workspace address, email and password.' -ForegroundColor Green }
-  else { Write-Host '==> Installed. Open Niyanta Tracker from the Start menu.' -ForegroundColor Green }
+  Write-Host "==> Saved $out" -ForegroundColor Magenta
+  try { Start-Process -FilePath $out }
+  catch { Write-Host "Could not open the setup. Open $out yourself (double-click it in your Downloads folder)." -ForegroundColor Red; return }
+  Write-Host '==> The Niyanta Tracker setup is open: follow it to the end (Next, Install, Finish).' -ForegroundColor Green
+  Write-Host '    Niyanta Tracker then starts by itself: sign in with your workspace address, email and password.' -ForegroundColor Green
+  Write-Host '    If Windows Security blocks the file, tell your Niyanta administrator: it can be reported to Microsoft as a false positive.' -ForegroundColor Green
 PS;
     return "# Niyanta Tracker installer for Windows, generated by ".preg_replace('/[^\x20-\x7e]/', '', absolute_url('/'))."\n"
       ."# Downloads only from this workspace and checks the sha512. This link works until ".gmdate('Y-m-d H:i', (int) self::expires($key))." UTC.\n"

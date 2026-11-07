@@ -37,23 +37,12 @@ $archLbl = ['arm64' => 'Apple silicon', 'x64' => 'Intel', 'universal' => 'Univer
       <div class="card-head"><div><h3>Get the desktop app</h3><p class="small muted mb0">Niyanta Tracker for Windows, macOS and Linux. Track your day, pause, switch projects and see your activity.</p></div>
         <?php if ($app['version']): ?><span class="pill pill-lav">Latest <?= e($app['version']) ?><?= $app['date'] ? ' · '.e(fdate($app['date'])) : '' ?></span><?php endif ?></div>
       <?php if (!$app['ok']): $sa = user()['role_slug'] === 'super_admin'; ?><div class="alert info mb"><?= icon('info', 'sm') ?><div><?php if (!$app['connected']): ?>The desktop app isn't available yet. An administrator needs to connect GitHub in <?= $sa ? '<a href="'.e(url('/admin/updates#desktop-mirror')).'"><b>Settings › Updates</b></a>' : '<b>Settings › Updates</b>' ?>.<?php else: ?>The desktop app isn't available yet. It is being fetched in the background, please check back soon.<?= $sa ? ' Status and <b>Refresh now</b>: <a href="'.e(url('/admin/updates#desktop-mirror')).'"><b>Settings › Updates</b></a>.' : '' ?><?php endif ?></div></div><?php endif ?>
-      <div class="os-grid" data-os-grid>
-        <?php foreach (DesktopApp::PLATFORMS as $pk => [$pl, $hint]): $files = $app['platforms'][$pk]; $f0 = $files[0] ?? null; ?>
-        <div class="os-card" data-os="<?= e($pk) ?>">
-          <div class="os-top"><span class="os-ic os-<?= e($pk) ?>"><?= $osIc[$pk] ?></span><div class="grow"><b><?= e($pl) ?></b><div class="xs muted"><?= e($hint) ?></div></div><span class="pill pill-mint os-you hide">Your system</span></div>
-          <?php if ($f0): ?>
-            <div class="os-meta xs"><span>v<?= e($f0['version']) ?></span><?= $size((int) $f0['size']) ? '<span>'.e($size((int) $f0['size'])).'</span>' : '' ?><span><?= e(fdate($f0['date'])) ?></span></div>
-            <div class="os-btns"><?php foreach ($files as $f): ?><a class="btn sm <?= $f === $f0 ? 'primary' : 'ghost' ?>" href="<?= e($f['url']) ?>" title="<?= e($f['name']) ?>" download><?= icon('download', 'sm') ?> <?= e($pk === 'mac' ? ($archLbl[$f['arch']] ?? $f['arch']).($f['ext'] === 'zip' ? ' (.zip)' : '') : ($pk === 'windows' ? 'Download .exe' : ($pk === 'deb' ? 'Download .deb' : 'Download AppImage'))) ?></a><?php endforeach ?></div>
-          <?php else: ?><div class="os-meta xs muted"><?= $app['ok'] ? 'Not in this release' : 'Not available yet' ?></div><div class="os-btns"><span class="btn sm ghost is-disabled" aria-disabled="true"><?= icon('download', 'sm') ?> Coming soon</span></div><?php endif ?>
-        </div>
-        <?php endforeach ?>
-      </div>
       <?php if (!empty($install)): $olInfo = [
-        'windows' => ['Windows', 'Open <b>PowerShell</b> (Start menu, type <i>PowerShell</i>), paste and press Enter. It installs without prompts and opens the app.'],
+        'windows' => ['Windows', 'Open <b>PowerShell</b> (Start menu, type <i>PowerShell</i>), paste and press Enter. It saves the setup to your Downloads folder and opens it: click through it (Next, Install, Finish) and the app starts.'],
         'mac' => ['macOS', 'Open <b>Terminal</b> (Spotlight, type <i>Terminal</i>), paste and press Enter. It installs to Applications and opens the app.'],
         'linux' => ['Linux', 'Paste into a terminal and press Enter. It installs the AppImage to <span class="mono">~/.local/bin</span>, adds it to your apps menu and opens it.']]; ?>
       <div class="oneline" data-oneline>
-        <div class="ol-head"><span class="ol-ic"><?= icon('zap', 'sm') ?></span><div><h4>Install with one command (no security warnings)</h4><p class="small muted mb0">The command downloads the app straight from this workspace and checks it, so Chrome, Windows SmartScreen and macOS Gatekeeper do not get in the way. It is personal and works until <b><?= e(ftime(date('Y-m-d H:i:s', (int) $install['until']))) ?></b>; reload the page for a new one.</p></div></div>
+        <div class="ol-head"><span class="ol-ic"><?= icon('zap', 'sm') ?></span><div class="grow"><h4>Install with one command (no security warnings) <span class="pill pill-mint">Recommended</span></h4><p class="small mb0">Copy the command for your system, paste it and press Enter. That is all.</p><p class="xs muted mb0">The command downloads the app straight from this workspace and checks it, so Chrome, Windows SmartScreen and macOS Gatekeeper do not get in the way. It is personal and works until <b><?= e(ftime(date('Y-m-d H:i:s', (int) $install['until']))) ?></b>; reload the page for a new one.</p></div></div>
         <div class="ol-list" data-ol-list>
           <?php foreach ($olInfo as $ok => [$ol, $oh]): $cmd = $install['commands'][$ok]; ?>
           <div class="ol-item" data-ol="<?= e($ok) ?>">
@@ -65,15 +54,28 @@ $archLbl = ['arm64' => 'Apple silicon', 'x64' => 'Intel', 'universal' => 'Univer
         <button type="button" class="btn ghost sm ol-more hide" data-ol-more><?= icon('chevron-down', 'sm') ?> Commands for other systems</button>
       </div>
       <?php endif ?>
-      <div class="dl-steps">
-        <div><h4><?= icon('package', 'sm') ?> Install from the download button</h4><ol class="steps-list small">
+      <?php $dl = !empty($install); /* with a one-line command, the download files are the fallback, folded away (closed by default) */ ?>
+      <?php if ($dl): ?><details class="dl-more" data-dl-more><summary><span class="dl-more-ic"><?= icon('download', 'sm') ?></span><span class="grow"><b>Other ways to install: download files</b><span class="xs muted">Installers for every system, with step-by-step help</span></span><span class="dl-more-chev"><?= icon('chevron-down', 'sm') ?></span></summary><div class="dl-more-body"><?php endif ?>
+      <div class="os-grid" data-os-grid>
+        <?php foreach (DesktopApp::PLATFORMS as $pk => [$pl, $hint]): $files = $app['platforms'][$pk]; $f0 = $files[0] ?? null; ?>
+        <div class="os-card" data-os="<?= e($pk) ?>">
+          <div class="os-top"><span class="os-ic os-<?= e($pk) ?>"><?= $osIc[$pk] ?></span><div class="grow"><b><?= e($pl) ?></b><div class="xs muted"><?= e($hint) ?></div></div><span class="pill pill-mint os-you hide">Your system</span></div>
+          <?php if ($f0): ?>
+            <div class="os-meta xs"><span>v<?= e($f0['version']) ?></span><?= $size((int) $f0['size']) ? '<span>'.e($size((int) $f0['size'])).'</span>' : '' ?><span><?= e(fdate($f0['date'])) ?></span></div>
+            <div class="os-btns"><?php foreach ($files as $f): ?><a class="btn sm <?= $f === $f0 ? 'primary' : 'ghost' ?>" href="<?= e($f['url']) ?>" title="<?= e($f['name']) ?>" download><?= icon('download', 'sm') ?> <?= e($pk === 'mac' ? ($archLbl[$f['arch']] ?? $f['arch']).($f['ext'] === 'zip' ? ' (.zip)' : '') : ($pk === 'windows' ? 'Download .exe' : ($pk === 'deb' ? 'Download .deb' : 'Download AppImage'))) ?></a><?php endforeach ?></div>
+          <?php else: ?><div class="os-meta xs muted"><?= $app['ok'] ? 'Not in this release' : 'Not available yet' ?></div><div class="os-btns"><span class="btn sm ghost is-disabled" aria-disabled="true"><?= icon('download', 'sm') ?> Coming soon</span></div><?php endif ?>
+        </div>
+        <?php endforeach ?>
+      </div>
+        <div class="dl-howto"><h4><?= icon('package', 'sm') ?> Install from the download button</h4><ol class="steps-list small">
           <li data-os-step="windows"><b>Windows:</b> run the .exe. If Chrome says the file isn't commonly downloaded, open Downloads (<span class="mono">Ctrl+J</span>) and choose <b>Keep</b>. If Windows shows <i>Windows protected your PC</i>, click <b>More info</b>, then <b>Run anyway</b>.<?= !empty($install) ? ' The one-line command above avoids both.' : '' ?></li>
           <li data-os-step="mac"><b>macOS:</b> open the .dmg and drag Niyanta Tracker to Applications. If macOS says it cannot verify the developer, open <b>System Settings › Privacy &amp; Security</b> and click <b>Open Anyway</b>. If it says the app is <i>damaged</i>, run <span class="mono">xattr -cr "/Applications/Niyanta Tracker.app"</span> in Terminal once<?= !empty($install) ? ', or simply use the one-line command above' : '' ?>. Allow <i>Screen Recording</i> and <i>Accessibility</i> when asked.</li>
           <li data-os-step="linux"><b>Linux:</b> make the AppImage executable (<span class="mono">chmod +x</span>) and run it, or install the .deb with <span class="mono">sudo apt install ./niyanta-tracker-*.deb</span>.</li>
           <li><b>Updates:</b> the app tells you when a new version is out. Click <b>Update now</b>: it downloads, restarts by itself and your tracking continues.</li></ol></div>
-        <div><h4><?= icon('link', 'sm') ?> Connect</h4><p class="small mb">Sign in with your Niyanta email and password and this workspace address:</p>
+      <?php if ($dl): ?></div></details><?php endif ?>
+      <div class="dl-connect">
+        <h4><?= icon('link', 'sm') ?> Connect</h4><p class="small mb">Sign in with your Niyanta email and password and this workspace address:</p>
           <div class="token-box"><code><?= e(absolute_url('/')) ?></code><button type="button" class="btn icon sm ghost" data-copy="<?= e(absolute_url('/')) ?>" aria-label="Copy workspace address"><?= icon('copy', 'sm') ?></button></div></div>
-      </div>
     </div>
 
   </div>

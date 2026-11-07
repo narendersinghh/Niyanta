@@ -45,11 +45,22 @@ $("[data-att-title]",af).textContent=j?"Edit · "+j.name:"Add attendance record"
 /* shared reject dialog: [data-reject-url][data-reject-name] buttons fill the form before core opens the modal */
 const rf=$("[data-reject-form]");
 if(rf)d.addEventListener("click",e=>{const b=e.target.closest("[data-reject-url]");if(!b)return;rf.action=b.dataset.rejectUrl;rf.reset();const n=$("[data-reject-name]",rf);if(n)n.textContent=b.dataset.rejectName||"";setTimeout(()=>{const t=rf.elements.note;if(t)t.focus()},60)},true);
-/* screenshot viewer: [data-shots] cards (JSON list of {src,t,a,d}) open #shot-viewer with prev/next and thumbnails */
+/* screenshot gallery: any [data-shots] element (JSON list of {src,t,a,d,g}: slot cards, chart bars) opens #shot-viewer in the page with prev/next, thumbnails, arrow keys and Esc; never navigates away */
 const SV=d.getElementById("shot-viewer");
-if(SV){let L=[],i=0;const img=$("[data-sv-img]",SV),lk=$("[data-sv-link]",SV),mt=$("[data-sv-meta]",SV),th=$("[data-sv-thumbs]",SV);
-const show=n=>{i=(n+L.length)%L.length;const s=L[i];img.src=s.src;img.alt="Screenshot "+s.t;lk.href=s.src;mt.textContent=s.t+(s.d?" · screen "+s.d:"")+(s.a!=null?" · "+s.a+"% activity":"")+" · "+(i+1)+" of "+L.length;$$("button",th).forEach((b,k)=>b.classList.toggle("on",k===i))};
-d.addEventListener("click",e=>{const c=e.target.closest("[data-shots]");if(c){L=JSON.parse(c.dataset.shots);$("[data-sv-title]",SV).textContent=c.dataset.shotsTitle||"Screenshots";th.innerHTML=L.length>1?L.map((s,k)=>'<button type="button" data-sv-go="'+k+'" aria-label="Screenshot '+N().esc(s.t)+'"><img src="'+N().esc(s.src)+'" alt="" loading="lazy"></button>').join(""):"";$$(".sv-prev,.sv-next",SV).forEach(b=>b.hidden=L.length<2);show(0);SV.showModal();return}
-const g=e.target.closest("[data-sv-go]");if(g){show(+g.dataset.svGo);return}const st=e.target.closest("[data-sv-step]");if(st)show(i+ +st.dataset.svStep)});
-SV.addEventListener("keydown",e=>{if(e.key==="ArrowLeft")show(i-1);else if(e.key==="ArrowRight")show(i+1)})}
+if(SV){let L=[],i=0;const img=$("[data-sv-img]",SV),lk=$("[data-sv-link]",SV),dl=$("[data-sv-dl]",SV),mt=$("[data-sv-meta]",SV),th=$("[data-sv-thumbs]",SV),cn=$("[data-sv-count]",SV),E=s=>N().esc(String(s??""));
+const lvl=a=>a>=60?"hi":a>=30?"mid":"lo";
+const show=n=>{if(!L.length)return;i=(n+L.length)%L.length;const s=L[i];img.src=s.src;img.alt="Screenshot at "+s.t+(s.d?", screen "+s.d:"");lk.href=s.src;dl.href=s.src;
+mt.innerHTML="<b>"+E(s.t)+"</b>"+(s.d?"<span>Screen "+(+s.d)+"</span>":"")+(s.a!=null?'<span class="sv-a '+lvl(+s.a)+'"><i></i>'+(+s.a)+"% activity</span>":"<span>No activity data</span>")+(s.g?'<span class="pill pill-sky">Meeting</span>':"");
+cn.textContent="Screenshot "+(i+1)+" of "+L.length;$$("button",th).forEach((b,k)=>{const on=k===i;b.classList.toggle("on",on);b.setAttribute("aria-current",on?"true":"false");if(on)th.scrollLeft=b.offsetLeft-th.clientWidth/2+b.clientWidth/2})};
+d.addEventListener("click",e=>{const c=e.target.closest("[data-shots]");if(c){e.preventDefault();try{L=JSON.parse(c.dataset.shots)}catch(x){L=[]}if(!L.length)return;$("[data-sv-title]",SV).textContent=c.dataset.shotsTitle||"Screenshots";
+th.innerHTML=L.length>1?L.map((s,k)=>'<button type="button" data-sv-go="'+k+'" aria-label="Screenshot '+E(s.t)+(s.d?", screen "+(+s.d):"")+'"><img src="'+E(s.src)+'" alt="" loading="lazy"></button>').join(""):"";th.hidden=L.length<2;$$(".sv-prev,.sv-next",SV).forEach(b=>b.hidden=L.length<2);if(!SV.open)SV.showModal();show(0);return}
+if(!SV.contains(e.target))return;const g=e.target.closest("[data-sv-go]");if(g){show(+g.dataset.svGo);return}const st=e.target.closest("[data-sv-step]");if(st){show(i+ +st.dataset.svStep);return}if(e.target===img&&L.length>1)show(i+1)});
+SV.addEventListener("keydown",e=>{if(e.key==="ArrowLeft"){e.preventDefault();show(i-1)}else if(e.key==="ArrowRight"){e.preventDefault();show(i+1)}});
+SV.addEventListener("close",()=>img.removeAttribute("src"))}
+/* activity chart: tooltip on hover; a bar with a slot card ([data-ac-slot]) scrolls to it, a bar with [data-shots] opens the gallery (above) */
+const AC=$$("[data-ac]");
+if(AC.length){const tp=d.createElement("div"),hide=()=>{tp.hidden=true};tp.className="ac-tip";tp.hidden=true;tp.setAttribute("aria-hidden","true");d.body.appendChild(tp);
+AC.forEach(p=>{p.addEventListener("mouseover",e=>{const b=e.target.closest(".ac-bar");if(!b)return;tp.textContent=b.dataset.tip||"";tp.hidden=false;const r=b.getBoundingClientRect(),w=tp.offsetWidth,h=tp.offsetHeight;tp.style.left=Math.max(8,Math.min(innerWidth-w-8,r.left+r.width/2-w/2))+"px";tp.style.top=(r.top-h-10<8?r.bottom+10:r.top-h-10)+"px"});p.addEventListener("mouseleave",hide);
+p.addEventListener("click",e=>{const b=e.target.closest("[data-ac-slot]"),c=b&&d.getElementById("slot-"+b.dataset.acSlot);if(!c)return;hide();c.scrollIntoView({behavior:matchMedia("(prefers-reduced-motion: reduce)").matches?"auto":"smooth",block:"center"});c.classList.remove("flash");void c.offsetWidth;c.classList.add("flash");setTimeout(()=>c.focus({preventScroll:true}),450)})});
+addEventListener("scroll",hide,{passive:true})}
 })();

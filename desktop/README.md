@@ -7,23 +7,26 @@ the same project/task. Activity (active / idle) comes from keyboard and mouse in
 all screens are taken at the configured interval, with a small notice each time. Everything syncs with the server; the API
 contract is in [`modules/Attendance/AGENT_API.md`](../modules/Attendance/AGENT_API.md).
 
-Electron, plain JavaScript. One native module, [`uiohook-napi`](https://github.com/SnosMe/uiohook-napi) (global keyboard and
-mouse hook for real activity levels): it is N-API and ships prebuilt binaries for win32-x64, darwin-x64/arm64 and linux-x64,
-so nothing is compiled (`build.npmRebuild` is `false`; electron-builder unpacks the `.node` file from the asar automatically).
-If it cannot load or run on a computer, the app falls back to the system idle time (see *Activity and idle*).
+Electron, plain JavaScript, no native modules. Activity comes from the system idle time (`powerMonitor.getSystemIdleTime()`,
+read every second, the same on Windows, macOS and Linux): only whether there was keyboard or mouse input, nothing is counted
+(no keystrokes, no mouse events) and there is no global input hook (versions 1.1.0 to 1.2.1 had one, `uiohook-napi`; it was
+removed: Windows Defender treated it like a keylogger, and macOS needed the Accessibility permission for it).
 
 ```
-src/main/      main.js (lifecycle, tray, window, IPC, auto-launch, notifications), tracker.js (state machine, activity slots,
-               idle, heartbeats, screenshots, power events), activity.js (keyboard/mouse input hook or idle-time fallback),
-               meter.js (activity windows and grace period), pomodoro.js (break reminder), api.js (HTTP client),
+src/main/      main.js (lifecycle, tray, window, tracking dot on the app icon, IPC, auto-launch, notifications, sync before
+               quitting), tracker.js (state machine, activity slots, meeting mode, idle, heartbeats, screenshots, power
+               events), activity.js (system idle time every second), meter.js (12-second activity blocks, grace,
+               bridging, locked screen, wake-up, meeting slots), badge.js (tracking dot bitmaps), pomodoro.js (break reminder), api.js (HTTP client),
                queue.js (offline queue), capture.js (screenshots),
                toast.js (capture notice), store.js (prefs + encrypted token), errors.js (error reporting),
                updater.js (update check, Update now, manual download), selfupdate.js (pure helpers: feed parsing,
                macOS helper script)
 src/preload/   contextIsolation bridge (window.tracker) and the notice window bridge
-src/renderer/  index.html / app.js / styles.css (380 x 640 window), toast.html (capture notice)
+src/shared/    status.js (what the big counter shows; used by the window and the checks)
+src/renderer/  index.html / app.js / styles.css (384 x 700 window, brand colours only), toast.html (capture notice)
 build/         icon.png (1024, converted by electron-builder), icons/ (Linux), tray/ (tray states), mac entitlements
-scripts/       icons.js (regenerate icons from the logo), check.js (syntax check + simulation + update checks), simulate.js
+scripts/       icons.js (regenerate icons from the logo), check.js (syntax check + simulation + update checks + status-check.js:
+               counter, meeting slots, sync before quitting, tracking dot, Windows activity and build), simulate.js
                (activity and pomodoro simulation on fake input timelines), updates-check.js (selfupdate.js checks, runs the
                generated macOS helper on fake bundles), adhoc-sign.js (afterPack: ad-hoc signature without a certificate)
 ```
@@ -37,11 +40,10 @@ npm start                      # opens the app; sign in with your workspace URL,
 npm run check                  # node --check on every JS file, the simulation below and the update helper checks
 npm run simulate               # activity % for typical input patterns (old vs new rule) and the pomodoro checks
 NIYANTA_TRACKER_PROFILE=/tmp/tracker-2 npm start   # a second, separate profile (another user)
-NIYANTA_NO_INPUT_HOOK=1 npm start                  # force the idle-time fallback (no input hook)
 ```
 
 The activity source in use (and why the fallback is used) is written to `userData/logs/tracker.log`
-(`activity source: input hook ...` or `activity source: system idle time ... (reason)`).
+(`activity source: keyboard and mouse input from the system idle time ...`).
 
 `http://localhost` / `127.0.0.1` workspaces are allowed for development; any other address must be `https://`.
 
@@ -77,10 +79,11 @@ Running the workflow by hand (Actions › Desktop tracker › Run workflow) make
 
 ### Updates (in the app)
 
-The app checks on start and every 6 hours: `GET /api/agent/version` (device token). When the workspace has a newer
-version, the window shows a card **Niyanta Tracker 1.2.0 is available** (with up to 4 lines of *what's new* when the
-`latest*.yml` has `releaseNotes`) and one button, **Update now**; the tray menu has the same item, and one OS notification
-is shown per version. Nothing restarts without that click (or a normal quit, which installs a pre-downloaded update on
+The app checks on start, every 30 minutes and 15 s after waking from sleep or unlocking: `GET /api/agent/version` (device
+token). When the workspace has a newer version, the window pops up (without taking the focus) once per version with a prompt
+**Niyanta Tracker 1.2.0 is available** (Later / **Update now**), and a prominent card stays at the top of the window (with up
+to 4 lines of *what's new* when the `latest*.yml` has `releaseNotes`); the tray menu has the same item, and one OS
+notification is shown per version. Nothing restarts without that click (or a normal quit, which installs a pre-downloaded update on
 Windows / AppImage, as before). Clicking: progress bar, then tracking is paused (the click's time is sent; up to 15 s for the
 server), the app installs and restarts, and on the next start tracking resumes by itself (`config.json` > `updateRestart`,
 honoured within 30 minutes). The restart minutes are never counted and nothing is counted twice: if the pause did not reach
@@ -111,7 +114,7 @@ check the sha512 from the `latest*.yml`:
 ```bash
 # macOS (zip for arm64/x64 -> /Applications or ~/Applications, xattr -cr, opens it) and Linux (AppImage -> ~/.local/bin + menu entry)
 curl -fsSL "https://team.example.com/time/desktop/install.sh?k=<key>" | bash
-# Windows PowerShell (Invoke-WebRequest to %TEMP%, silent per-user install /S, starts the app)
+# Windows PowerShell (Invoke-WebRequest to Downloads, sha512 check, opens the setup normally; the person clicks Install)
 irm "https://team.example.com/time/desktop/install.ps1?k=<key>" | iex
 ```
 
@@ -131,19 +134,47 @@ them for the normal download buttons too. To sign in CI add these repository sec
 | Windows | `WIN_CSC_LINK` (base64 .pfx or https URL), `WIN_CSC_KEY_PASSWORD` |
 | macOS | `MAC_CSC_LINK` (base64 Developer ID Application .p12), `MAC_CSC_KEY_PASSWORD`, and for notarisation `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID` (then set `"notarize": true` under `build.mac`) |
 
+### Windows Defender / antivirus
+
+Versions 1.1.0 to 1.2.1 contained a global keyboard hook; unsigned, that made Defender's machine-learning detection report
+the installer ("contains a virus or potentially unwanted software"). Since then no build has an input hook or any native
+module; the Windows build asks for no elevation (`requestedExecutionLevel: asInvoker`, per-user install), carries version
+information (company, copyright, description) and the one-line PowerShell command behaves like a person: it saves the setup
+to Downloads and opens it normally (no silent `/S`, no hidden window, no TLS or execution-policy tweaks). If a build is still
+reported, submit it as a false positive (docs/RELEASING.md); code signing is the lasting fix.
+
 ## Permissions per OS
 
 - **macOS**: *Screen Recording* (System Settings › Privacy & Security › Screen Recording) is needed for screenshots; the app
-  detects a missing permission and links to the right pane. *Accessibility* (Privacy & Security › Accessibility) is needed for
-  keyboard and mouse counts: the app asks once; until it is granted the activity comes from the system idle time (no counts)
-  and the hook starts by itself within a minute of granting it. Launch at login uses Login Items.
+  detects a missing permission and links to the right pane. Nothing else is asked (no Accessibility permission: activity
+  comes from the system idle time). Launch at login uses Login Items.
 - **Windows**: no special permission. Launch at login uses the Run registry key of the current user.
-- **Linux (X11)**: works out of the box (the hook needs libX11, libXtst, libXt and libXrandr, listed as .deb dependencies).
-  **Wayland**: the input hook is not used (it would only see X11 apps), activity comes from the system idle time, which may
-  read as 0 on some Wayland sessions; screen capture goes through the desktop portal and may ask every time (or be
+- **Linux**: works out of the box on X11. **Wayland**: the system idle time may read as 0 on some Wayland sessions; screen capture goes through the desktop portal and may ask every time (or be
   unavailable on some compositors). Launch at login writes
   `~/.config/autostart/niyanta-tracker.desktop`. Without a keychain service (gnome-keyring / kwallet) the device token is
   stored unencrypted in the user's profile (file mode 600). The capture notice uses a plain window on Linux (no transparency).
+
+## The window
+
+384 x 700, resizable between 360 x 600 and 460 x 900, never maximized or full screen. From the top: header (workspace, person,
+settings), the update card when there is one, notices, the **status card** (state chip, a big counter with the time of the
+current status: the session since the last Start, Resume or project switch while tracking, how long it has been paused when
+paused; below it the day total in medium size and the project / task), project and task pickers, the main button (Start,
+Pause or Resume), **Meeting mode**, today's summary (Total, Active, Activity %, Idle) and the sync line. Light and dark follow
+the OS; only the Niyanta brand colours are used. Everything is reachable with the keyboard (dialogs keep the focus inside,
+Escape closes them).
+
+- **Meeting mode**: a switch under the main button. Time is tracked as usual (screenshots as configured; switching it on
+  while not tracking starts or resumes tracking), idle detection and the automatic pause are off, and the slots it covers
+  are sent with `meeting: 1`: kept and visible to managers, never counted in the activity average. It shows a countdown and
+  turns off by itself after 1 hour, on Pause, or when switched off.
+- **Tracking dot**: while tracking (not paused, idle or stopped) a small mint dot sits on the taskbar / dock icon and pulses
+  very slowly (two opacity frames every 4 s): Windows taskbar overlay, macOS dock icon, Linux window icon (most taskbars
+  other than GNOME show it; the tray icon shows the state everywhere).
+- **Quitting with unsynced data**: Quit pauses tracking and then sends what is still in the offline queue. If that takes more
+  than a moment the window shows "Syncing your data to the server. The app will close by itself when done." with progress
+  and **Quit anyway**; after at most 60 s it quits, and anything left stays queued on disk for the next start. (Closing the
+  window only hides it to the tray; tracking and syncing continue.)
 
 ## How it works
 
@@ -159,19 +190,20 @@ them for the normal download buttons too. To sign in CI add these repository sec
   server closes the running entry and the old day at 00:00 and continues on the same project/task in the new day (the app sends
   a heartbeat at once; no click needed). Asleep across midnight: the old entry ends at its last heartbeat and tracking resumes
   in the new day on waking. Paused at midnight: the old day ends; Start begins the new one.
-- **Activity**: tracked time is measured in 10-second windows: a window is fully active when there was keyboard or mouse
-  input in it, or less than 3 s before it began (a short grace period), otherwise it is inactive. Counting only the exact
-  seconds with input read 75-80% for focused work (reading, thinking, pauses between typing); with windows the same work reads
-  about 90%, like other trackers, while occasional input stays low (one input a minute about 20%, away 0%). `WINDOW_S` and
-  `GRACE_S` are in `src/main/meter.js`; `npm run simulate` prints the result for typical input patterns. With the input hook
-  (Windows, macOS with Accessibility, Linux X11) the app also counts keystrokes (key presses, auto-repeat ignored) and mouse
-  events (clicks, wheel, moves at most 4 per second), never which keys or where; otherwise (fallback)
-  `powerMonitor.getSystemIdleTime()` gives the last input every second (same windows) and the counts are unknown. If the hook stops reporting
-  input while the system still sees input for 30 s, the app switches to the fallback. Seconds are summed per **slot** = the
-  screenshot interval (`screenshot_interval_seconds`, e.g. 180 s), counted from the workspace's midnight: activity % =
-  active seconds / tracked seconds of the slot (paused time excluded). Every slot is sent to `/api/agent/activity` (also
-  without screenshots or consent), and the screenshot taken at the end of the slot carries its activity % and counts (the
-  capture notice shows that %). The open slot is saved with the session and continued after a quick restart.
+- **Activity**: every second the app reads the system idle time (`powerMonitor.getSystemIdleTime()`: `GetLastInputInfo` on
+  Windows, the IOHIDSystem idle time on macOS, X11 / logind on Linux), i.e. whether there was keyboard or mouse input; nothing
+  is counted and nothing about what is typed is seen. Tracked time is measured in 12-second blocks (`src/main/meter.js`, all
+  constants named there): a block is active when there was input in it or less than `GRACE_S` (1 s) before it began; a single
+  inactive block between two busy blocks (input in `BUSY_S` = 4 different seconds) counts as active, so a short thinking pause
+  in steady work is not lost while sparse input stays low; a locked screen or a sleeping computer is inactive at once (input
+  then does not count, no grace or bridge across it) and the first block after waking is left out of the slot. Results
+  (`npm run simulate`): steady typing 100%, focused work with short pauses about 95%, mixed work about 91%, reading with a
+  scroll every 15-25 s about 68%, one input every 30 s about 43%, one input a minute about 21%, away 0%. Seconds are summed
+  per **slot** = the screenshot interval (`screenshot_interval_seconds`, e.g. 180 s), counted from the workspace's midnight:
+  activity % = active seconds / tracked seconds of the slot (paused time excluded). Every slot is sent to
+  `/api/agent/activity` (also without screenshots or consent), and the screenshot taken at the end of the slot carries its
+  activity % (the capture notice shows it). The open slot is saved with the session and continued after a quick restart
+  (its next block is left out, like after waking).
 - **Idle**: after `idle_minutes` without input the person is idle from the last input (the chip shows *Idle*); the timer keeps
   running and the idle time is saved automatically (heartbeat `idle_seconds` plus the span in `idle_spans`). Back before the
   maximum: the chip goes back to *Tracking*, nothing is asked. Idle until `idle_auto_pause_minutes` (default 15, from the last
@@ -198,7 +230,7 @@ them for the normal download buttons too. To sign in CI add these repository sec
   default: a short chime with the app's own messages, reminders and notifications, never with the screenshot notice).
 - **Screenshots**: only with monitoring enabled, the person's consent (the app shows the notice and records consent via the
   API before the first capture) and while tracking. One capture at the end of each activity slot, all displays, max 1920 px
-  wide, JPEG quality 60, uploaded with that slot's activity percentage, keystrokes and mouse events. They are not shown in the app (only the small capture notice, if enabled); people see them on
+  wide, JPEG quality 60, uploaded with that slot's activity percentage (and the meeting flag). They are not shown in the app (only the small capture notice, if enabled); people see them on
   the web (My screenshots).
 - **Errors**: uncaught exceptions, unhandled rejections, failed syncs and capture failures are written to
   `userData/logs/tracker.log` and sent to the workspace error log (Audit log › Error logs, source *desktop*, with the version).
@@ -206,7 +238,7 @@ them for the normal download buttons too. To sign in CI add these repository sec
 
 ## Privacy
 
-The app records: start/pause times, the chosen project/task, active and idle seconds, and per slot the number of keystrokes
-and mouse events (counts only: never which keys or what is typed, no mouse positions, no URLs or window titles), and, only when the workspace enables monitoring and the person accepted
+The app records: start/pause times, the chosen project/task, active and idle seconds, and per slot how much of it had keyboard or mouse input (whether there was input,
+never what is typed, no counts, no mouse positions, no URLs or window titles), and, only when the workspace enables monitoring and the person accepted
 the notice, screenshots while tracking. People can see all of it in the web app (Time Tracking, Timesheets, My screenshots),
 revoke screenshot consent at any time, and screenshots are deleted after the workspace's retention period.

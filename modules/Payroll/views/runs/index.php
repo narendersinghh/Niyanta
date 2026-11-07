@@ -3,7 +3,7 @@ use Modules\Payroll\Services\PayrollService;
 $nextLabel = PayrollService::monthLabel($next);
 $claimsOn = feature_on('reimbursements');
 ?>
-<?= partial('partials/page_head', ['title' => 'Payroll', 'subtitle' => 'Prepare monthly runs, review every payslip and pay your team on time.', 'crumbs' => [['HR Admin'], ['Payroll']], 'actions' => '<button class="btn primary" type="button" data-modal="newRun">'.icon('plus', 'sm').' New payroll run</button>']) ?>
+<?= partial('partials/page_head', ['title' => 'Payroll', 'subtitle' => 'Prepare monthly runs, review every payslip and pay your team on time.', 'crumbs' => [['HR Admin'], ['Payroll']], 'actions' => \Modules\Admin\Services\SettingsSchema::settingsLink('payroll').'<button class="btn primary" type="button" data-modal="newRun">'.icon('plus', 'sm').' New payroll run</button>']) ?>
 <?= partial('payroll::_tabs', ['active' => 'runs']) ?>
 <div class="grid <?= $claimsOn ? 'g4' : 'g3' ?> mb">
   <div class="tile bg-lav"><span class="tile-ic"><?= icon('wallet') ?></span><div><div class="num pay-num"><?= e($last ? money($last['total_net']) : '-') ?></div><div class="lbl">Last net payout<?= $last ? ' · '.e(date('M Y', strtotime($last['period_month']))) : '' ?></div></div></div>

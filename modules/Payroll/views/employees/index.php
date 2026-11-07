@@ -1,5 +1,5 @@
 <?php $f = $_GET['filter'] ?? ''; $n = static fn ($v) => rtrim(rtrim(number_format((float) $v, 2, '.', ''), '0'), '.'); $dn = [1 => 'Mon', 2 => 'Tue', 3 => 'Wed', 4 => 'Thu', 5 => 'Fri', 6 => 'Sat', 7 => 'Sun']; ?>
-<?= partial('partials/page_head', ['title' => 'Compensation', 'subtitle' => 'Salaries, hourly rates and personal allowances for everyone on the payroll.', 'crumbs' => [['HR Admin'], ['Payroll', can('payroll.manage') ? '/payroll' : null], ['Compensation']]]) ?>
+<?= partial('partials/page_head', ['title' => 'Compensation', 'subtitle' => 'Salaries, hourly rates and personal allowances for everyone on the payroll.', 'crumbs' => [['HR Admin'], ['Payroll', can('payroll.manage') ? '/payroll' : null], ['Compensation']], 'actions' => \Modules\Admin\Services\SettingsSchema::settingsLink('payroll')]) ?>
 <?= partial('payroll::_tabs', ['active' => 'employees']) ?>
 <div class="grid g4 mb">
   <div class="tile bg-lav"><span class="tile-ic"><?= icon('users') ?></span><div><div class="num"><?= (int) $stats['monthly'] + (int) $stats['hourly'] ?></div><div class="lbl">On payroll</div><div class="pay-sub">of <?= (int) $stats['active'] ?> active employees</div></div></div>

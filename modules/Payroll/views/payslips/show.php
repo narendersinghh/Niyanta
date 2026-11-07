@@ -7,8 +7,9 @@ $own = (int) $s['user_id'] === (int) user()['id'];
 $n1 = static fn ($v) => rtrim(rtrim(number_format((float) $v, 1), '0'), '.');
 $crumbs = $own ? [['My HR'], ['My Payslips', '/payslips'], [$label]] : [['HR Admin'], ['Payroll', '/payroll'], [$label, '/payroll/runs/'.$s['run_id']], [$s['name']]];
 ?>
-<?= partial('partials/page_head', ['title' => 'Payslip · '.$label, 'subtitle' => $own ? 'Your salary statement for '.$label.'.' : 'Salary statement of '.$s['name'].'.', 'crumbs' => $crumbs, 'actions' => '<a class="btn primary" href="'.e(url('/payslips/'.$s['id'].'/pdf')).'">'.icon('download', 'sm').' Download PDF</a>']) ?>
-<?php if ($s['run_status'] === 'draft'): ?><div class="alert warn"><?= icon('alert') ?><div>This payslip belongs to a <b>draft</b> run and is not visible to the employee yet. Figures may change on regeneration.</div></div><?php endif ?>
+<?= partial('partials/page_head', ['title' => 'Payslip · '.$label, 'subtitle' => $own ? 'Your salary statement for '.$label.'.' : 'Salary statement of '.$s['name'].'.', 'crumbs' => $crumbs, 'actions' => ($s['run_status'] === 'draft' && can('payroll.manage') ? '<a class="btn ghost" href="'.e(url('/payroll/payslips/'.$s['id'].'/edit')).'">'.icon('edit', 'sm').' Edit payslip</a>' : '').'<a class="btn primary" href="'.e(url('/payslips/'.$s['id'].'/pdf')).'">'.icon('download', 'sm').' Download PDF</a>']) ?>
+<?php if ($s['run_status'] === 'draft'): ?><div class="alert warn"><?= icon('alert') ?><div>This payslip belongs to a <b>draft</b> run and is not visible to the employee yet. Calculated figures may change on regeneration; manual edits are kept unless discarded.</div></div><?php endif ?>
+<?php if (($sc = PayrollService::coverOf($s)) !== null): ?><div class="alert info"><?= icon('umbrella') ?><div><b>Shortage covered by Paid Leave: <?= e(PayrollService::coverLabel($sc)) ?></b>. Missing hours this month were paid from <?= $own ? 'your' : 'the' ?> paid leave balance<?= isset($sc['balance_after']) ? ' (balance after: '.e(rtrim(rtrim(number_format((float) $sc['balance_after'], 2, '.', ''), '0'), '.')).' days)' : '' ?>.</div></div><?php endif ?>
 <div class="grid g-side pay-top">
   <div class="card pay-slip">
     <div class="pay-slip-head">
@@ -28,7 +29,7 @@ $crumbs = $own ? [['My HR'], ['My Payslips', '/payslips'], [$label]] : [['HR Adm
       <?php foreach ([['Earnings', $earn, 'Gross earnings', $s['gross'], ''], ['Deductions', $ded, 'Total deductions', $s['total_deductions'], ' ded']] as [$t, $rows, $tl, $tot, $c]): ?>
       <div class="pay-box<?= $c ?>"><div class="pay-box-head"><b><?= e($t) ?></b><span class="xs">Amount</span></div>
         <?php if (!$rows): ?><div class="pay-line muted"><span>None</span><span>-</span></div><?php endif ?>
-        <?php foreach ($rows as $r): ?><div class="pay-line"><span><?= e($r['name']) ?></span><span><?= e(money($r['amount'])) ?></span></div><?php endforeach ?>
+        <?php foreach ($rows as $r): ?><div class="pay-line"><span><?= e($r['name']) ?><?php if (!$own && (!empty($r['manual']) || !empty($r['edited']))): ?> <span class="pill pill-lemon pay-mini"><?= !empty($r['manual']) ? 'Added by HR' : 'Adjusted' ?></span><?= ($r['note'] ?? '') !== '' ? '<span class="xs muted pay-lnote">'.e($r['note']).'</span>' : '' ?><?php endif ?></span><span><?= e(money($r['amount'])) ?></span></div><?php endforeach ?>
         <div class="pay-line total"><span><?= e($tl) ?></span><span><?= e(money($tot)) ?></span></div>
       </div>
       <?php endforeach ?>

@@ -1,7 +1,7 @@
 <?php use Modules\Hr\Services\LeaveService as LS;
 $types = Modules\Hr\Controllers\EmployeeController::TYPES;
 $filtered = array_filter([$_GET['q'] ?? '', $_GET['department'] ?? '', $_GET['type'] ?? '', $_GET['status'] ?? '']);
-$actions = (can('hr.employees.manage') ? '<a class="btn ghost" href="'.e(url('/hr/checklists')).'">'.icon('clipboard', 'sm').' Checklist templates</a>' : '').(can('admin.users.manage') ? '<a class="btn primary" href="'.e(url('/admin/users/create')).'">'.icon('user-plus', 'sm').' Add employee</a>' : '');
+$actions = (can('hr.employees.manage') ? '<a class="btn ghost" href="'.e(url('/hr/processes')).'">'.icon('clipboard', 'sm').' Onboarding & exit</a>' : '').(can('admin.users.manage') ? '<a class="btn primary" href="'.e(url('/admin/users/create')).'">'.icon('user-plus', 'sm').' Add employee</a>' : '');
 ?>
 <?= partial('partials/page_head', ['title' => 'Employees', 'subtitle' => 'Profiles, work schedules, onboarding progress'.(feature_on('leave') ? ' and who is around today' : '').'.', 'crumbs' => [['HR Admin'], ['Employees']], 'actions' => '<a class="btn ghost" href="'.e(url(profile_url())).'">'.icon('user', 'sm').' My profile</a>'.$actions]) ?>
 <div class="grid <?= feature_on('leave') ? 'g4' : 'g3' ?> mb">

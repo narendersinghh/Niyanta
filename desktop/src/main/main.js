@@ -1,5 +1,6 @@
 'use strict';
-/* Niyanta Tracker: main process. Single instance, tray icon + menu, compact window, IPC bridge, auto-launch, power events. */
+/* Niyanta Tracker: main process. Single instance, tray icon + menu, compact window, tracking dot on the taskbar / dock icon,
+   IPC bridge, auto-launch, power events, sync of the offline queue before quitting. */
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -8,6 +9,7 @@ const errors = require('./errors');
 const store = require('./store');
 const capture = require('./capture');
 const toast = require('./toast');
+const badge = require('./badge');
 const { Tracker } = require('./tracker');
 
 app.setName('Niyanta Tracker');
@@ -26,12 +28,18 @@ let lastUi = null;
 const asset = (...p) => path.join(__dirname, '..', ...p);
 const trayDir = () => app.isPackaged ? path.join(process.resourcesPath, 'tray') : path.join(__dirname, '..', '..', 'build', 'tray');
 
+/* A compact tool window: resizable a little (taller for long project lists), never maximized or full screen. */
+const SIZE = { width: 384, height: 700, minWidth: 360, minHeight: 600, maxWidth: 460, maxHeight: 900 };
+
 function createWindow() {
-  win = new BrowserWindow({
-    width: 380, height: 640, minWidth: 360, minHeight: 540, maxWidth: 520, show: false, resizable: true, maximizable: false, fullscreenable: false,
+  win = new BrowserWindow(Object.assign({}, SIZE, {
+    show: false, resizable: true, maximizable: false, fullscreenable: false,
     title: 'Niyanta Tracker', icon: asset('renderer', 'icon.png'), autoHideMenuBar: true,
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#0E0D1C' : '#F4F4FA',
-    webPreferences: { preload: asset('preload', 'preload.js'), contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: false, devTools: !app.isPackaged } });
+    webPreferences: { preload: asset('preload', 'preload.js'), contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: false, devTools: !app.isPackaged } }));
+  /* some Linux window managers ignore maximizable:false (double-click on the title bar) */
+  win.on('maximize', () => win.unmaximize());
+  win.on('enter-full-screen', () => win.setFullScreen(false));
   /* no menu bar at all on Windows/Linux (autoHideMenuBar would still show it on Alt and push the content down) */
   if (process.platform !== 'darwin') win.removeMenu(); else win.setMenuBarVisibility(false);
   win.loadFile(asset('renderer', 'index.html'));
@@ -51,7 +59,51 @@ function showWindow() {
 function push(ui) {
   lastUi = ui;
   if (win && !win.isDestroyed()) win.webContents.send('tracker:state', ui);
-  updateTray(ui); }
+  updateTray(ui);
+  indicator(!!(ui && ui.screen === 'tracker' && ui.tracking)); }
+
+/* ---------- tracking dot on the taskbar / dock icon ---------- */
+
+/**
+ * While tracking (not paused, idle or stopped) a small mint dot sits on the app icon and pulses very slowly (two frames, full
+ * and 70% opacity, swapped every 4 s): Windows taskbar overlay icon, macOS dock icon, Linux window icon (shown by the
+ * taskbars of KDE, Xfce, Cinnamon and others; the tray icon shows the state everywhere).
+ */
+const ind = { on: false, frame: 0, timer: null, frames: null, base: null };
+function indicatorFrames() {
+  if (ind.frames) return ind.frames;
+  if (process.platform === 'win32') {
+    ind.frames = badge.FRAMES.map(a => nativeImage.createFromBitmap(badge.dot(32, a), { width: 32, height: 32, scaleFactor: 2 }));
+  } else {
+    const src = nativeImage.createFromPath(asset('renderer', 'icon.png'));
+    ind.base = src.isEmpty() ? null : src.resize({ width: 256, height: 256, quality: 'best' });
+    if (!ind.base) return (ind.frames = []);
+    const { width, height } = ind.base.getSize();
+    const bmp = ind.base.toBitmap();
+    ind.frames = badge.FRAMES.map(a => nativeImage.createFromBitmap(badge.onIcon(bmp, width, height, a), { width, height })); }
+  return ind.frames; }
+
+function showFrame(i) {
+  try {
+    const f = indicatorFrames()[i];
+    if (!f) return;
+    if (process.platform === 'win32') { if (win && !win.isDestroyed()) win.setOverlayIcon(f, 'Tracking'); }
+    else if (process.platform === 'darwin') { if (app.dock) app.dock.setIcon(f); }
+    else if (win && !win.isDestroyed()) win.setIcon(f); }
+  catch (e) { errors.report('indicator', e, {}, 'warning'); stopIndicator(); } }
+
+function stopIndicator() { clearInterval(ind.timer); ind.timer = null; }
+
+function indicator(on) {
+  if (on === ind.on) return;
+  ind.on = on;
+  stopIndicator();
+  if (on) { ind.frame = 0; showFrame(0); ind.timer = setInterval(() => { ind.frame = 1 - ind.frame; showFrame(ind.frame); }, badge.PULSE_MS); return; }
+  try {
+    if (process.platform === 'win32') { if (win && !win.isDestroyed()) win.setOverlayIcon(null, ''); }
+    else if (process.platform === 'darwin') { if (app.dock && ind.base) app.dock.setIcon(ind.base); }
+    else if (win && !win.isDestroyed()) win.setIcon(asset('renderer', 'icon.png')); }
+  catch (e) { errors.report('indicator', e, {}, 'warning'); } }
 
 /**
  * Back after tracking paused itself (idle up to the maximum): the window shows a short message with Resume (non-blocking);
@@ -92,19 +144,26 @@ function pomodoroNote(kind, minutes) {
     pomoNote.show(); }
   catch (e) { errors.report('notification', e, {}, 'warning'); } }
 
-/** A newer version: one OS notification per version (the window shows the update card with Update now). */
+/**
+ * A newer version (checked on start, every 30 minutes and after sleep / unlock): once per version, an OS notification and the
+ * window pops up (without taking the focus) with the update prompt; the update card stays at the top until it is installed.
+ */
 let updateNote = null;
 function updateAvailable(v) {
   if (!v || store.get('updateNotified') === v) return;
   store.set('updateNotified', v);
-  if (!Notification.isSupported()) return;
-  try {
-    if (updateNote) updateNote.close();
-    tone();
-    updateNote = new Notification({ title: `Niyanta Tracker ${v} is available`, body: 'Click Update now in the app. It restarts by itself and your tracking continues.', silent: true });
-    updateNote.on('click', () => showWindow());
-    updateNote.show(); }
-  catch (e) { errors.report('notification', e, {}, 'warning'); } }
+  tone();
+  if (Notification.isSupported()) {
+    try {
+      if (updateNote) updateNote.close();
+      updateNote = new Notification({ title: `Niyanta Tracker ${v} is available`, body: 'Click Update now in the app. It restarts by itself and your tracking continues.', silent: true });
+      updateNote.on('click', () => showWindow());
+      updateNote.show(); }
+    catch (e) { errors.report('notification', e, {}, 'warning'); } }
+  if (!win) createWindow();
+  if (process.platform === 'darwin' && app.dock) app.dock.show();
+  if (win.isMinimized()) win.restore();
+  if (!win.isVisible()) win.showInactive(); }
 
 /* ---------- tray ---------- */
 
@@ -206,6 +265,9 @@ function registerIpc() {
   h('open', what => { openTarget(what); return { ok: true }; });
   h('updates', () => tracker.checkUpdates(true));
   h('installUpdate', () => tracker.updateNow());
+  h('updatePrompted', v => tracker.updatePrompted(v));
+  h('meeting', on => tracker.setMeeting(!!on));
+  h('quitAnyway', () => tracker.quitAnyway());
   h('downloadInstaller', () => tracker.downloadInstaller());
   h('openInstaller', () => ({ ok: tracker.updater.open() }));
   h('restartApp', () => { restartToUpdate(false); return { ok: true }; });
@@ -225,11 +287,17 @@ function sanitizeSel(b) {
 app.on('second-instance', () => showWindow());
 app.on('activate', () => showWindow());
 app.on('window-all-closed', e => { /* keep running in the tray */ });
-/* Quitting pauses tracking first, then quits for real (app.quit, so a downloaded update installs on the way out). */
+/*
+ * Quitting pauses tracking first, then (sync = a normal quit) sends what is still in the offline queue: after 1.2 s the
+ * window shows "Syncing your data to the server. The app will close by itself when done." with progress and Quit anyway
+ * (up to 60 s; whatever is left stays queued for the next start). Then it quits for real (app.quit, so a downloaded update
+ * installs on the way out). Update restarts and system shutdowns do not wait for the sync (the queue is saved on disk).
+ */
 let closing = null;
-async function prepareQuit(wait) {
+async function prepareQuit(wait, sync = false) {
   closing = closing || (async () => {
     try { await tracker.beforeQuit(wait); } catch (err) { /* quitting anyway */ }
+    if (sync) { try { await tracker.syncBeforeQuit(); } catch (err) { /* quitting anyway */ } }
     toast.destroy();
     quitting = true;
   })();
@@ -238,7 +306,7 @@ async function prepareQuit(wait) {
 app.on('before-quit', async e => {
   if (quitting) return;
   e.preventDefault();
-  await prepareQuit();
+  await prepareQuit(undefined, true);
   app.quit(); });
 
 /**
@@ -268,6 +336,7 @@ app.whenReady().then(async () => {
   tracker.on('consent-needed', () => showWindow());
   tracker.on('update-available', v => updateAvailable(v));
   tracker.on('update-restart', () => restartToUpdate(true));
+  tracker.on('quit-sync-show', () => showWindow());
   tracker.on('app-moved', () => { if (store.get('launchAtLogin', true)) setLaunchAtLogin(true); });
   registerIpc();
   createWindow();

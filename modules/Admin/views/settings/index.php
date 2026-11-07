@@ -14,20 +14,20 @@ $info = static fn (string $ic, string $c, string $title, string $html) => '<div 
   <?= feature_on('employees') ? $info('id-card', 'mint', 'Per-employee schedules', 'Part-timers or six-day weeks? Open the employee\'s HR profile and set their own hours per day and weekly off days, those override the company defaults below. '.(can('hr.employees.view') ? '<a href="'.e(url('/hr/employees')).'">Open employees →</a>' : '')) : '' ?>
   <?= $form() ?>
 <?php break; case 'leave': $fixed = (int) ($holidays[0] ?? 0); $opt = (int) ($holidays[1] ?? 0); ?>
-  <?= partial('admin::settings/_head', ['tabs' => $tabs, 'tab' => $tab, 'actions' => '<a class="btn ghost" href="'.e(url('/hr/holidays')).'">'.icon('calendar', 'sm').' Holiday calendar</a>']) ?>
+  <?= partial('admin::settings/_head', ['tabs' => $tabs, 'tab' => $tab, 'actions' => '<a class="btn ghost" href="'.e(url('/hr/leave/types')).'">'.icon('sliders', 'sm').' Leave types & policies</a><a class="btn ghost" href="'.e(url('/hr/holidays')).'">'.icon('calendar', 'sm').' Holiday calendar</a>']) ?>
   <div class="grid g3 mini-stats">
     <div class="tile bg-peach"><span class="tile-ic"><?= icon('flag') ?></span><div><div class="num"><?= $fixed ?></div><div class="lbl">Fixed holidays in <?= date('Y') ?></div></div></div>
     <div class="tile bg-sky"><span class="tile-ic"><?= icon('umbrella') ?></span><div><div class="num"><?= $opt ?></div><div class="lbl">Optional festival days listed</div></div></div>
     <div class="tile bg-mint"><span class="tile-ic"><?= icon('gift') ?></span><div><div class="num"><?= $ohQuota !== null ? rtrim(rtrim((string) $ohQuota, '0'), '.') : '-' ?></div><div class="lbl">Optional holidays per person</div></div></div>
   </div>
   <?= $form() ?>
-  <?= $info('info', 'sky', 'How holidays work', 'Fixed holidays (e.g. Republic Day, Diwali) are days off for everyone and skip working-day counts. Optional holidays are a personal pool: employees pick festival, personal or medical days and apply for them as <b>Optional Holiday (OH)</b> leave. Saving the allowance above also updates the OH leave type; per-employee quotas live on the employee profile.') ?>
+  <?= $info('info', 'sky', 'How holidays work', 'Fixed holidays (e.g. Republic Day, Diwali) are days off for everyone and skip working-day counts. Optional holidays are a personal pool: employees pick festival, personal or medical days and apply for them as <b>Optional Holiday (OH)</b> leave. Saving the allowance above also updates the OH leave type; per-employee quotas live on the employee profile. Create your own leave types (accrual, carry forward, notice, eligibility) on <a href="'.e(url('/hr/leave/types')).'">Leave types</a>; Paid Leave (PL) builds up every month and can cover a shortage of working hours.') ?>
 <?php break; case 'attendance': ?>
   <?= partial('admin::settings/_head', ['tabs' => $tabs, 'tab' => $tab, 'actions' => '<a class="btn ghost" href="'.e(url('/time')).'">'.icon('timer', 'sm').' Time Tracking page</a>']) ?>
   <?= $form() ?>
 <?php break; case 'payroll': ?>
-  <?= partial('admin::settings/_head', ['tabs' => $tabs, 'tab' => $tab, 'actions' => can('payroll.manage') ? '<a class="btn ghost" href="'.e(url('/payroll/components')).'">'.icon('sliders', 'sm').' Pay components</a>' : '']) ?>
-  <?= $form() ?>
+  <?= partial('admin::settings/_head', ['tabs' => $tabs, 'tab' => $tab, 'actions' => feature_on('payroll') && can('payroll.manage') ? '<a class="btn ghost" href="'.e(url('/payroll/components')).'">'.icon('sliders', 'sm').' Pay components</a>' : '']) ?>
+  <?= $fields ? $form() : '' ?>
   <?php if (feature_on('payroll')): ?><?= $info('wallet', 'pink', 'Salary structure lives in Payroll', 'Allowances, deductions and each employee\'s compensation are managed under Payroll.'.(feature_on('reimbursements') ? ' Reimbursement claims approved before a run are added to that month\'s payslips automatically.' : '')) ?><?php endif ?>
   <?php if (feature_on('reimbursements') && !feature_on('payroll')): ?><?= $info('receipt', 'pink', 'Expense claims', 'Everyone submits claims with a receipt under <b>Reimbursements</b>; HR approves or rejects them there. '.(can('payroll.reimbursements.approve') ? '<a href="'.e(url('/reimbursements?tab=queue')).'">Review claims →</a>' : '')) ?><?php endif ?>
 <?php break; case 'projects': ?>

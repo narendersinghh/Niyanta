@@ -22,6 +22,10 @@
   <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16M3 12a9 9 0 0 1 15.5-6.2L21 8M21 3v5h-5M3 21v-5h5"/></symbol>
   <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></symbol>
   <symbol id="i-coffee" viewBox="0 0 24 24"><path d="M17 8h1a4 4 0 1 1 0 8h-1M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4zM6 2v2M10 2v2M14 2v2"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM22 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 5 5 9-10"/></symbol>
+  <symbol id="i-sync" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.6-4.5L3 9M4 13a8 8 0 0 0 14.6 4.5L21 15M3 4v5h5M21 20v-5h-5"/></symbol>
 </svg>
 
 <main id="signin" class="screen hide" aria-labelledby="si-title">
@@ -38,50 +42,58 @@
 
 <main id="tracker" class="screen hide">
   <header class="top">
-    <img src="logo.svg" alt="" width="30" height="30">
-    <div class="who"><b id="ws-name">Workspace</b><span id="ws-user" class="muted"></span></div>
-    <button id="open-settings" class="icon-btn" type="button" aria-label="Settings"><svg class="ic"><use href="#i-gear"/></svg></button>
+    <img class="logo" src="logo.svg" alt="" width="30" height="30">
+    <div class="who"><b id="ws-name">Workspace</b><span id="ws-user"></span></div>
+    <span id="avatar" class="avatar" aria-hidden="true"></span>
+    <button id="open-settings" class="icon-btn" type="button" aria-label="Settings" aria-haspopup="dialog"><svg class="ic"><use href="#i-gear"/></svg></button>
   </header>
 
+  <div id="update-slot"></div>
   <div id="banners"></div>
 
-  <section id="hero" class="hero" data-state="not_started" aria-live="polite">
-    <div class="hero-top"><span id="chip" class="chip"><i class="dot"></i><span id="chip-label">Not started</span></span><span id="today" class="chip soft"></span></div>
-    <div id="clock" class="clock">00:00:00</div>
-    <div id="sub" class="sub">Press Start when you begin working.</div>
+  <section id="hero" class="hero" data-kind="not_started" aria-labelledby="chip-label">
+    <div class="hero-top"><span id="chip" class="chip"><i class="dot" aria-hidden="true"></i><span id="chip-label">Not started</span></span><span id="today" class="hero-date"></span></div>
+    <div id="clock" class="clock" role="timer" aria-live="off">0:00:00</div>
+    <div id="caption" class="caption">Press Start when you begin working.</div>
+    <div class="hero-foot"><span class="day"><span class="muted-w">Today</span> <b id="day-total">0:00:00</b></span><span id="hero-proj" class="hero-proj"></span></div>
   </section>
 
-  <section class="pickers" id="pickers">
-    <label class="sr" for="project">Project</label>
-    <select id="project" aria-label="Project"></select>
-    <label class="sr" for="task">Task</label>
-    <select id="task" aria-label="Task"></select>
-    <button id="switch" class="btn soft block hide" type="button"><svg class="ic"><use href="#i-swap"/></svg> Switch to this project</button>
+  <section class="card pickers" id="pickers" aria-label="Project and task">
+    <label class="fld"><span><svg class="ic sm"><use href="#i-folder"/></svg> Project</span><select id="project"></select></label>
+    <label class="fld"><span><svg class="ic sm"><use href="#i-check"/></svg> Task</span><select id="task"></select></label>
+    <button id="switch" class="btn soft block hide" type="button"><svg class="ic sm"><use href="#i-swap"/></svg> Switch to this project</button>
   </section>
 
-  <section class="controls" id="controls">
+  <section class="controls" id="controls" aria-label="Tracking">
     <button id="btn-start" class="btn primary big" type="button" title="Start tracking today. The day ends by itself at midnight."><svg class="ic"><use href="#i-play"/></svg> Start</button>
     <button id="btn-pause" class="btn warm big hide" type="button" title="Pause tracking (a break)"><svg class="ic"><use href="#i-pause"/></svg> Pause</button>
     <button id="btn-resume" class="btn primary big hide" type="button" title="Continue tracking on the selected project"><svg class="ic"><use href="#i-play"/></svg> Resume</button>
   </section>
 
+  <label class="card meet" id="meet" for="meet-on">
+    <span class="meet-ic" aria-hidden="true"><svg class="ic"><use href="#i-users"/></svg></span>
+    <span class="meet-txt"><b>Meeting mode</b><small id="meet-hint">Activity is not counted. Turns off after 1 hour.</small></span>
+    <span id="meet-left" class="meet-left hide" aria-hidden="true"></span>
+    <input id="meet-on" class="sw" type="checkbox" role="switch" aria-describedby="meet-hint">
+  </label>
+
   <section class="totals" aria-label="Today">
-    <div class="tile t-mint"><span>Active</span><b id="t-active">0h 00m</b></div>
-    <div class="tile t-lemon"><span>Idle</span><b id="t-idle">0h 00m</b></div>
-    <div class="tile t-peach"><span>Paused</span><b id="t-paused">0h 00m</b></div>
     <div class="tile t-lav"><span>Total</span><b id="t-total">0h 00m</b></div>
+    <div class="tile t-mint"><span>Active</span><b id="t-active">0h 00m</b></div>
+    <div class="tile t-sky"><span>Activity</span><b id="t-act">-</b><i class="bar" aria-hidden="true"><i id="t-act-bar"></i></i></div>
+    <div class="tile t-lemon"><span>Idle</span><b id="t-idle">0h 00m</b></div>
   </section>
 
-  <p id="mon-info" class="mon muted xs"></p>
+  <p id="mon-info" class="mon"></p>
 
-  <footer class="foot"><span id="sync" class="muted xs">Synced</span><button id="open-web" class="link xs" type="button">Open Time Tracking <svg class="ic sm"><use href="#i-ext"/></svg></button></footer>
+  <footer class="foot"><span id="sync" class="sync"><i class="sdot" aria-hidden="true"></i><span id="sync-text">Synced</span></span><button id="open-web" class="link" type="button">Open Time Tracking <svg class="ic sm"><use href="#i-ext"/></svg></button></footer>
 </main>
 
 <div id="sheet" class="sheet hide" role="dialog" aria-modal="true" aria-labelledby="set-title">
   <div class="sheet-card">
     <div class="row between"><h2 id="set-title">Settings</h2><button id="close-settings" class="icon-btn" type="button" aria-label="Close settings"><svg class="ic"><use href="#i-x"/></svg></button></div>
     <form id="pomo-form" class="set-card" aria-labelledby="pomo-title" novalidate>
-      <label class="switch-row"><span><b id="pomo-title">Pomodoro break</b><small>A reminder to take a short break after working for a while. Only on this computer.</small></span><input id="pomo-on" type="checkbox" role="switch"></label>
+      <label class="switch-row"><span><b id="pomo-title">Pomodoro break</b><small>A reminder to take a short break after working for a while. Only on this computer.</small></span><input id="pomo-on" class="sw" type="checkbox" role="switch"></label>
       <div class="pomo-fields">
         <label class="num" for="pomo-work"><span>Notify after working</span><span class="unit"><input id="pomo-work" type="number" min="1" max="600" step="1" inputmode="numeric" aria-describedby="pomo-msg"> minutes</span></label>
         <label class="num" for="pomo-brk"><span>Break interval</span><span class="unit"><input id="pomo-brk" type="number" min="1" max="120" step="1" inputmode="numeric" aria-describedby="pomo-msg"> minutes</span></label>
@@ -90,9 +102,9 @@
     </form>
     <section class="set-card" aria-labelledby="pref-title">
       <h3 id="pref-title">Preferences</h3>
-      <label class="switch-row"><span><b>Screenshot alert</b><small id="p-notify-hint">Show a small notice each time a screenshot is taken.</small></span><input id="p-notify" type="checkbox" role="switch" aria-describedby="p-notify-hint"></label>
-      <label class="switch-row"><span><b>Launch at startup</b><small>Start Niyanta Tracker in the tray when you sign in to your computer.</small></span><input id="p-launch" type="checkbox" role="switch"></label>
-      <label class="switch-row"><span><b>Message alert tone</b><small>Play a short sound with the app's messages and reminders.</small></span><input id="p-tone" type="checkbox" role="switch"></label>
+      <label class="switch-row"><span><b>Screenshot alert</b><small id="p-notify-hint">Show a small notice each time a screenshot is taken.</small></span><input id="p-notify" class="sw" type="checkbox" role="switch" aria-describedby="p-notify-hint"></label>
+      <label class="switch-row"><span><b>Launch at startup</b><small>Start Niyanta Tracker in the tray when you sign in to your computer.</small></span><input id="p-launch" class="sw" type="checkbox" role="switch"></label>
+      <label class="switch-row"><span><b>Message alert tone</b><small>Play a short sound with the app's messages and reminders.</small></span><input id="p-tone" class="sw" type="checkbox" role="switch"></label>
     </section>
     <div class="set-block"><b>Monitoring</b><p id="p-monitor" class="muted xs"></p><button id="p-perm" class="btn ghost sm hide" type="button"><svg class="ic sm"><use href="#i-shield"/></svg> Open Screen Recording settings</button></div>
     <div class="set-block"><b>Version</b><p class="muted xs">Niyanta Tracker <span id="p-version"></span> · <span id="p-update-state">not checked yet</span></p>
@@ -111,6 +123,7 @@
   </div>
 </div>
 
+<script src="../shared/status.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

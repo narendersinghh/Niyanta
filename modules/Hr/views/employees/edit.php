@@ -1,6 +1,7 @@
-<?php $v = static fn (string $k) => old($k, $prof[$k] ?? ''); $id = (int) $emp['id']; ?>
+<?php $v = static fn (string $k) => old($k, $prof[$k] ?? ''); $id = (int) $emp['id']; $acct = can('admin.users.manage') && ($emp['role_slug'] !== 'super_admin' || (user()['role_slug'] ?? '') === 'super_admin'); ?>
 <?= partial('partials/page_head', ['title' => 'Edit HR profile', 'subtitle' => $emp['name'].' · '.($emp['designation'] ?: $emp['email']), 'crumbs' => [['HR Admin'], ['Employees', '/hr/employees'], [$emp['name'], '/hr/employees/'.$id], ['Edit']],
-  'actions' => can('admin.users.manage') ? '<a class="btn ghost" href="'.e(url('/admin/users/'.$id.'/edit')).'">'.icon('settings', 'sm').' Name, role & manager</a>' : '']) ?>
+  'actions' => $acct ? '<a class="btn ghost" href="'.e(url('/admin/users/'.$id.'/edit')).'">'.icon('settings', 'sm').' Account, role & manager</a>' : '']) ?>
+<nav class="tabs mb" aria-label="Employee pages"><?php if ($acct): ?><a href="<?= e(url('/admin/users/'.$id.'/edit')) ?>"><?= icon('settings', 'sm') ?> Account, role &amp; manager</a><?php endif ?><a class="active" aria-current="page" href="<?= e(url('/hr/employees/'.$id.'/edit')) ?>"><?= icon('id-card', 'sm') ?> HR profile</a><a href="#work"><?= icon('clock', 'sm') ?> <?= $payEdit ? 'Work &amp; pay' : 'Work hours' ?></a><a href="<?= e(url('/hr/employees/'.$id)) ?>"><?= icon('user', 'sm') ?> View profile</a></nav>
 <form class="hr-form" method="post" action="<?= e(url('/hr/employees/'.$id)) ?>" autocomplete="off"><?= csrf_field() ?>
   <div class="card pad0">
     <div class="hr-sec">
@@ -11,7 +12,7 @@
       </div>
     </div>
     <?php $LS = \Modules\Hr\Services\LeaveService::class; $daysMode = old('days_mode', $schedule['custom_days'] ? 'custom' : 'default'); $offSel = array_map('intval', (array) old('off_days', $schedule['off_days'])); ?>
-    <div class="hr-sec">
+    <div class="hr-sec" id="work">
       <div class="hr-sec-t"><h3><?= icon('clock', 'sm') ?> Working hours</h3><p>Hours per day and weekly off days used for leave, attendance targets and pay. Leave hours empty to follow the company default.</p></div>
       <div class="form-grid">
         <div class="field"><label for="f-hpd">Hours per day</label><input id="f-hpd" type="number" name="work_hours_per_day" step="0.25" min="0.5" max="16" value="<?= e(old('work_hours_per_day', $schedule['custom_hours'] ? $LS::num($schedule['hours_per_day']) : '')) ?>" placeholder="Company default: <?= e($LS::num($companyHours)) ?> h"><?= error_for('work_hours_per_day') ?></div>

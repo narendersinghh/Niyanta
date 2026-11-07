@@ -10,4 +10,6 @@ d.addEventListener("click",async ev=>{const b=ev.target.closest("[data-reveal]")
 try{const j=await N.req(b.dataset.reveal,{body:{}});[["bank",j.bank],["tax",j.tax]].forEach(([k,v])=>{const el=d.querySelector(`[data-secret="${k}"]`);if(el&&v)el.textContent=v});b.remove();N.toast("Revealed, this view was logged")}catch(err){b.disabled=false;N.toast(err.message,"error")}});
 /* edit HR profile: show the custom days-off picker only for a custom work week */
 d.querySelectorAll("[data-days-mode]").forEach(sel=>{const box=d.querySelector("[data-days-custom]");if(!box)return;sel.addEventListener("change",()=>{box.hidden=sel.value!=="custom"})});
+/* onboarding & exit: close an open reject / deletion popover when clicking elsewhere */
+d.addEventListener("click",ev=>{d.querySelectorAll("details.hr-pop[open]").forEach(x=>{if(!x.contains(ev.target)&&!x.classList.contains("block"))x.open=false})});
 })();

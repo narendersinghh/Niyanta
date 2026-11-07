@@ -88,7 +88,8 @@ return [
       $ps = inst_get('/time/desktop/install.ps1?k='.$k)->body();
       assert_true(str_starts_with($ps, '# Niyanta Tracker installer for Windows') && str_contains($ps, "& {\n") && str_ends_with(rtrim($ps), '}'), 'runs in a script block');
       assert_true(str_contains($ps, "\$url = 'http://localhost/time/desktop/get/niyanta-tracker-1.4.0-win-x64.exe?k=$k'") && str_contains($ps, "\$sha = '".strtoupper($hex('niyanta-tracker-1.4.0-win-x64.exe'))."'"), 'installer url and sha512');
-      assert_true(str_contains($ps, 'Invoke-WebRequest -Uri $url -OutFile $out -UseBasicParsing') && str_contains($ps, "-ArgumentList '/S' -Wait") && str_contains($ps, 'Get-FileHash -Algorithm SHA512') && str_contains($ps, 'Start-Process -FilePath $exe'), 'downloads without a browser, checks, installs silently, starts the app');
+      assert_true(str_contains($ps, 'Invoke-WebRequest -Uri $url -OutFile $out -UseBasicParsing') && str_contains($ps, "Join-Path \$env:USERPROFILE 'Downloads'") && str_contains($ps, 'Get-FileHash -Algorithm SHA512') && str_contains($ps, 'Start-Process -FilePath $out'), 'downloads to Downloads without a browser, checks, opens the setup');
+      assert_true(!str_contains($ps, '/S') && !preg_match('/-Wait|-WindowStyle|Hidden|Unblock-File|SecurityProtocol|ExecutionPolicy|env:TEMP|DownloadString|FromBase64/i', $ps), 'no silent install, hidden window or download-cradle patterns antivirus flags');
       assert_true(!preg_match('/^\s*exit\b/mi', $ps) && !str_contains($ps, 'SECRETunitTOKEN') && !preg_match('/[^\x09\x0a\x20-\x7e]/', $ps), 'never exits the window, no token, ASCII only');
       assert_eq(substr_count($ps, '{'), substr_count($ps, '}'), 'balanced braces');
 

@@ -16,4 +16,7 @@ final class ModuleController extends Controller {
     if ($kind !== 'module') { Features::set($key, $on); }
     Audit::log($on ? 'feature.enable' : 'feature.disable', 'feature', null, ['key' => $key]);
     $this->flash($label.($on ? ' turned on.' : ' turned off. Its data is kept and returns when switched back on.'));
+    /* Switched from a feature's settings section: stay there while the section still exists, else go to Settings › Features. */
+    $ret = $this->request->str('return');
+    if (preg_match('#^/admin/settings/([a-z_]+)$#', $ret, $m)) { return $this->redirect(\Modules\Admin\Services\SettingsSchema::tabOn($m[1]) ? $ret : '/admin/settings/features#feature-'.$name); }
     return $this->back(); } }

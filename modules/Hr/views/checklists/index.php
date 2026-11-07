@@ -1,5 +1,5 @@
-<?= partial('partials/page_head', ['title' => 'Checklist templates', 'subtitle' => 'Standard steps copied to each employee when you start their onboarding or offboarding.', 'crumbs' => [['HR Admin'], ['Employees', '/hr/employees'], ['Checklist templates']]]) ?>
-<div class="alert info"><?= icon('info', 'sm') ?> Changes apply to checklists generated from now on. Checklists already started keep their own copy.</div>
+<?= partial('partials/page_head', ['title' => 'Legacy checklist items', 'subtitle' => 'Steps of the earlier simple onboarding and offboarding checklists.', 'crumbs' => [['HR Admin'], ['Employees', '/hr/employees'], ['Checklist templates']]]) ?>
+<div class="alert warn"><?= icon('info', 'sm') ?><div class="grow"><b>Onboarding and exit now run from templates with document uploads, signatures and reviews.</b> These simple checklist items are kept only for checklists created earlier.</div><a class="btn sm primary" href="<?= e(url('/hr/process-templates')) ?>">Open templates</a></div>
 <div class="grid g2 hr-top">
   <?php foreach (['onboarding' => ['Onboarding', 'rocket', 'mint', 'Day-one essentials for new joiners'], 'offboarding' => ['Offboarding', 'log-out', 'peach', 'A clean, friendly exit']] as $type => [$label, $ic, $col, $sub]): $list = $items[$type]; ?>
   <div class="card" id="<?= $type ?>">

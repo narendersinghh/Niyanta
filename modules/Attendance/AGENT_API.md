@@ -62,10 +62,10 @@ screenshots 240/min, error reports 60/min, version 30/min, update files 60/min p
 | `POST /api/agent/switch` | `project_id (null = no project), task_id?, description?` | `state` |
 | `POST /api/agent/day/end` | | `state` (legacy, not used by the app) |
 | `POST /api/agent/heartbeat` | `active_seconds, idle_seconds` since the previous beat, `at?` (time of the beat), `idle_spans?: [{from, to}]` | `running, entry, state` |
-| `POST /api/agent/activity` | `slots: [{slot_start, slot_seconds, active_seconds, keystrokes, mouse_events}]` (1 to 500) | `saved, skipped` |
+| `POST /api/agent/activity` | `slots: [{slot_start, slot_seconds, active_seconds, meeting}]` (1 to 500) | `saved, skipped` |
 | `POST /api/agent/idle` | legacy (apps up to 1.0.2): `action: keep|discard, spans: [{from, to}]` (or `seconds`); always kept | `discarded: 0, kept, state` |
 | `POST /api/agent/consent` | `agree: true, policy_version` | `consent` |
-| `POST /api/agent/screenshot` | multipart `screenshot`, `activity_pct`, `keystrokes`, `mouse_events`, `display`, `captured_at` | `id` |
+| `POST /api/agent/screenshot` | multipart `screenshot`, `activity_pct`, `meeting`, `display`, `captured_at` | `id` |
 | `POST /api/agent/error` | `level, message, where, stack, file, line, os, arch, context{}` | token optional |
 | `GET /api/agent/version` | | `latest, current, update_available, released_at, download_page, updates_feed, files` |
 | `GET /api/agent/updates/{file}` | | electron-updater feed (not JSON): `latest.yml`, `latest-mac.yml`, `latest-linux.yml`, `latest-linux-arm64.yml`, `latest-linux-armv7l.yml` as `text/yaml`, or a mirrored installer / `.blockmap` (streamed). `404` when the file is not in the mirrored release |
@@ -81,7 +81,8 @@ again on every call.
 `state` object: `state` (`not_started | tracking | paused | stopped | ended`; `stopped` = day open but no running entry, e.g. after
 the server stopped a stale entry; `ended` only after a legacy `day/end`), `label`, `day{date, clock_in, clock_out, paused_since}`, `running{id, started_at, elapsed,
 project_id, project, task_id, task, description, device, …}` or `null`, `last{project_id, task_id, description}`,
-`totals{tracked, active, idle, paused, entries}` in seconds for today.
+`totals{tracked, active, idle, paused, entries}` in seconds for today, plus `activity` (today's activity %, meeting slots
+excluded, `null` when there is nothing to average) and `meeting` (seconds tracked in meeting mode today).
 
 `settings`: `heartbeat_seconds` (15 to 60, default 60), `idle_minutes`, `idle_auto_pause_minutes` (2 to 240, default 15,
 always at least `idle_minutes` + 1), `auto_pause_on_lock`, `screenshots_enabled`,
@@ -90,22 +91,33 @@ always at least `idle_minutes` + 1), `auto_pause_on_lock`, `screenshots_enabled`
 
 ## Activity, idle and stale entries
 
-**Activity.** Tracked seconds are grouped in 10-second windows (from the slot start); a window is fully active when there was
-keyboard or mouse input in it or less than 3 s before it began (input carries activity for a short grace period), otherwise
-inactive. This reflects the pace of active work (reading and short pauses between typing count, like other trackers) while
-an occasional touch of the mouse stays low (one input a minute is about 20%); the constants are in `desktop/src/main/meter.js`
-and `desktop/scripts/simulate.js` shows the results for typical input patterns. The app uses a global input hook
-(`uiohook-napi`) and counts keystrokes (key presses) and mouse events (clicks, wheel, moves at most 4 per second), never which
-keys or where. Where the hook is unavailable (Wayland, macOS without the Accessibility permission, the module failed to load)
-it reads `powerMonitor.getSystemIdleTime()` every second for the time of the last input (same windows) and sends the
-counts as `null`. Seconds are summed per slot of `screenshot_interval_seconds`, counted from the workspace's midnight:
-`POST /api/agent/activity` with `slots: [{slot_start (ISO 8601), slot_seconds (tracked seconds in the slot, paused time
-excluded, 1 to 3600), active_seconds, keystrokes, mouse_events}]`. Stored in `activity_slots` (one row per user and
-`slot_start`, tied to the time entry that overlaps the slot most, with the device token): `active_seconds` is clamped to
-`slot_seconds`, a repeated `slot_start` replaces the row only when it covers at least as many seconds (retries never double
-count), slots older than 7 days or in the future are skipped. Activity % of a slot = `active_seconds / slot_seconds`. Slots
-are sent whether or not screenshots are on. The screenshot taken at the end of a slot carries that slot's `activity_pct`,
-`keystrokes` and `mouse_events` (stored on `screenshots`).
+**Activity.** The app reads the system idle time (`powerMonitor.getSystemIdleTime()`: `GetLastInputInfo` on Windows, the
+IOHIDSystem idle time on macOS, the X11 / logind idle time on Linux) once per second, the same way on every platform. Only
+whether there was keyboard or mouse input is used: no keystrokes or mouse events are counted, nothing about what is typed or
+where, no input hook, and on macOS no Accessibility permission. Tracked seconds are grouped in 12-second blocks (from the slot
+start); a block is active when there was input in it or less than 1 s before it began; a single inactive block between two busy
+blocks (input in at least 4 different seconds) counts as active (a short thinking pause); while the screen is locked or the
+computer sleeps blocks are inactive at once, and the first block after waking is left out of the slot. Typical results: focused
+work about 90-95%, reading with a scroll every 15-25 s about 65%, one input a minute about 20%, away 0%. The constants are in
+`desktop/src/main/meter.js`; `desktop/scripts/simulate.js` prints the results for typical input patterns. Seconds are summed
+per slot of `screenshot_interval_seconds`, counted from the workspace's midnight: `POST /api/agent/activity` with
+`slots: [{slot_start (ISO 8601), slot_seconds (tracked seconds in the slot, paused time excluded, 1 to 3600), active_seconds,
+meeting}]`. Stored in `activity_slots` (one row per user and `slot_start`, tied to the time entry that overlaps the slot most,
+with the device token): `active_seconds` is clamped to `slot_seconds`, a repeated `slot_start` replaces the row only when it
+covers at least as many seconds (retries never double count), slots older than 7 days or in the future are skipped. Activity %
+of a slot = `active_seconds / slot_seconds`. Slots are sent whether or not screenshots are on. The screenshot taken at the end
+of a slot carries that slot's `activity_pct` and `meeting` (stored on `screenshots`). The `keystrokes` / `mouse_events`
+columns of `activity_slots` and `screenshots` stay (nullable) for older data only: the server ignores counts that apps up to
+1.2.x still send and the web app no longer shows counts.
+
+**Meeting mode.** A switch in the app: time is tracked as usual (screenshots as configured), idle detection and the automatic
+pause are off, and it turns off by itself after 1 hour (or on Pause, or when switched off). A slot counts as a meeting slot
+when meeting mode covered at least half of its tracked seconds; it is sent with `meeting: 1` (booleans and `"1"` accepted)
+and stored in `activity_slots.meeting` (screenshots: `screenshots.meeting`). Meeting slots keep their activity and are visible
+to managers (the flag is on the slot and the screenshot), but every activity average leaves them out:
+`TimeService::dayActivity()` (used by the day summary in `BaseController::day()` and by `state.totals.activity`) averages
+only slots with `meeting = 0`, and its screenshot fallback only screenshots with `meeting = 0`. A day with nothing but
+meetings has no activity average (`null`).
 
 **Idle.** Once there was no input for `idle_minutes`, the person is idle from the last input (those seconds move from active
 to idle) and the timer keeps running. Every `heartbeat_seconds` (at most 60) the app sends the counts since the previous beat

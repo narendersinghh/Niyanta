@@ -243,3 +243,12 @@ input[type=file]::file-selector-button{font:inherit;font-weight:600;font-size:.8
 .set-cats::-webkit-scrollbar{display:none}
 .set-cats a{display:inline-flex;align-items:center;gap:.4rem;white-space:nowrap}
 .set-shell:has(>.set-cats.home){grid-template-columns:minmax(0,1fr)}
+/* feature switches: settings header strip and Settings › Features links */
+.feat-strip{display:grid;gap:0;padding:6px 18px;margin-bottom:18px}
+.feat-switch{display:flex;align-items:center;gap:.8rem;padding:10px 0;border-top:1px solid var(--border)}
+.feat-switch:first-child{border-top:0}
+.feat-switch .grow{display:flex;flex-direction:column;min-width:0}
+.feat-switch.is-off b{color:var(--muted)}
+.feat-switch.is-off .feature-ic{filter:grayscale(1);opacity:.6}
+.feature-links{display:flex;gap:.7rem;flex-wrap:wrap;margin-top:3px}
+.feature-links a{font-size:.74rem;font-weight:650;display:inline-flex;align-items:center;gap:.25rem}

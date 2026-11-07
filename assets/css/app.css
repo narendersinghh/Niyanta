@@ -447,3 +447,32 @@ html{scrollbar-color:color-mix(in srgb,var(--muted) 45%,transparent) transparent
 .nav-group{margin-top:10px}
 .dd-menu.dd-float{position:fixed;right:auto;z-index:80}
 .dd-menu button.danger,.dd-menu a.danger{color:var(--red-d)}
+/* Attendance: team "N active" pill and popup in the top bar */
+.tm-pill{display:inline-flex;align-items:center;gap:.45rem;height:42px;padding:0 14px 0 12px;border-radius:99px;background:var(--surface);border:1px solid var(--border);color:var(--text);font-size:.86rem;white-space:nowrap;transition:box-shadow .15s,border-color .15s}
+.tm-pill:hover,.tm-now[open]>.tm-pill{border-color:color-mix(in srgb,var(--mint) 55%,var(--border));box-shadow:0 8px 20px -12px color-mix(in srgb,var(--mint) 80%,transparent)}
+.tm-pill:focus-visible{outline:3px solid color-mix(in srgb,var(--lav) 45%,transparent);outline-offset:2px}
+.tm-pill b{font-variant-numeric:tabular-nums;font-weight:750}
+.tm-pill .tm-lbl{color:var(--muted);font-weight:600}
+.tm-dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--gray-d);opacity:.55;flex:none}
+.tm-dot.on{background:var(--mint);opacity:1;box-shadow:0 0 0 3px color-mix(in srgb,var(--mint) 22%,transparent)}
+.tm-pop{width:380px;padding:0;overflow:hidden}
+.tm-head{display:flex;align-items:center;justify-content:space-between;gap:.6rem;padding:12px 14px 10px;border-bottom:1px solid var(--border)}
+.dd-menu .tm-link{width:auto;padding:4px 10px;font-size:.78rem;color:var(--lav-d);background:var(--lav-s);border-radius:99px}
+.tm-body{max-height:min(62vh,480px);overflow-y:auto;padding:4px 6px 6px}
+.tm-sec h4{display:flex;align-items:center;gap:.45rem;margin:10px 8px 4px;font-size:.76rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+.tm-n{margin-left:auto;font-size:.72rem;background:var(--surface-3);color:var(--text);border-radius:99px;padding:0 8px;letter-spacing:0}
+.tm-sub-h{margin:8px 8px 2px;font-size:.72rem;color:var(--muted);font-weight:650}
+.dd-menu .tm-row{gap:.65rem;padding:7px 8px}
+.tm-who{flex:1;min-width:0;display:flex;flex-direction:column;line-height:1.3}
+.tm-who b,.tm-sub{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tm-who b{font-size:.88rem}
+.tm-sub{font-size:.76rem;color:var(--muted);font-weight:500;display:flex;align-items:center;gap:.35rem}
+.tm-when{display:flex;flex-direction:column;align-items:flex-end;flex:none;font-size:.74rem;color:var(--muted);font-weight:500;line-height:1.3}
+.tm-when b{font-size:.84rem;color:var(--text);font-variant-numeric:tabular-nums}
+.tm-st{width:7px;height:7px;border-radius:50%;flex:none;background:var(--gray-d)}
+.tm-st.tm-paused{background:var(--lemon)}.tm-st.tm-idle{background:var(--peach)}.tm-st.tm-stopped{background:var(--sky)}.tm-st.tm-leave{background:var(--pink)}.tm-st.tm-ended{background:var(--lav)}
+.tm-empty{margin:0;padding:10px 8px 12px;font-size:.84rem;color:var(--muted)}
+.dd-menu .tm-more{font-size:.78rem;color:var(--lav-d);padding:6px 8px}
+.tm-foot{padding:9px 14px;border-top:1px solid var(--border);font-size:.74rem;color:var(--muted);background:var(--surface-2)}
+.dd-menu .tm-foot a{display:inline;width:auto;padding:0;border-radius:0;color:var(--lav-d);font-weight:600}.dd-menu .tm-foot a:hover{background:none;text-decoration:underline}
+@media (max-width:900px){.tm-pill{padding:0 12px}.tm-pill .tm-lbl{display:none}.tm-pop{position:fixed;left:16px;right:16px;top:64px;width:auto}}

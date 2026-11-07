@@ -40,13 +40,16 @@ abstract class BaseController extends Controller {
     if ($target !== $self && $name === '') { $this->abort(404, 'Person not found.'); }
     return [$target, $name, $people]; }
 
-  /** One person's day: entries (with project/task) and the summary strip (clock in/out, total, active, idle, paused, activity %). */
+  /**
+   * One person's day: entries (with project/task) and the summary strip (clock in/out, total, active, idle, paused, activity %
+   * without meeting-mode slots, meeting = seconds tracked in meeting mode).
+   */
   protected static function day(int $uid, string $date): array {
     $next = date('Y-m-d', strtotime($date.' +1 day'));
     $rows = \Core\DB::all('SELECT te.*, p.name AS project_name, p.color AS project_color, t.title AS task_title FROM time_entries te LEFT JOIN projects p ON p.id=te.project_id LEFT JOIN tasks t ON t.id=te.task_id WHERE te.user_id=? AND te.started_at>=? AND te.started_at<? ORDER BY te.started_at', [$uid, $date.' 00:00:00', $next.' 00:00:00']);
     $att = \Core\DB::first('SELECT clock_in, clock_out, break_seconds FROM attendance WHERE user_id=? AND work_date=? LIMIT 1', [$uid, $date]);
-    $slots = \Core\DB::first('SELECT SUM(slot_seconds) AS s, SUM(active_seconds) AS a FROM activity_slots WHERE user_id=? AND slot_start>=? AND slot_start<?', [$uid, $date.' 00:00:00', $next.' 00:00:00']);
-    $act = (int) ($slots['s'] ?? 0) ? 100 * (int) $slots['a'] / (int) $slots['s'] : \Core\DB::value('SELECT AVG(activity_pct) FROM screenshots WHERE user_id=? AND taken_at>=? AND taken_at<? AND activity_pct IS NOT NULL', [$uid, $date.' 00:00:00', $next.' 00:00:00']);
+    $da = \Modules\Attendance\Services\TimeService::dayActivity($uid, $date);
+    $act = $da['pct'];
     $total = 0; $idle = 0; $first = null; $last = null;
     foreach ($rows as &$r) {
       $r['dur'] = \Modules\Attendance\Services\TimeService::elapsed($r);
@@ -57,4 +60,4 @@ abstract class BaseController extends Controller {
     unset($r);
     $active = $total - $idle;
     return ['entries' => $rows, 'sum' => ['date' => $date, 'clock_in' => $att['clock_in'] ?? $first, 'clock_out' => $att['clock_out'] ?? ($rows && !end($rows)['is_running'] ? $last : null), 'running' => (bool) array_filter($rows, static fn ($r) => $r['is_running']),
-      'total' => $total, 'active' => $active, 'idle' => $idle, 'paused' => (int) ($att['break_seconds'] ?? 0), 'activity' => $act !== null ? (int) round((float) $act) : ($total ? (int) round(100 * $active / $total) : 0)]]; } }
+      'total' => $total, 'active' => $active, 'idle' => $idle, 'paused' => (int) ($att['break_seconds'] ?? 0), 'activity' => $act ?? ($total && !$da['meeting'] ? (int) round(100 * $active / $total) : 0), 'meeting' => $da['meeting']]]; } }

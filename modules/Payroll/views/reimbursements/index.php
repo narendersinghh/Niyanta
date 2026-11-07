@@ -4,7 +4,7 @@ $statuses = ['' => 'All', 'pending' => 'Pending', 'approved' => 'Approved', 'pai
 $me = (int) user()['id']; $sa = user()['role_slug'] === 'super_admin';
 $payOn = feature_on('payroll'); /* without payroll, approved claims are settled by HR outside the app */
 ?>
-<?= partial('partials/page_head', ['title' => $tab === 'queue' ? 'Reimbursements' : 'My Pay', 'subtitle' => $tab === 'queue' ? 'Review expense claims. Approved claims are paid '.($payOn ? 'with the next payroll run.' : 'out by HR.') : 'Claim back business expenses. Approved claims are paid '.($payOn ? 'with your next payslip.' : 'out by HR.'), 'crumbs' => [[$tab === 'queue' ? 'HR Admin' : 'My HR'], ['Reimbursements']], 'actions' => $canReq ? '<button class="btn primary" type="button" data-modal="newClaim">'.icon('plus', 'sm').' New claim</button>' : '']) ?>
+<?= partial('partials/page_head', ['title' => $tab === 'queue' ? 'Reimbursements' : 'My Pay', 'subtitle' => $tab === 'queue' ? 'Review expense claims. Approved claims are paid '.($payOn ? 'with the next payroll run.' : 'out by HR.') : 'Claim back business expenses. Approved claims are paid '.($payOn ? 'with your next payslip.' : 'out by HR.'), 'crumbs' => [[$tab === 'queue' ? 'HR Admin' : 'My HR'], ['Reimbursements']], 'actions' => ($tab === 'queue' ? \Modules\Admin\Services\SettingsSchema::settingsLink('reimbursements') : '').($canReq ? '<button class="btn primary" type="button" data-modal="newClaim">'.icon('plus', 'sm').' New claim</button>' : '')]) ?>
 <?= partial('payroll::_mypay', ['active' => $tab, 'queueCount' => (int) $queue['n']]) ?>
 <div class="grid g3 mb">
   <?php if ($tab === 'queue'): ?>

@@ -8,7 +8,8 @@ $hm = static fn (int $h, int $m): string => date($tf, mktime($h, $m, 0));
 ?>
 <?= partial('attendance::partials/hub', ['tab' => 'screenshots', 'title' => 'Time & Attendance', 'subtitle' => 'Captured by the desktop app only while tracking, with consent. Kept for '.$retention.' days.', 'target' => $target, 'targetName' => $targetName, 'people' => $people, 'mode' => 'date', 'date' => $date, 'base' => '/time/screenshots']) ?>
 <?php if (!$enabled): ?><div class="alert warn"><?= icon('info', 'sm') ?> Screenshot monitoring is currently turned off. Existing images remain until their retention period ends.</div><?php endif ?>
-<?= partial('attendance::partials/day_summary', ['sum' => $sum, 'targetName' => $targetName]) ?>
+<?php $targets = []; foreach ($hours as $h => $slots) { foreach ($slots as $k => $list) { $targets[$h * 6 + $k] = true; } } ?>
+<?= partial('attendance::partials/day_summary', ['sum' => $sum, 'targetName' => $targetName, 'chart' => $chart ?? null, 'targets' => $targets]) ?>
 <?php if (!$hours): ?><div class="card"><?= empty_state('No screenshots on this day', $own ? 'Screenshots appear here when the desktop app captures your screens while you track.' : 'Nothing was captured for '.e($targetName).' on this day.', 'security-shield') ?></div>
 <?php else: foreach ($hours as $h => $slots): ?>
 <section class="shot-hour">
@@ -20,20 +21,17 @@ $hm = static fn (int $h, int $m): string => date($tf, mktime($h, $m, 0));
     $a = $acts ? (int) round(array_sum($acts) / count($acts)) : null;
     $label = $pj ? ($first['project_name'] ?? 'No project') : 'Tracked time';
     $sub = ($pj ? $first['task_title'] : null) ?: $first['description'];
-    $gallery = array_map(static fn ($r) => ['src' => url('/time/screenshots/'.$r['id'].'/image'), 't' => ftime($r['taken_at']), 'a' => $r['activity_pct'] === null ? null : (int) $r['activity_pct'], 'd' => $r['display_index'] === null ? null : (int) $r['display_index'] + 1], $list);
+    $gallery = array_map([\Modules\Attendance\Controllers\HubController::class, 'shot'], $list);
     $range = $hm($h, $k * 10).' - '.$hm($k === 5 ? ($h + 1) % 24 : $h, $k === 5 ? 0 : $k * 10 + 10); ?>
-    <button type="button" class="shot-card" data-shots="<?= e(json_encode($gallery)) ?>" data-shots-title="<?= e($range.' · '.$label) ?>" aria-label="View <?= count($list) ?> screenshots, <?= e($range) ?>">
+    <button type="button" class="shot-card" id="slot-<?= (int) $h ?>-<?= (int) $k ?>" data-shots="<?= e(json_encode($gallery)) ?>" data-shots-title="<?= e($range.' · '.$label) ?>" aria-label="View <?= count($list) ?> screenshots, <?= e($range) ?>">
       <span class="sc-head"><b class="truncate"><?= e($label) ?></b><?php if ($sub): ?><span class="truncate"><?= e(str_limit($sub, 50)) ?></span><?php endif ?></span>
       <span class="sc-img<?= count($list) > 1 ? ' stack' : '' ?>"><img src="<?= e($gallery[0]['src']) ?>" alt="" loading="lazy"><?php if (count($list) > 1): ?><span class="sc-more"><?= count($list) - 1 ?> more</span><?php endif ?></span>
-      <span class="sc-time"><?= e($range) ?></span>
+      <span class="sc-time"><?= e($range) ?><?php if (array_filter(array_column($list, 'meeting'))): ?> <span class="pill pill-sky" title="Meeting mode was on: this activity is not counted in the day's average">Meeting</span><?php endif ?></span>
       <?php if ($a !== null): ?><span class="sc-act"><span class="ds-bar"><i class="<?= $a >= 60 ? 'hi' : ($a >= 30 ? 'mid' : 'lo') ?>" style="width:<?= $a ?>%"></i></span><?= $a ?>%</span>
       <span class="sc-foot">Active time <b><?= (int) round($a / 10) ?> min</b></span><?php endif ?>
-      <?php $keys = array_filter(array_column($list, 'keystrokes'), 'is_numeric'); $mouse = array_filter(array_column($list, 'mouse_events'), 'is_numeric'); if ($keys || $mouse): ?><span class="sc-io" title="Keystrokes and mouse events in this slot"><span>Keys <b><?= (int) array_sum($keys) ?></b></span><span>Mouse <b><?= (int) array_sum($mouse) ?></b></span></span><?php endif ?>
     </button>
   <?php endforeach ?>
   </div>
 </section>
 <?php endforeach; endif ?>
-<dialog class="modal shot-viewer" id="shot-viewer"><div class="modal-head"><h3 data-sv-title>Screenshots</h3><button type="button" class="btn icon sm ghost" data-close aria-label="Close"><?= icon('x', 'sm') ?></button></div>
-  <div class="modal-body"><div class="sv-main"><button type="button" class="btn icon ghost sv-prev" data-sv-step="-1" aria-label="Previous"><?= icon('chevron-left', 'sm') ?></button><a data-sv-link target="_blank" rel="noopener"><img data-sv-img alt=""></a><button type="button" class="btn icon ghost sv-next" data-sv-step="1" aria-label="Next"><?= icon('chevron-right', 'sm') ?></button></div>
-    <div class="sv-meta small muted" data-sv-meta></div><div class="sv-thumbs" data-sv-thumbs></div></div></dialog>
+<?= partial('attendance::partials/shot_viewer') ?>

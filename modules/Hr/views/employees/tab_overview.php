@@ -51,7 +51,10 @@ $oh = current(array_filter($balances, static fn ($b) => $b['code'] === LS::OPTIO
       <div class="form-actions"><button class="btn primary"><?= icon('check', 'sm') ?> Save</button></div>
     </form>
     <?php endif ?>
-    <?php foreach (['onboarding' => 'Onboarding', 'offboarding' => 'Offboarding'] as $ct => $cl): $items = $checklists[$ct]; if (!$items) { continue; } $dn = count(array_filter($items, static fn ($i) => $i['done_at'] !== null)); $pc = (int) round($dn / count($items) * 100); ?>
+    <?php $seen = []; foreach ($procs ?? [] as $pr): if (isset($seen[$pr['kind']]) || $pr['status'] === 'cancelled') { continue; } $seen[$pr['kind']] = true; $pc = (int) $pr['total'] ? (int) round($pr['done'] / $pr['total'] * 100) : 0; [$psl, $psc] = \Modules\Hr\Services\ProcessService::STATUS[$pr['status']]; ?>
+    <a class="card flex" href="<?= e(url('/hr/employees/'.$emp['id'].'?tab=checklists')) ?>"><span class="ring" style="--v:<?= $pc ?>;--c:var(--<?= $pr['kind'] === 'onboarding' ? 'mint' : 'peach' ?>)" data-label="<?= $pc ?>%"></span><div class="grow"><b><?= $pr['kind'] === 'onboarding' ? 'Onboarding' : 'Exit' ?></b> <span class="pill pill-<?= e($psc) ?>"><?= e($psl) ?></span><div class="small muted"><?= (int) $pr['done'] ?> of <?= (int) $pr['total'] ?> tasks done</div></div><?= icon('chevron-right', 'sm') ?></a>
+    <?php endforeach ?>
+    <?php foreach (['onboarding' => 'Onboarding', 'offboarding' => 'Offboarding'] as $ct => $cl): $items = $checklists[$ct]; if (!$items || isset($seen[$ct === 'offboarding' ? 'exit' : $ct])) { continue; } $dn = count(array_filter($items, static fn ($i) => $i['done_at'] !== null)); $pc = (int) round($dn / count($items) * 100); ?>
     <a class="card flex" href="<?= e(url('/hr/employees/'.$emp['id'].'?tab=checklists')) ?>"><span class="ring" style="--v:<?= $pc ?>;--c:var(--<?= $ct === 'onboarding' ? 'mint' : 'peach' ?>)" data-label="<?= $pc ?>%"></span><div class="grow"><b><?= e($cl) ?></b><div class="small muted"><?= $dn ?> of <?= count($items) ?> steps done</div></div><?= icon('chevron-right', 'sm') ?></a>
     <?php endforeach ?>
     <?php if ($reports): ?>

@@ -10,7 +10,7 @@ final class LeaveController extends Controller {
   private function base(string $tab, array $data): Response {
     [$w, $p] = HrAccess::reviewScope();
     $data['pendingCount'] = $this->can('hr.leave.approve') ? (int) DB::value("SELECT COUNT(*) FROM leave_requests lr JOIN users u ON u.id=lr.user_id WHERE lr.status='pending' AND $w", $p) : 0;
-    return $this->view('hr::leave/'.$tab, $data + ['tab' => $tab, 'styles' => ['css/hr.css'], 'scripts' => ['js/hr.js']]); }
+    return $this->view('hr::leave/'.$tab, $data + ['tab' => $tab, 'styles' => ['css/hr.css', 'css/leave.css'], 'scripts' => ['js/hr.js', 'js/leave.js']]); }
 
   public function index(): Response {
     if (!$this->can('hr.leave.request')) { return $this->redirect('/hr/leave/approvals'); }
@@ -23,7 +23,7 @@ final class LeaveController extends Controller {
     $stats = DB::first("SELECT SUM(status='pending') AS pending, COALESCE(SUM(CASE WHEN status='approved' THEN days END),0) AS taken FROM leave_requests WHERE user_id=? AND start_date BETWEEN ? AND ?", [$uid, "$year-01-01", "$year-12-31"]);
     $next = DB::first("SELECT lr.start_date, lr.end_date, t.name AS type_name FROM leave_requests lr JOIN leave_types t ON t.id=lr.leave_type_id WHERE lr.user_id=? AND lr.status='approved' AND lr.end_date>=? ORDER BY lr.start_date LIMIT 1", [$uid, date('Y-m-d')]);
     return $this->base('index', ['title' => 'Leave', 'year' => $year, 'balances' => LeaveService::balances($uid, $year), 'p' => DB::paginate($sql.' ORDER BY lr.start_date DESC, lr.id DESC', $p, 12), 'stats' => $stats, 'nextLeave' => $next,
-      'manager' => $mgr['name'] ?? null, 'schedule' => LeaveService::scheduleFor($uid), 'optional' => LeaveService::optionalType(), 'upcoming' => DB::all('SELECT holiday_date, name, optional FROM holidays WHERE holiday_date>=? ORDER BY holiday_date LIMIT 4', [date('Y-m-d')])]); }
+      'manager' => $mgr['name'] ?? null, 'schedule' => LeaveService::scheduleFor($uid), 'optional' => LeaveService::optionalType(), 'paidType' => LeaveService::shortageType(), 'shortageOn' => \Core\Settings::bool('hr.leave.shortage_cover', true), 'upcoming' => DB::all('SELECT holiday_date, name, optional FROM holidays WHERE holiday_date>=? ORDER BY holiday_date LIMIT 4', [date('Y-m-d')])]); }
 
   /** JSON working-day preview for the request form. */
   public function preview(): Response {
@@ -49,26 +49,30 @@ final class LeaveController extends Controller {
     $uid = $this->uid(); $year = (int) substr($d['start_date'], 0, 4);
     $days = LeaveService::requestDaysFor($uid, $d['start_date'], $d['end_date'], (bool) $d['half_day']);
     if ($days <= 0) { throw new ValidationException(['start_date' => 'The selected dates fall on your weekly off days or fixed holidays, no working days to request.']); }
-    $id = DB::transaction(function () use ($d, $type, $days, $uid, $year): int {
+    if ($pe = LeaveService::validateRequest($uid, $type, $d['start_date'], $d['end_date'], (bool) $d['half_day'], $days)) { throw new ValidationException($pe); }
+    $auto = !(int) $type['needs_approval'];
+    $id = DB::transaction(function () use ($d, $type, $days, $uid, $year, $auto): int {
       DB::value('SELECT id FROM users WHERE id=? FOR UPDATE', [$uid]);
       $clash = DB::first("SELECT start_date, end_date, status FROM leave_requests WHERE user_id=? AND status IN ('pending','approved') AND start_date<=? AND end_date>=? LIMIT 1", [$uid, $d['end_date'], $d['start_date']]);
       if ($clash) { throw new ValidationException(['start_date' => 'Overlaps your '.$clash['status'].' leave from '.fdate($clash['start_date']).' to '.fdate($clash['end_date']).'.']); }
-      if ((int) $type['paid'] === 1) {
-        $bal = array_column(LeaveService::balances($uid, $year), null, 'id')[(int) $type['id']] ?? null;
-        if (!$bal || !$bal['allocated_row']) { throw new ValidationException(['leave_type_id' => 'No '.$type['name'].' balance has been allocated to you for '.$year.'. Contact HR.']); }
-        if ($days > (float) $bal['available']) { throw new ValidationException(['leave_type_id' => 'Insufficient '.$type['name'].' balance: '.$bal['available'].' day(s) available (incl. pending requests), '.$days.' requested.']); } }
-      return DB::insert('leave_requests', ['user_id' => $uid, 'leave_type_id' => $type['id'], 'start_date' => $d['start_date'], 'end_date' => $d['end_date'], 'half_day' => $d['half_day'], 'days' => $days, 'reason' => $d['reason'], 'status' => 'pending', 'created_at' => date('Y-m-d H:i:s')]); });
+      if ($err = LeaveService::balanceError($uid, $type, $year, $days)) { throw new ValidationException(['leave_type_id' => $err]); }
+      $now = date('Y-m-d H:i:s');
+      $row = ['user_id' => $uid, 'leave_type_id' => $type['id'], 'start_date' => $d['start_date'], 'end_date' => $d['end_date'], 'half_day' => $d['half_day'], 'days' => $days, 'reason' => $d['reason'], 'status' => $auto ? 'approved' : 'pending', 'created_at' => $now];
+      if ($auto) { $row += ['reviewed_at' => $now, 'review_note' => 'Booked without approval (leave type policy)']; }
+      $id = DB::insert('leave_requests', $row);
+      if ($auto) { LeaveService::recordUsage(['id' => $id] + $row, $uid); }
+      return $id; });
     Audit::log('hr.leave.request', 'leave_request', $id, ['type' => $type['code'], 'days' => $days, 'from' => $d['start_date'], 'to' => $d['end_date']]);
-    $this->notifyApprovers($id, $type['name'], $days, $d);
-    $this->flash('Leave requested for '.$days.' day(s). Your approver has been notified.');
+    $this->notifyApprovers($id, $type['name'], $days, $d, $auto);
+    $this->flash($auto ? LeaveService::num($days).' day(s) of '.$type['name'].' booked. This leave type needs no approval.' : 'Leave requested for '.LeaveService::num($days).' day(s). Your approver has been notified.');
     return $this->redirect($this->request->str('return') === 'holidays' ? '/hr/holidays?year='.$year : '/hr/leave'); }
 
-  private function notifyApprovers(int $id, string $typeName, float $days, array $d): void {
+  private function notifyApprovers(int $id, string $typeName, float $days, array $d, bool $auto = false): void {
     $me = $this->user();
     $to = array_map('intval', array_column(Gate::usersWith('hr.leave.manage'), 'id'));
     if ($me['manager_id'] && DB::value("SELECT 1 FROM users WHERE id=? AND status='active'", [$me['manager_id']])) { $to[] = (int) $me['manager_id']; }
     $range = fdate($d['start_date']).($d['end_date'] !== $d['start_date'] ? ' – '.fdate($d['end_date']) : '').($d['half_day'] ? ' (half day)' : '');
-    foreach (array_unique($to) as $u) { if ($u !== (int) $me['id']) { Notify::user($u, 'Leave request from '.$me['name'], "$typeName · $range · $days day(s)".($d['reason'] ? "\nReason: ".$d['reason'] : ''), '/hr/leave/approvals', true, 'plane'); } } }
+    foreach (array_unique($to) as $u) { if ($u !== (int) $me['id']) { Notify::user($u, ($auto ? 'Leave booked by ' : 'Leave request from ').$me['name'], "$typeName · $range · $days day(s)".($d['reason'] ? "\nReason: ".$d['reason'] : ''), '/hr/leave/approvals', true, 'plane'); } } }
 
   public function cancel(int $id): Response {
     $lr = $this->findOr404('leave_requests', $id);
@@ -103,10 +107,11 @@ final class LeaveController extends Controller {
       $approve = $d['decision'] === 'approve';
       if ($approve) {
         $year = (int) substr($lr['start_date'], 0, 4);
+        DB::value('SELECT 1 FROM leave_balances WHERE user_id=? AND leave_type_id=? AND year=? FOR UPDATE', [$lr['user_id'], $lr['leave_type_id'], $year]);
         if ((int) $lr['paid'] === 1) {
           $b = DB::first('SELECT allocated, used FROM leave_balances WHERE user_id=? AND leave_type_id=? AND year=? FOR UPDATE', [$lr['user_id'], $lr['leave_type_id'], $year]);
           if (!$b || (float) $b['allocated'] - (float) $b['used'] < (float) $lr['days']) { return [$lr, 'Insufficient '.$lr['type_name'].' balance to approve. Adjust the balance or ask the employee to change the leave type.']; } }
-        DB::query('INSERT INTO leave_balances (user_id, leave_type_id, year, allocated, used) VALUES (?,?,?,0,?) ON DUPLICATE KEY UPDATE used=used+VALUES(used)', [$lr['user_id'], $lr['leave_type_id'], $year, $lr['days']]); }
+        LeaveService::recordUsage($lr, $this->uid()); }
       DB::update('leave_requests', ['status' => $approve ? 'approved' : 'rejected', 'reviewed_by' => $this->uid(), 'reviewed_at' => date('Y-m-d H:i:s'), 'review_note' => $d['review_note']], 'id=?', [$id]);
       Audit::log('hr.leave.'.($approve ? 'approve' : 'reject'), 'leave_request', $id, ['user_id' => (int) $lr['user_id'], 'days' => (float) $lr['days']]);
       return [$lr, null]; });
@@ -138,7 +143,7 @@ final class LeaveController extends Controller {
     $year = $this->request->int('year', (int) date('Y'));
     $year = max(2000, min(2100, $year));
     $q = $this->request->str('q');
-    $types = DB::all('SELECT id, name, code, color, paid, annual_quota FROM leave_types WHERE active=1 ORDER BY paid DESC, id');
+    $types = DB::all('SELECT id, name, code, color, paid, annual_quota, allowance FROM leave_types WHERE active=1 ORDER BY paid DESC, id');
     $sql = "SELECT id, name, avatar, department, employee_code FROM users WHERE status='active'";
     $p = [];
     if ($q !== '') { $sql .= ' AND (name LIKE ? OR employee_code LIKE ?)'; array_push($p, DB::like($q), DB::like($q)); }
@@ -163,21 +168,49 @@ final class LeaveController extends Controller {
     $d = $this->validate(['user_id' => 'required|integer|exists:users,id', 'leave_type_id' => 'required|integer|exists:leave_types,id', 'year' => 'required|integer|min:2000|max:2100', 'delta' => 'required|numeric|min:-365|max:365', 'reason' => 'required|max:255'], ['delta' => 'Adjustment', 'leave_type_id' => 'Leave type', 'user_id' => 'Employee']);
     $delta = round((float) $d['delta'] * 2) / 2;
     if ($delta == 0) { throw new ValidationException(['delta' => 'Enter a non-zero adjustment in steps of 0.5.']); }
-    $new = DB::transaction(static function () use ($d, $delta): float {
-      $b = DB::first('SELECT allocated, used FROM leave_balances WHERE user_id=? AND leave_type_id=? AND year=? FOR UPDATE', [$d['user_id'], $d['leave_type_id'], $d['year']]);
-      $alloc = (float) ($b['allocated'] ?? 0) + $delta;
-      if ($alloc < 0 || $alloc > 999) { throw new ValidationException(['delta' => 'Allocated balance cannot go below zero.']); }
-      DB::query('INSERT INTO leave_balances (user_id, leave_type_id, year, allocated, used) VALUES (?,?,?,?,0) ON DUPLICATE KEY UPDATE allocated=VALUES(allocated)', [$d['user_id'], $d['leave_type_id'], $d['year'], $alloc]);
-      return $alloc; });
+    $new = LeaveService::adjust((int) $d['user_id'], (int) $d['leave_type_id'], (int) $d['year'], $delta, $d['reason'], $this->uid());
     Audit::log('hr.leave.adjust', 'employee', (int) $d['user_id'], ['type_id' => (int) $d['leave_type_id'], 'year' => (int) $d['year'], 'delta' => $delta, 'allocated' => $new, 'reason' => $d['reason']]);
     Notify::user((int) $d['user_id'], 'Your leave balance was adjusted', ($delta > 0 ? '+' : '').$delta.' day(s) for '.$d['year'].'. '.$d['reason'], '/hr/leave', false, 'plane');
     $this->flash('Balance adjusted ('.($delta > 0 ? '+' : '').$delta.'). New allocation: '.$new.'.');
-    return $this->redirect('/hr/leave/balances?year='.$d['year']); }
+    return $this->redirect($this->request->str('return') === 'ledger' ? '/hr/leave/ledger?user='.(int) $d['user_id'].'&year='.(int) $d['year'] : '/hr/leave/balances?year='.$d['year']); }
+
+  /** Ledger of one person (HR: anyone via ?user=, everyone else: their own) with balances per type. */
+  public function ledger(): Response {
+    $manage = $this->can('hr.leave.manage');
+    $uid = $manage && $this->request->int('user') ? $this->request->int('user') : $this->uid();
+    if (!$manage && !$this->can('hr.leave.request')) { $this->abort(403); }
+    $emp = DB::first('SELECT id, name, avatar, department, designation, joined_on, status FROM users WHERE id=?', [$uid]) ?? $this->abort(404, 'Employee not found.');
+    $year = max(2000, min(2100, $this->request->int('year', (int) date('Y'))));
+    $typeId = $this->request->int('type') ?: null;
+    $rows = LeaveService::ledgerFor($uid, $year, $typeId);
+    $sums = [];
+    foreach (DB::all('SELECT leave_type_id, SUM(GREATEST(days,0)) AS cr, SUM(LEAST(days,0)) AS dr FROM leave_ledger WHERE user_id=? AND year=? GROUP BY leave_type_id', [$uid, $year]) as $r) { $sums[(int) $r['leave_type_id']] = $r; }
+    return $this->base('ledger', ['title' => 'Leave ledger', 'emp' => $emp, 'year' => $year, 'typeId' => $typeId, 'rows' => $rows, 'sums' => $sums, 'balances' => LeaveService::balances($uid, $year), 'manage' => $manage, 'self' => $uid === $this->uid(),
+      'types' => DB::all('SELECT id, name, code, color FROM leave_types WHERE active=1 ORDER BY paid DESC, id'), 'users' => $manage ? DB::pairs("SELECT id, name FROM users WHERE status='active' ORDER BY name") : []]); }
+
+  /** HR: credit a month's accrual now (same idempotent routine as the daily job). */
+  public function accrue(): Response {
+    $m = $this->request->str('month', date('Y-m'));
+    if (!preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $m) || $m > date('Y-m')) { $this->flash('Choose a month up to the current one.', 'error'); return $this->redirect('/hr/leave/balances'); }
+    $r = LeaveService::accrueMonth($m, null, $this->uid());
+    Audit::log('hr.leave.accrue', 'leave_month', null, ['month' => $m] + $r);
+    $this->flash($r['credited'] ? 'Accrued '.LeaveService::num($r['days']).' day(s) in '.$r['credited'].' balance(s) for '.date('M Y', strtotime($m.'-01')).'.' : 'Everyone already has the accrual for '.date('M Y', strtotime($m.'-01')).'.');
+    return $this->redirect('/hr/leave/balances?year='.substr($m, 0, 4)); }
+
+  /** HR: close a past year now (carry forward / expiry, same idempotent routine as the 1 January job). */
+  public function carry(): Response {
+    $y = $this->request->int('year', (int) date('Y') - 1);
+    if ($y < 2000 || $y >= (int) date('Y')) { $this->flash('Only a past year can be closed.', 'error'); return $this->redirect('/hr/leave/balances'); }
+    LeaveService::allocateYear($y + 1);
+    $n = LeaveService::carryForward($y, $this->uid());
+    Audit::log('hr.leave.carry_forward', 'leave_year', $y, ['balances' => $n]);
+    $this->flash($n ? "Closed $n balance(s) of $y: remainders carried forward or lapsed per each leave type." : "All $y balances were already closed.");
+    return $this->redirect('/hr/leave/balances?year='.($y + 1)); }
 
   public function types(): Response {
     $types = DB::all('SELECT t.*, (SELECT COUNT(*) FROM leave_requests r WHERE r.leave_type_id=t.id) AS uses, (SELECT COUNT(*) FROM employee_leave_quotas q WHERE q.leave_type_id=t.id) AS overrides FROM leave_types t ORDER BY t.active DESC, t.code=? DESC, t.paid DESC, t.id', [LeaveService::OPTIONAL_CODE]);
     $oh = LeaveService::optionalType();
-    return $this->base('types', ['title' => 'Leave types', 'types' => $types, 'colors' => self::COLORS, 'optional' => $oh, 'ohDefault' => (float) Settings::get('hr.optional_holidays_default', $oh['annual_quota'] ?? 15),
+    return $this->base('types', ['title' => 'Leave types', 'types' => $types, 'colors' => self::COLORS, 'optional' => $oh, 'cutoff' => LeaveService::accrualCutoff(), 'shortageOn' => Settings::bool('hr.leave.shortage_cover', true), 'ohDefault' => (float) Settings::get('hr.optional_holidays_default', $oh['annual_quota'] ?? 15),
       'optionalDays' => (int) DB::value('SELECT COUNT(*) FROM holidays WHERE optional=1 AND holiday_date BETWEEN ? AND ?', [date('Y-01-01'), date('Y-12-31')])]); }
 
   /** HR setting hr.optional_holidays_default: yearly optional-holiday pool; keeps the OH leave type quota in sync. */
@@ -199,13 +232,33 @@ final class LeaveController extends Controller {
   private function typeData(?int $id): array {
     $in = $this->request->all();
     $in['code'] = strtoupper(trim((string) ($in['code'] ?? '')));
-    return \Core\Validator::make($in,['name' => 'required|max:100', 'code' => 'required|regex:/^[A-Z0-9_]{1,20}$/|unique:leave_types,code'.($id ? ",$id" : ''), 'annual_quota' => 'required|numeric|min:0|max:365', 'paid' => 'boolean', 'color' => 'required|in:'.implode(',', self::COLORS), 'active' => 'boolean'], ['annual_quota' => 'Annual quota']); }
+    foreach (['carry_limit', 'max_balance', 'max_consecutive'] as $k) { if (trim((string) ($in[$k] ?? '')) === '') { $in[$k] = null; } }
+    foreach (['annual_quota', 'monthly_accrual', 'notice_days', 'min_service_days'] as $k) { if (trim((string) ($in[$k] ?? '')) === '') { $in[$k] = 0; } }
+    $d = \Core\Validator::make($in, ['name' => 'required|max:100', 'code' => 'required|regex:/^[A-Z0-9_]{1,20}$/|unique:leave_types,code'.($id ? ",$id" : ''), 'description' => 'nullable|max:255', 'paid' => 'boolean', 'color' => 'required|in:'.implode(',', self::COLORS), 'active' => 'boolean',
+      'allowance' => 'required|in:'.implode(',', array_keys(LeaveService::ALLOWANCES)), 'annual_quota' => 'numeric|min:0|max:365', 'monthly_accrual' => 'numeric|min:0|max:31', 'carry_forward' => 'required|in:'.implode(',', array_keys(LeaveService::CARRY)),
+      'carry_limit' => 'nullable|numeric|min:0|max:365', 'max_balance' => 'nullable|numeric|min:0|max:999', 'allow_half_day' => 'boolean', 'needs_approval' => 'boolean', 'notice_days' => 'integer|min:0|max:365', 'max_consecutive' => 'nullable|numeric|min:0.5|max:365',
+      'min_service_days' => 'integer|min:0|max:3650', 'shortage_cover' => 'boolean'],
+      ['annual_quota' => 'Yearly quota', 'monthly_accrual' => 'Days per month', 'carry_limit' => 'Carry forward limit', 'max_balance' => 'Maximum balance', 'notice_days' => 'Notice', 'max_consecutive' => 'Maximum consecutive days', 'min_service_days' => 'Service days']);
+    $et = array_values(array_intersect(array_keys(LeaveService::EMPLOYMENT), array_map('strval', (array) ($in['employment_types'] ?? []))));
+    $d['employment_types'] = $et && count($et) < count(LeaveService::EMPLOYMENT) ? implode(',', $et) : null;
+    $half = static fn ($v) => $v === null ? null : round((float) $v * 2) / 2;
+    $d['annual_quota'] = $half($d['annual_quota']); $d['monthly_accrual'] = round((float) $d['monthly_accrual'], 2);
+    foreach (['carry_limit', 'max_balance', 'max_consecutive'] as $k) { $d[$k] = $half($d[$k]); }
+    $err = [];
+    if ($d['allowance'] === 'yearly' && $d['annual_quota'] <= 0 && $d['paid']) { $err['annual_quota'] = 'Enter the yearly quota, or choose another allowance.'; }
+    if ($d['allowance'] === 'monthly' && $d['monthly_accrual'] <= 0) { $err['monthly_accrual'] = 'Enter the days credited every month, e.g. 2.5.'; }
+    if ($d['carry_forward'] === 'limit' && $d['carry_limit'] === null) { $err['carry_limit'] = 'Enter how many days may be carried forward.'; }
+    if (!$d['paid'] && $d['shortage_cover']) { $err['shortage_cover'] = 'Only a paid leave type can cover a shortage of hours.'; }
+    if ($err) { throw new ValidationException($err); }
+    if ($d['carry_forward'] !== 'limit') { $d['carry_limit'] = null; }
+    if (!$d['paid']) { $d['allowance'] = 'none'; $d['carry_forward'] = 'none'; }
+    return $d; }
 
   public function storeType(): Response {
     $d = $this->typeData(null);
     $id = DB::insert('leave_types', $d);
     Audit::log('hr.leave_type.create', 'leave_type', $id, $d);
-    $this->flash('Leave type added. Use "Allocate" on the balances page to grant it.');
+    $this->flash($d['allowance'] === 'monthly' ? 'Leave type added. It accrues '.LeaveService::num($d['monthly_accrual']).' day(s) on the 1st of every month (run the accrual on the balances page to credit this month now).' : 'Leave type added. Use "Allocate" on the balances page to grant it.');
     return $this->redirect('/hr/leave/types'); }
 
   public function updateType(int $id): Response {

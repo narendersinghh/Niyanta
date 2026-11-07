@@ -19,8 +19,7 @@
     "dist:linux": "electron-builder --linux AppImage deb --x64 --publish never"
   },
   "dependencies": {
-    "electron-updater": "6.3.9",
-    "uiohook-napi": "1.5.5"
+    "electron-updater": "6.3.9"
   },
   "devDependencies": {
     "electron": "33.4.11",
@@ -29,6 +28,7 @@
   "build": {
     "appId": "app.niyanta.tracker",
     "productName": "Niyanta Tracker",
+    "copyright": "Copyright (C) 2026 Niyanta",
     "artifactName": "niyanta-tracker-${version}-${os}-${arch}.${ext}",
     "directories": {
       "output": "dist",
@@ -36,10 +36,7 @@
     },
     "files": [
       "src/**/*",
-      "package.json",
-      "!**/node_modules/uiohook-napi/libuiohook/**",
-      "!**/node_modules/uiohook-napi/src/**",
-      "!**/node_modules/uiohook-napi/binding.gyp"
+      "package.json"
     ],
     "extraResources": [
       {
@@ -51,7 +48,6 @@
       }
     ],
     "asar": true,
-    "npmRebuild": false,
     "win": {
       "target": [
         {
@@ -61,7 +57,10 @@
           ]
         }
       ],
-      "icon": "build/icon.png"
+      "icon": "build/icon.png",
+      "requestedExecutionLevel": "asInvoker",
+      "signAndEditExecutable": true,
+      "legalTrademarks": "Niyanta"
     },
     "nsis": {
       "oneClick": false,
@@ -122,15 +121,6 @@
       "maintainer": "Niyanta <support@niyanta.app>",
       "synopsis": "Niyanta time tracker",
       "executableName": "niyanta-tracker"
-    },
-    "deb": {
-      "depends": [
-        "libnotify4",
-        "libxtst6",
-        "libxt6",
-        "libxrandr2",
-        "libnss3"
-      ]
     },
     "publish": [
       {

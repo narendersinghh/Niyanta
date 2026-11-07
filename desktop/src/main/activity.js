@@ -1,94 +1,35 @@
 'use strict';
 /*
- * Keyboard and mouse activity, sampled once per second by the tracker. Only counts are kept, never which keys or where.
- * Each sample gives the time of the last input; meter.js turns that into active seconds (10-second windows with a short grace
- * period, the same rule for both sources).
- * Source "hook": a global input hook (uiohook-napi, prebuilt N-API binaries for Windows, macOS and Linux X11): a key press or
- * a mouse move, click or scroll is input; keystrokes (key presses, auto-repeat ignored) and mouse events (clicks, wheel and
- * moves, at most one move per 250 ms) are counted.
- * Source "idle-time": fallback when the hook cannot run (module missing or failed to load, Wayland, no X display, macOS
- * Accessibility not granted, or the hook stopped reporting): powerMonitor.getSystemIdleTime() each second gives the last
- * input (whole seconds, so the middle of that second is used); counts are unknown (null).
- * On macOS the Accessibility prompt is shown once (ever); the fallback is used meanwhile and the hook starts as soon as the
- * permission is granted (checked every minute).
+ * Keyboard and mouse activity, sampled once per second by the tracker, the same way on Windows, macOS and Linux:
+ * powerMonitor.getSystemIdleTime() gives the seconds since the last keyboard or mouse input (Windows GetLastInputInfo, macOS
+ * IOHIDSystem idle time, Linux X11 / logind idle time). Only whether there was input is used: nothing is counted (no keystrokes,
+ * no mouse events) and nothing about what is typed or where. No global input hook, no native module, and on macOS no
+ * Accessibility permission (Screen Recording is only needed for screenshots). meter.js turns the samples into active seconds.
+ * powerMonitor.getSystemIdleState() also tells when the screen is locked, which counts as away (inactive at once).
  */
-const { powerMonitor, systemPreferences } = require('electron');
-const store = require('./store');
-
-const MOVE_MS = 250;
-const WATCHDOG_S = 30;
-const RECHECK_MS = 60000;
-const T = { keydown: 4, keyup: 5, mousedown: 7, move: 9, wheel: 11 };
+const { powerMonitor } = require('electron');
 
 class Activity {
   constructor(log) {
     this.log = log || (() => {});
-    this.source = null; this.reason = null; this.hook = null;
-    this.last = Date.now(); this.lastMove = 0; this.seen = false; this.keys = 0; this.mouse = 0; this.down = new Set(); this.silent = 0; this.recheckAt = 0; }
+    this.source = null; }
 
-  get counting() { return this.source === 'hook'; }
-
-  use(source, reason = null) {
-    if (this.source === source && this.reason === reason) return;
-    this.source = source; this.reason = reason;
-    this.log(`activity source: ${source === 'hook' ? 'input hook (keyboard and mouse counts)' : 'system idle time (no counts)'}${reason ? ' (' + reason + ')' : ''}`); }
-
-  /** Why the hook cannot be used on this system right now (null: try it). */
-  blocked() {
-    if (process.env.NIYANTA_NO_INPUT_HOOK) return 'turned off by NIYANTA_NO_INPUT_HOOK';
-    if (process.platform === 'linux') {
-      if ((process.env.XDG_SESSION_TYPE || '').toLowerCase() === 'wayland' || (process.env.WAYLAND_DISPLAY && !process.env.DISPLAY)) return 'Wayland session';
-      if (!process.env.DISPLAY) return 'no X display'; }
-    if (process.platform === 'darwin') {
-      let ok = false;
-      try { ok = systemPreferences.isTrustedAccessibilityClient(false); } catch (e) { ok = false; }
-      if (!ok) {
-        if (!store.get('accessibilityAsked')) { store.set('accessibilityAsked', true); try { systemPreferences.isTrustedAccessibilityClient(true); } catch (e) { /* no prompt */ } }
-        return 'macOS Accessibility permission not granted'; } }
-    return null; }
-
+  /** Kept for the tracker's start/stop calls: there is nothing to start (no hook), only the source is logged once. */
   start() {
-    if (this.hook) return;
-    this.recheckAt = Date.now() + RECHECK_MS;
-    const why = this.blocked();
-    if (why) { this.use('idle-time', why); return; }
-    let h;
-    try { h = require('uiohook-napi').uIOhook; } catch (e) { this.use('idle-time', 'input hook not available: ' + e.message); return; }
-    const onInput = e => {
-      const now = Date.now();
-      if (e.type === T.keydown) { if (!this.down.has(e.keycode)) { this.down.add(e.keycode); this.keys++; } }
-      else if (e.type === T.keyup) { this.down.delete(e.keycode); return; }
-      else if (e.type === T.mousedown || e.type === T.wheel) this.mouse++;
-      else if (e.type === T.move) {
-        /* events can arrive in batches: throttle on the event's own time stamp (ms) when it has one */
-        const t = Number.isFinite(e.time) && e.time > 0 ? e.time : now;
-        if (Math.abs(t - this.lastMove) >= MOVE_MS) { this.lastMove = t; this.mouse++; } }
-      else return;
-      this.last = now; this.seen = true; };
-    try { h.on('input', onInput); h.start(); }
-    catch (e) { try { h.removeListener('input', onInput); } catch (x) { /* ignore */ } this.use('idle-time', 'input hook failed to start: ' + e.message); return; }
-    this.hook = h; this.onInput = onInput; this.silent = 0; this.seen = false; this.last = Date.now();
-    this.use('hook'); }
+    if (this.source) return;
+    this.source = 'idle-time';
+    this.log(`activity source: keyboard and mouse input from the system idle time${process.platform === 'win32' ? ' (GetLastInputInfo)' : ''}, read every second; nothing is counted`); }
 
-  stop() {
-    if (!this.hook) return;
-    try { this.hook.removeListener('input', this.onInput); this.hook.stop(); } catch (e) { /* already stopped */ }
-    this.hook = null; this.down.clear(); }
+  stop() {}
 
   /**
-   * One sample per tick: {active (input since the previous sample), last (ms of the last input), idle (seconds since the last
-   * input), keys, mouse} for the time since the previous sample (keys/mouse are null without the hook). The hook is dropped
-   * for the fallback when the system reports input for 30 s while the hook saw none (e.g. permission revoked while running).
+   * One sample per tick: {input (input during the last second), last (ms of the last input, middle of its whole second),
+   * idle (seconds since the last input), locked (the screen is locked)}.
    */
   sample(now = Date.now()) {
-    let sys = 0;
+    let sys = 0, locked = false;
     try { sys = powerMonitor.getSystemIdleTime(); } catch (e) { sys = 0; }
-    if (!this.hook && this.source !== 'hook' && now >= this.recheckAt && /permission/.test(this.reason || '')) this.start();
-    if (!this.hook) { const last = now - sys * 1000 - 500; if (sys <= 1) this.last = Math.max(this.last, last); return { active: sys <= 1, last, idle: sys, keys: null, mouse: null }; }
-    const active = this.seen; const keys = this.keys; const mouse = this.mouse;
-    this.seen = false; this.keys = 0; this.mouse = 0;
-    if (active) this.silent = 0;
-    else if (sys <= 1 && ++this.silent >= WATCHDOG_S) { this.stop(); this.use('idle-time', 'the input hook stopped reporting input'); return { active: true, last: now - sys * 1000 - 500, idle: sys, keys: null, mouse: null }; }
-    return { active, last: this.last, idle: Math.min(sys, Math.max(0, Math.floor((now - this.last) / 1000))), keys, mouse }; } }
+    try { locked = powerMonitor.getSystemIdleState(1) === 'locked'; } catch (e) { locked = false; }
+    return { input: sys === 0 && !locked, last: now - sys * 1000 - 500, idle: sys, locked }; } }
 
 module.exports = { Activity };

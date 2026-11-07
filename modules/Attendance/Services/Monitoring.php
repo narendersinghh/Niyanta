@@ -23,7 +23,7 @@ final class Monitoring {
   public static function policy(): array {
     return ['version' => self::POLICY_VERSION, 'title' => 'Screen monitoring notice', 'points' => [
       'Screenshots of all your screens are taken only while you are tracking time, never while paused or after you end your day.',
-      'One capture '.self::intervalLabel().', scaled down, together with your activity level (keyboard and mouse activity, never what you type).',
+      'One capture '.self::intervalLabel().', scaled down, together with your activity level (keyboard and mouse activity: whether there was input, never what you type or counts).',
       self::notifyDefault() ? 'A small notice appears each time a screenshot is taken.' : 'The tracker shows a visible indicator in the tray while capturing.',
       'You can always see your own screenshots. Your manager or HR may view them if they hold monitoring access.',
       'Images are stored privately and deleted automatically after '.self::retention().' days.',
@@ -51,7 +51,7 @@ final class Monitoring {
    * Store an uploaded capture. It is linked to the time entry that covered the capture moment (running now, or for
    * captures queued while offline, a stopped entry), so captures outside tracked time are refused.
    */
-  public static function store(int $uid, array $file, string $source, ?int $activity, ?int $display = null, ?string $capturedAt = null, ?int $tokenId = null, ?int $keystrokes = null, ?int $mouseEvents = null): int {
+  public static function store(int $uid, array $file, string $source, ?int $activity, ?int $display = null, ?string $capturedAt = null, ?int $tokenId = null, bool $meeting = false): int {
     if (!self::enabled()) { throw new \DomainException('Screenshot monitoring is turned off.'); }
     if (!self::consent($uid)) { throw new \DomainException('Monitoring consent is required before capturing.'); }
     $now = time();
@@ -66,7 +66,7 @@ final class Monitoring {
     try { $s = Storage::store($file, 'screenshots/u'.$uid, ['jpg', 'jpeg', 'png', 'webp'], self::MAX_BYTES); }
     catch (\Core\ValidationException $ex) { throw new \DomainException((string) (array_values($ex->errors)[0] ?? 'Upload failed.')); }
     $id = DB::insert('screenshots', ['user_id' => $uid, 'time_entry_id' => $e['id'], 'disk_path' => $s['path'], 'taken_at' => $taken, 'source' => $source, 'activity_pct' => $activity === null ? null : max(0, min(100, $activity)), 'display_index' => $display === null ? null : max(0, min(15, $display)), 'agent_token_id' => $tokenId,
-      'keystrokes' => $keystrokes === null ? null : max(0, min(1000000, $keystrokes)), 'mouse_events' => $mouseEvents === null ? null : max(0, min(1000000, $mouseEvents))]);
+      'meeting' => $meeting ? 1 : 0]);
     Audit::log('monitoring.screenshot', 'screenshot', $id, ['source' => $source, 'display' => $display], $uid);
     return $id; }
 

@@ -152,7 +152,7 @@ final class AgentController extends Controller {
       return $r + ['state' => Tracker::state($uid)]; }); }
 
   /**
-   * Activity per slot (the screenshot interval): {slots: [{slot_start, slot_seconds, active_seconds, keystrokes?, mouse_events?}]}
+   * Activity per slot (the screenshot interval): {slots: [{slot_start, slot_seconds, active_seconds, meeting?}]}
    * (at most 500 per request). Idempotent per slot_start; see TimeService::activitySlots().
    */
   public function activity(): Response {
@@ -172,12 +172,12 @@ final class AgentController extends Controller {
       $c = Monitoring::consent($uid);
       return ['consent' => ['policy_version' => $c['policy_version'], 'consented_at' => date('c', strtotime($c['consented_at']))]]; }); }
 
-  /** multipart: screenshot (JPEG/PNG/WebP), activity_pct, keystrokes, mouse_events (of the slot), display (0-based index), captured_at (ISO 8601). */
+  /** multipart: screenshot (JPEG/PNG/WebP), activity_pct, meeting (1/0, of the slot), display (0-based index), captured_at (ISO 8601). Keystroke and mouse counts are no longer collected (ignored if an old app sends them). */
   public function screenshot(): Response {
     return $this->run(function (int $uid): array {
       $f = $this->request->file('screenshot') ?? throw new \DomainException('Send the image as multipart field "screenshot".');
       $num = fn (string $k): ?int => is_numeric($v = $this->request->input($k)) ? (int) $v : null;
-      return ['id' => Monitoring::store($uid, $f, 'desktop', $num('activity_pct'), $num('display'), $this->request->str('captured_at') ?: null, (int) $this->agent['token_id'], $num('keystrokes'), $num('mouse_events'))]; }); }
+      return ['id' => Monitoring::store($uid, $f, 'desktop', $num('activity_pct'), $num('display'), $this->request->str('captured_at') ?: null, (int) $this->agent['token_id'], filter_var($this->request->input('meeting') ?? false, FILTER_VALIDATE_BOOLEAN))]; }); }
 
   /** Error report from the app: works without a token (sign-in problems), then attributed to nobody. */
   public function error(): Response {

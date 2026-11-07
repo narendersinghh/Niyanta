@@ -1,6 +1,6 @@
 <?php
 use Core\{DB, Gate};
-use Modules\Payroll\Controllers\{CompensationController, PayslipController, ReimbursementController, RunController};
+use Modules\Payroll\Controllers\{CompensationController, PayslipController, PayslipEditController, ReimbursementController, RunController};
 use Modules\Payroll\Services\PayrollService;
 
 return [
@@ -25,6 +25,13 @@ return [
     $r->get('/payroll/runs/{id}', [RunController::class, 'show'], $m);
     $r->post('/payroll/runs/{id}/generate', [RunController::class, 'generate'], $m);
     $r->post('/payroll/runs/{id}/finalize', [RunController::class, 'finalize'], $m);
+    $r->post('/payroll/runs/{id}/reopen', [RunController::class, 'reopen'], $m);
+    $r->post('/payroll/runs/{id}/lines', [RunController::class, 'bulkLine'], $m);
+    $r->post('/payroll/runs/{id}/notes', [RunController::class, 'notes'], $m);
+    $r->get('/payroll/payslips/{id}/edit', [PayslipEditController::class, 'edit'], $m);
+    $r->post('/payroll/payslips/{id}/edit', [PayslipEditController::class, 'update'], $m);
+    $r->post('/payroll/payslips/{id}/preview', [PayslipEditController::class, 'preview'], ['perm' => $m, 'throttle' => [240, 60]]);
+    $r->post('/payroll/payslips/{id}/reset', [PayslipEditController::class, 'reset'], $m);
     $r->post('/payroll/runs/{id}/paid', [RunController::class, 'paid'], $m);
     $r->post('/payroll/runs/{id}/delete', [RunController::class, 'destroy'], $m);
     $r->get('/payroll/runs/{id}/export', [RunController::class, 'export'], ['perm' => $m, 'throttle' => [20, 300]]);

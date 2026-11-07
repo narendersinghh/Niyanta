@@ -33,9 +33,19 @@ Without certificates the desktop app is built unsigned on Windows and ad-hoc sig
 
 With the macOS secrets the build is signed with your Developer ID and notarized by Apple, so it opens without any prompt and updates itself. A new Windows certificate removes "unknown publisher" at once; SmartScreen stops warning after the certificate builds up reputation (immediately with EV).
 
+## Windows Defender says the app "contains a virus or potentially unwanted software"
+
+This is a false positive of Microsoft's machine-learning detection on unsigned apps. Niyanta Tracker 1.1.0 to 1.2.1 included a global keyboard and mouse hook, which such detections treat like a keylogger. Since then no build contains an input hook or counts keystrokes (activity is measured on every platform from the time of the last keyboard or mouse input that the system reports), the Windows build asks for no administrator rights, installs per user and the PowerShell command opens the setup normally. If a release is still reported:
+
+1. Download the reported file from the GitHub release (or from *Settings › Updates › Desktop app*).
+2. Open https://www.microsoft.com/wdsi/filesubmission, choose **Software developer**, sign in with a Microsoft account, choose **Microsoft Defender Antivirus**, upload the `.exe` (or a zip of it) and select **Incorrectly detected as malware/malicious**. Mention the detection name Windows Security showed (Protection history) and that it is your company's time tracker.
+3. Microsoft usually answers within a few days; once cleared, new definitions stop flagging that file. People who need it sooner can restore it from Windows Security › Protection history (Allow on device), with their IT team's approval.
+
+Every new release is a new file, so submissions only fix one version at a time. **Code signing is the lasting fix**: a Windows code signing certificate (see the table above; EV gets SmartScreen reputation at once) gives the installer a known publisher, which ML detections and SmartScreen trust far more than unsigned files.
+
 ## How desktop updates and installs work (no browser or OS warnings)
 
-**Updates inside the app.** The app checks your Niyanta server on start and every 6 hours. When a newer version is there it shows a card and one notification; the person clicks **Update now**. The app downloads the update from your server (with its own sign-in, never from GitHub), checks it, pauses tracking, installs, restarts and resumes tracking by itself. Because the app downloads the file itself, Windows SmartScreen and macOS Gatekeeper do not warn:
+**Updates inside the app.** The app checks your Niyanta server on start, every 30 minutes and after the computer wakes up or is unlocked. When a newer version is there the window pops up once with the update (and one notification), and a card stays at the top of the app; the person clicks **Update now**. The app downloads the update from your server (with its own sign-in, never from GitHub), checks it, pauses tracking, installs, restarts and resumes tracking by itself. Because the app downloads the file itself, Windows SmartScreen and macOS Gatekeeper do not warn:
 - Windows and Linux AppImage: the standard updater installs silently and restarts.
 - macOS (built without a Developer ID): the app downloads the zip for that Mac, checks its sha512, replaces the app in Applications (or in the person's own Applications folder if the main one is not writable), clears the quarantine flag and reopens it. With a Developer ID (secrets below) the standard macOS updater is used instead, automatically.
 - Linux .deb: the new package is downloaded and opened in the software installer (the app also shows the one-line `apt` command).
@@ -47,7 +57,7 @@ Note: apps installed before this version (1.1.0 and older) still show the old *D
 - macOS and Linux, in Terminal: `curl -fsSL "https://<your server>/time/desktop/install.sh?k=<key>" | bash`
 - Windows, in PowerShell: `irm "https://<your server>/time/desktop/install.ps1?k=<key>" | iex`
 
-The command downloads the app straight from your server, checks it and installs it (macOS: into Applications, quarantine removed, app opened; Windows: silent install, app started; Linux: AppImage in `~/.local/bin` with a menu entry). Chrome, SmartScreen and Gatekeeper do not get involved because no browser downloads the file. The `k` key is created for the signed-in person, is signed by your server, works for 2 hours, only for these install downloads, and stops working when the person signs out everywhere or changes their password. The GitHub token never leaves the server. Requests are rate limited and every install is recorded in the audit log (`tracker.install_script`, `tracker.download`). The commands are only shown when the server runs on HTTPS.
+The command downloads the app straight from your server, checks it and installs it (macOS: into Applications, quarantine removed, app opened; Windows: the setup is saved to Downloads and opened, the person clicks Install and the app starts; Linux: AppImage in `~/.local/bin` with a menu entry). Chrome, SmartScreen and Gatekeeper do not get involved because no browser downloads the file. The `k` key is created for the signed-in person, is signed by your server, works for 2 hours, only for these install downloads, and stops working when the person signs out everywhere or changes their password. The GitHub token never leaves the server. Requests are rate limited and every install is recorded in the audit log (`tracker.install_script`, `tracker.download`). The commands are only shown when the server runs on HTTPS.
 
 **Why signing still helps.** The commands and in-app updates avoid the warnings, but the normal download buttons on the page still get them, and IT departments may block unsigned apps. Signing (secrets above) makes the normal downloads open without prompts, shows your company as the publisher, and on macOS lets the built-in updater be used.
 

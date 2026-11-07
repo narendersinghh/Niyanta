@@ -1,5 +1,5 @@
 <?php
-/* Daily timesheet: summary strip and an hour timeline with one block per entry. $entries, $sum, $date, $target, $targetName, $people, $own, $projects */
+/* Daily timesheet: summary strip with the activity chart (bars open the slot's screenshots), and an hour timeline with one block per entry. $entries, $sum, $chart, $shots, $date, $target, $targetName, $people, $own, $projects */
 use Modules\Attendance\Services\TimeService;
 $pj = feature_on('projects');
 $canAdd = $own && can('attendance.track') && \Modules\Attendance\Services\Timesheets::canEditDate($date, \Modules\Attendance\Services\Timesheets::weekRejected($target, TimeService::weekStart($date)));
@@ -12,7 +12,7 @@ $ph = 72; /* px per hour */
 ?>
 <?= partial('attendance::partials/hub', ['tab' => 'daily', 'title' => 'Time & Attendance', 'subtitle' => 'Every tracked block of the day on a timeline.', 'target' => $target, 'targetName' => $targetName, 'people' => $people, 'mode' => 'date', 'date' => $date, 'base' => '/time/daily',
   'actions' => $canAdd ? '<button class="btn primary" data-modal="entry-dialog" data-entry-new>'.icon('plus', 'sm').' Add manual time</button>' : '']) ?>
-<?= partial('attendance::partials/day_summary', ['sum' => $sum, 'targetName' => $targetName]) ?>
+<?= partial('attendance::partials/day_summary', ['sum' => $sum, 'targetName' => $targetName, 'chart' => $chart ?? null, 'shots' => $shots ?? []]) ?>
 <div class="card tl-day">
   <?php if (!$entries): ?><?= empty_state('Nothing tracked on this day', $own ? 'Start the Niyanta Tracker desktop app to track your time, or add time manually.' : e($targetName).' has no tracked time on this day.', 'clock-worker') ?>
   <?php else: ?>
@@ -37,3 +37,4 @@ $ph = 72; /* px per hour */
   <?php endif ?>
 </div>
 <?php if ($canAdd || ($own && $entries)): ?><?= partial('attendance::partials/entry_dialog', ['projects' => $projects, 'date' => $date]) ?><?php endif ?>
+<?php if (!empty($shots)): ?><?= partial('attendance::partials/shot_viewer') ?><?php endif ?>

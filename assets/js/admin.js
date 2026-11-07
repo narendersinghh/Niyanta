@@ -35,4 +35,6 @@ if(box)$$("select[data-preview=font]").forEach(el=>loadFont(el.value));
 /* users: delete dialog gets the row's URL and name */
 const df=$("[data-del-form]");
 if(df)d.addEventListener("click",e=>{const b=e.target.closest("[data-del-url]");if(!b)return;df.action=b.dataset.delUrl;df.reset();const n=$("[data-del-target]",df);if(n)n.textContent=b.dataset.delName;const dd=b.closest("details");if(dd)dd.open=false},true);
+/* feature on/off switches (Settings › Features and each feature's settings header): confirm, revert when cancelled */
+d.addEventListener("change",e=>{const c=e.target;if(!c.matches("[data-feature-switch]"))return;const m=c.checked?c.dataset.confirmOn:c.dataset.confirmOff;if(m&&!confirm(m)){c.checked=!c.checked;return}c.form.requestSubmit()});
 })();

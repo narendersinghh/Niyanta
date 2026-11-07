@@ -1,0 +1,28 @@
+/* Leave policies, ledger and holiday AI review */
+.lv-sec{border:1px solid var(--border);border-radius:16px;padding:12px 14px;margin-bottom:12px}
+.lv-sec h4{display:flex;align-items:center;gap:.4rem;margin:0 0 10px;font-size:.9rem}
+.lv-sec .form-grid{margin:0}
+.lv-checks{display:flex;flex-direction:column;gap:.45rem;justify-content:flex-end}
+.lv-checks.full{flex-direction:row;flex-wrap:wrap;gap:1rem}
+.lv-et .chip{cursor:pointer;gap:.35rem}
+.lv-et .chip input{accent-color:var(--primary)}
+.lbl-like{display:block;font-weight:600;font-size:.85rem;margin-bottom:.35rem}
+.lv-modal{max-width:760px;width:calc(100% - 24px)}
+.lv-policy{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
+.lv-policy li{display:flex;align-items:flex-start;gap:.4rem;font-size:.82rem;color:var(--muted)}
+.lv-policy li .ic{color:var(--mint);flex:none;margin-top:2px}
+.lv-explain{display:grid;grid-template-columns:auto 1fr auto;gap:18px;align-items:center}
+.lv-person{display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap}
+.lv-filter{margin:0;padding:0;border:0}
+.lv-tile{text-decoration:none;color:inherit}
+.lv-cell{color:inherit;text-decoration:none}
+.lv-cell:hover b{text-decoration:underline}
+.lv-pos{color:var(--mint-d)}
+.lv-run{display:flex;align-items:flex-end;gap:.6rem;flex-wrap:wrap;padding:12px 0;border-top:1px solid var(--border)}
+.lv-run .field{margin:0;flex:1;min-width:200px}
+.lv-ai-off{display:inline-flex}
+.lv-ai-off .btn[disabled]{opacity:.55;cursor:not-allowed}
+.lv-aifix{border:1px solid var(--lav-s)}
+.lv-aifix tr.lv-diff td{background:var(--lemon-s)}
+.lv-aifix .lv-old{text-decoration:line-through;color:var(--muted)}
+@media (max-width:900px){.lv-explain{grid-template-columns:auto 1fr}.lv-explain .btn{grid-column:1/-1;justify-self:start}}

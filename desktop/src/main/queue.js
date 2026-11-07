@@ -31,6 +31,8 @@ class Queue extends EventEmitter {
     this.failures = 0;
     this.paused = false;
     this.online = true;
+    this.flushing = false;
+    this.abortFlush = null;
     try { this.jobs = JSON.parse(fs.readFileSync(this.file, 'utf8')) || []; } catch (e) { this.jobs = []; } }
 
   persist() {
@@ -92,6 +94,26 @@ class Queue extends EventEmitter {
     this.jobs = this.jobs.filter(j => { if (j.type === 'screenshot') { if (j.filePath) fs.rm(j.filePath, { force: true }, () => {}); return false; } return true; });
     if (before !== this.jobs.length) { this.persist(); this.emit('change'); } }
 
+  /**
+   * Send everything now (quitting with unsynced data): retries every 2 s instead of the normal backoff. Resolves
+   * {done, left} when the queue is empty, after `ms`, on a sign-out (401) or when abort() is called (the jobs stay queued
+   * and persisted for the next start). onProgress(left) runs on every change.
+   */
+  flush(ms = 60000, onProgress = () => {}) {
+    if (!this.jobs.length) return Promise.resolve({ done: true, left: 0 });
+    return new Promise(resolve => {
+      const finish = () => {
+        if (!this.flushing) return;
+        this.flushing = false; clearTimeout(timer); this.off('change', change); this.off('unauthorized', finish); this.abortFlush = null;
+        this.persist();
+        resolve({ done: !this.jobs.length, left: this.jobs.length }); };
+      const change = () => { onProgress(this.jobs.length); if (!this.jobs.length) finish(); };
+      const timer = setTimeout(finish, ms);
+      this.flushing = true; this.abortFlush = finish;
+      this.on('change', change); this.on('unauthorized', finish);
+      this.paused = false; this.failures = 0;
+      this.kick(0); }); }
+
   pause() { this.paused = true; }
   resume() { this.paused = false; this.kick(); }
 
@@ -123,7 +145,7 @@ class Queue extends EventEmitter {
             this.failures++;
             this.setOnline(!err.offline);
             this.persist();
-            const wait = Math.min(300000, 3000 * Math.pow(2, Math.min(this.failures, 7))) * (0.8 + Math.random() * 0.4);
+            const wait = this.flushing ? 2000 : Math.min(300000, 3000 * Math.pow(2, Math.min(this.failures, 7))) * (0.8 + Math.random() * 0.4);
             if (job.tries === 5) this.emit('stuck', job, err);
             this.kick(wait);
             break; }

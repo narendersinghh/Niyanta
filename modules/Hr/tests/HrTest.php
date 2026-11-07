@@ -11,6 +11,9 @@ function hr_fixture(): array {
   DB::insert('holidays', ['holiday_date' => '2031-03-03', 'name' => 'Unit Holiday', 'optional' => 0]);
   DB::insert('holidays', ['holiday_date' => '2031-03-04', 'name' => 'Optional Day', 'optional' => 1]);
   \Core\Settings::set('general.weekend_days', '6,7');
+  /* the default setup has Paid Leave only; these suites exercise a company that also keeps an optional-holiday pool */
+  if (!hr_oh()) { DB::insert('leave_types', ['name' => 'Optional Holiday', 'code' => 'OH', 'annual_quota' => 15, 'allowance' => 'yearly', 'carry_forward' => 'none', 'allow_half_day' => 0, 'needs_approval' => 1, 'paid' => 1, 'color' => 'sky', 'active' => 1, 'shortage_cover' => 0]); }
+  if (!DB::value('SELECT 1 FROM leave_types WHERE paid=0 AND active=1')) { DB::insert('leave_types', ['name' => 'Unpaid Leave', 'code' => 'UNP', 'annual_quota' => 0, 'allowance' => 'none', 'carry_forward' => 'none', 'allow_half_day' => 1, 'needs_approval' => 1, 'paid' => 0, 'color' => 'gray', 'active' => 1, 'shortage_cover' => 0]); }
   LeaveService::flush();
   LeaveService::allocateYear(2031);
   return $f = compact('hr', 'mgr', 'emp', 'other'); }
@@ -24,7 +27,7 @@ return [
     assert_true(LeaveService::isHoliday('2031-03-03') && !LeaveService::isHoliday('2031-03-04'), 'optional holiday is not a holiday');
     assert_eq(0.0, LeaveService::workingDays('2031-03-08', '2031-03-09'), 'weekend');
     assert_eq(0.5, LeaveService::requestDays('2031-03-05', '2031-03-05', true)); },
-  'simplified holiday model: optional pool active, legacy types inactive' => function () {
+  'optional pool kept as a custom type, legacy types gone' => function () {
     hr_fixture();
     assert_true(hr_oh() > 0, 'OH type exists and is active');
     assert_eq(0, (int) DB::value("SELECT COUNT(*) FROM leave_types WHERE code IN ('CL','SL','EL')"), 'legacy CL/SL/EL removed');

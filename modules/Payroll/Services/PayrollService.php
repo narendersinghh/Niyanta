@@ -4,7 +4,8 @@ use Core\{Audit, Auth, DB, Modules, Notify, Settings};
 
 /**
  * Payroll engine: integration with HR (working days, unpaid leave) and Attendance (approved hours) with SQL fallbacks,
- * payslip calculation, and the run lifecycle draft → finalized → paid.
+ * payslip calculation, HR edits and the run lifecycle: draft (editable, hidden from employees) → finalized (published: locked,
+ * visible, employees notified; reopen back to draft while unpaid) → paid.
  */
 final class PayrollService {
   private const LEAVE = 'Modules\\Hr\\Services\\LeaveService';
@@ -224,7 +225,7 @@ final class PayrollService {
    * hourly: base = rate × payable hours ($hx) or × all hours (no $hx: time tracking unavailable).
    * overtime ($hx with ot_multiplier): overtime hours × hourly rate × multiplier, an extra earnings line.
    * gross = base + overtime + allowances + reimbursements; net = max(0, gross − deductions).
-   * $hx: ['expected', 'worked', 'payable', 'overtime', 'mode', 'expected_full'?, 'scheduled_full'?, 'scheduled_in'?, 'ot_multiplier'?].
+   * $hx: ['expected', 'worked', 'payable', 'overtime', 'mode', 'expected_full'?, 'scheduled_full'?, 'scheduled_in'?, 'ot_multiplier'?, 'covered'? (hours of a shortage paid from leave, included in payable)]. Lines carry a stable 'code' (base, overtime, c<component id>, reimb) for HR edits.
    */
   public static function compute(array $comp, float $workingDays, float $unpaid, float $hours, array $components, float $reimb, ?float $expected = null, ?array $hx = null): array {
     $rate = round((float) $comp['amount'], 2);
@@ -246,31 +247,112 @@ final class PayrollService {
       $paid = $rate > 0 ? round($workingDays * $base / $rate, 1) : 0.0; }
     else { $paid = max(0.0, round($workingDays - $unpaid, 1)); $base = $workingDays > 0 ? round($rate * $paid / $workingDays, 2) : 0.0; }
     if ($mult && $ot > 0 && $hr) { $otPay = round($ot * $hr * $mult, 2); }
-    $earn = [['name' => $hourly ? 'Base pay ('.$h($tracked ? (float) $hx['payable'] : $hours).' h)' : ($tracked ? 'Basic pay ('.$h((float) $hx['payable']).' of '.$h((float) $hx['expected']).' h tracked)' : 'Basic pay'), 'amount' => $base]];
-    if ($otPay > 0) { $earn[] = ['name' => 'Overtime ('.$h($ot).' h × '.self::multLabel($mult).')', 'amount' => $otPay]; }
+    $cov = $tracked ? round((float) ($hx['covered'] ?? 0), 2) : 0.0;
+    $earn = [['name' => $hourly ? 'Base pay ('.$h($tracked ? (float) $hx['payable'] : $hours).' h)' : ($tracked ? ($cov > 0 ? 'Basic pay ('.$h((float) $hx['payable'] - $cov).' h tracked + '.$h($cov).' h paid leave of '.$h((float) $hx['expected']).' h)' : 'Basic pay ('.$h((float) $hx['payable']).' of '.$h((float) $hx['expected']).' h tracked)') : 'Basic pay'), 'amount' => $base, 'code' => 'base']];
+    if ($otPay > 0) { $earn[] = ['name' => 'Overtime ('.$h($ot).' h × '.self::multLabel($mult).')', 'amount' => $otPay, 'code' => 'overtime']; }
     $ded = [];
     $allow = 0.0; $totalDed = 0.0;
     foreach ($components as $c) {
       $amt = self::componentAmount($c, $base);
       if ($amt <= 0) { continue; }
-      if ($c['kind'] === 'allowance') { $earn[] = ['name' => self::componentLabel($c), 'amount' => $amt]; $allow += $amt; }
-      else { $ded[] = ['name' => self::componentLabel($c), 'amount' => $amt]; $totalDed += $amt; } }
+      $code = 'c'.(isset($c['id']) ? (int) $c['id'] : substr(md5($c['kind'].$c['name']), 0, 8));
+      if ($c['kind'] === 'allowance') { $earn[] = ['name' => self::componentLabel($c), 'amount' => $amt, 'code' => $code]; $allow += $amt; }
+      else { $ded[] = ['name' => self::componentLabel($c), 'amount' => $amt, 'code' => $code]; $totalDed += $amt; } }
     $reimb = round($reimb, 2);
-    if ($reimb > 0) { $earn[] = ['name' => 'Reimbursements', 'amount' => $reimb]; }
+    if ($reimb > 0) { $earn[] = ['name' => 'Reimbursements', 'amount' => $reimb, 'code' => 'reimb']; }
     $gross = round($base + $otPay + $allow + $reimb, 2);
     $totalDed = round($totalDed, 2);
     return ['pay_type' => $comp['pay_type'], 'rate' => $rate, 'working_days' => $workingDays, 'paid_days' => $hourly ? 0.0 : $paid, 'unpaid_leave_days' => $hourly ? 0.0 : $unpaid,
       'worked_hours' => $hourly || $tracked ? round($hours, 2) : 0.0, 'expected_hours' => $tracked ? round((float) $hx['expected'], 2) : null, 'payable_hours' => $tracked ? round((float) $hx['payable'], 2) : null,
-      'overtime_hours' => round($ot, 2), 'overtime_pay' => $otPay, 'hour_rate' => $hr === null ? null : round($hr, 4), 'flex_mode' => $tracked ? ($hx['mode'] ?? 'monthly') : null,
+      'covered_hours' => $cov, 'overtime_hours' => round($ot, 2), 'overtime_pay' => $otPay, 'hour_rate' => $hr === null ? null : round($hr, 4), 'flex_mode' => $tracked ? ($hx['mode'] ?? 'monthly') : null,
       'missing_pay' => $tracked && !$hourly ? max(0.0, round($rate - $base, 2)) : 0.0, 'base_pay' => $base, 'earnings' => $earn, 'deductions' => $ded, 'reimbursement_total' => $reimb, 'gross' => $gross, 'total_deductions' => $totalDed,
       'net' => max(0.0, round($gross - $totalDed, 2)), 'flagged' => $totalDed > $gross]; }
 
-  /** (Re)generate all payslips of a draft run. Idempotent: previous slips are removed and their claims unlinked first. */
-  public static function generate(int $runId): array {
-    return DB::transaction(static function () use ($runId): array {
+  /** Test / diagnostics hook replacing LeaveService::shortageCover: fn(int $userId, string $ym, float $shortHours, float $hoursPerDay, bool $commit): array. */
+  public static $shortageCover = null;
+
+  /**
+   * Is a shortage of hours covered from paid leave? Needs the Leave feature, setting hr.leave.shortage_cover (default on)
+   * and LeaveService::shortageCover() (method_exists guard: without it payroll simply deducts the missing hours).
+   */
+  public static function shortageOn(): bool { return feature_on('leave') && Settings::bool('hr.leave.shortage_cover', true) && (self::$shortageCover !== null || self::hr('shortageCover')); }
+
+  /** Cover $short missing hours of a month from paid leave: preview ($commit false) or record (true, idempotent per user + month). Null when unavailable. */
+  public static function coverShortage(int $userId, string $period, float $short, float $hoursPerDay, bool $commit): ?array {
+    $fn = self::$shortageCover ?? [self::LEAVE, 'shortageCover'];
+    $short = round(max(0.0, $short), 2);
+    try { $r = call_user_func($fn, $userId, date('Y-m', strtotime($period)), $short, max(0.5, $hoursPerDay), $commit); }
+    catch (\Throwable $e) { error_log('Payroll: LeaveService::shortageCover failed, shortage not covered: '.$e->getMessage()); return null; }
+    if (!is_array($r)) { return null; }
+    return ['days' => round(max(0.0, (float) ($r['days'] ?? 0)), 2), 'hours' => round(max(0.0, min($short, (float) ($r['hours'] ?? 0))), 2), 'type_id' => isset($r['type_id']) ? (int) $r['type_id'] : null, 'balance_after' => round((float) ($r['balance_after'] ?? 0), 2)]; }
+
+  /**
+   * Payslip from its calculation inputs plus HR edits (pure apart from $cover).
+   * $calc: ['comp' => ['pay_type', 'amount'], 'wd', 'unpaid', 'hours', 'components', 'reimb', 'hx' => hours breakdown or null].
+   * $edits: ['hours' => ['payable' => h, 'overtime' => h, 'hours' => h (hourly pay without tracking)], 'lines' => [code => ['amount' => x, 'removed' => bool, 'note']],
+   *   'manual' => [['id', 'kind' => earning|deduction, 'type' => bonus|earning|one_time|deduction, 'name', 'amount', 'note']]].
+   * $cover: fn(float $shortHours): ?array, called for monthly salaries paid from tracked hours with the hours still missing after overrides;
+   * covered hours count as payable (paid leave).
+   */
+  public static function computeSlip(array $calc, array $edits = [], ?callable $cover = null): array {
+    $hx = $calc['hx'] ?? null; $hours = (float) ($calc['hours'] ?? 0); $ov = $edits['hours'] ?? []; $sc = null;
+    $hourly = ($calc['comp']['pay_type'] ?? 'monthly') === 'hourly';
+    if ($hx !== null) {
+      if (isset($ov['payable'])) { $hx['payable'] = round(max(0.0, (float) $ov['payable']), 2); }
+      if (isset($ov['overtime'])) { $hx['overtime'] = round(max(0.0, (float) $ov['overtime']), 2); }
+      $hx['covered'] = 0.0;
+      if ($cover && !$hourly) {
+        $sc = $cover(max(0.0, round((float) $hx['expected'] - (float) $hx['payable'], 2)));
+        if ($sc && $sc['hours'] > 0) { $hx['covered'] = $sc['hours']; $hx['payable'] = round((float) $hx['payable'] + $sc['hours'], 2); } } }
+    elseif ($hourly && isset($ov['hours'])) { $hours = round(max(0.0, (float) $ov['hours']), 2); }
+    $s = self::compute($calc['comp'], (float) ($calc['wd'] ?? 0), (float) ($calc['unpaid'] ?? 0), $hours, $calc['components'] ?? [], (float) ($calc['reimb'] ?? 0), null, $hx);
+    $s['shortage_cover'] = $sc && $sc['hours'] > 0 ? $sc : null;
+    return self::applyEdits($s, $edits); }
+
+  /** Apply line overrides (amount or removal, never the reimbursement line) and manual lines, then recompute totals. */
+  public static function applyEdits(array $s, array $edits): array {
+    $lines = $edits['lines'] ?? []; $manual = $edits['manual'] ?? [];
+    foreach (['earnings', 'deductions'] as $side) {
+      $out = [];
+      foreach ($s[$side] as $l) {
+        $code = (string) ($l['code'] ?? ''); $o = $code !== '' && $code !== 'reimb' ? ($lines[$code] ?? null) : null;
+        if ($o && !empty($o['removed'])) { continue; }
+        if ($o && isset($o['amount'])) { $l = ['name' => $l['name'], 'amount' => round(max(0.0, (float) $o['amount']), 2), 'code' => $code, 'orig' => $l['amount'], 'edited' => true, 'note' => (string) ($o['note'] ?? '')]; }
+        $out[] = $l; }
+      $s[$side] = $out; }
+    foreach ($manual as $m) { $s[($m['kind'] ?? '') === 'deduction' ? 'deductions' : 'earnings'][] = ['name' => (string) $m['name'], 'amount' => round(max(0.0, (float) $m['amount']), 2), 'code' => 'm:'.$m['id'], 'manual' => true, 'type' => (string) ($m['type'] ?? ''), 'note' => (string) ($m['note'] ?? '')]; }
+    $sum = static fn (array $rows): float => round(array_sum(array_map(static fn ($l) => (float) $l['amount'], $rows)), 2);
+    $by = array_column($s['earnings'], 'amount', 'code');
+    $s['base_pay'] = round((float) ($by['base'] ?? 0), 2); $s['overtime_pay'] = round((float) ($by['overtime'] ?? 0), 2);
+    $s['gross'] = $sum($s['earnings']); $s['total_deductions'] = $sum($s['deductions']);
+    $s['net'] = max(0.0, round($s['gross'] - $s['total_deductions'], 2)); $s['flagged'] = $s['total_deductions'] > $s['gross'];
+    $s['edited'] = (bool) ($lines || $manual || array_filter($edits['hours'] ?? [], static fn ($v) => $v !== null));
+    return $s; }
+
+  /** Payslip columns of a computed slip (insert / update). */
+  public static function slipRow(array $s): array {
+    return ['pay_type' => $s['pay_type'], 'rate' => $s['rate'], 'working_days' => $s['working_days'], 'paid_days' => $s['paid_days'], 'unpaid_leave_days' => $s['unpaid_leave_days'], 'worked_hours' => $s['worked_hours'], 'expected_hours' => $s['expected_hours'],
+      'payable_hours' => $s['payable_hours'], 'overtime_hours' => $s['overtime_hours'], 'overtime_pay' => $s['overtime_pay'], 'hour_rate' => $s['hour_rate'], 'flex_mode' => $s['flex_mode'],
+      'base_pay' => $s['base_pay'], 'earnings' => json_encode($s['earnings'], JSON_UNESCAPED_UNICODE), 'deductions' => json_encode($s['deductions'], JSON_UNESCAPED_UNICODE), 'reimbursement_total' => $s['reimbursement_total'], 'gross' => $s['gross'], 'total_deductions' => $s['total_deductions'], 'net' => $s['net'],
+      'shortage_cover' => $s['shortage_cover'] ? json_encode($s['shortage_cover']) : null]; }
+
+  /** Shortage cover callback of one payslip for computeSlip(): recorded ($commit) for drafts; also called with 0 h to release an earlier cover. */
+  public static function coverFor(array $calc, int $userId, string $period, bool $commit, bool $hadCover = false): ?callable {
+    if (($calc['hx'] ?? null) === null || ($calc['comp']['pay_type'] ?? '') !== 'monthly' || !self::shortageOn()) { return null; }
+    $hpd = (float) ($calc['hpd'] ?? 0) ?: (self::hoursPerDay([$userId])[$userId] ?? 8.0);
+    return static fn (float $short): ?array => $short > 0.004 || $hadCover ? self::coverShortage($userId, $period, $short, $hpd, $commit) : null; }
+
+  /**
+   * (Re)generate all payslips of a draft run from current data. HR edits (manual lines, line and hours overrides) are kept and
+   * re-applied unless $discardEdits. Shortages covered by paid leave are recorded again for the run's month (idempotent).
+   */
+  public static function generate(int $runId, bool $discardEdits = false): array {
+    return DB::transaction(static function () use ($runId, $discardEdits): array {
       $run = DB::first('SELECT * FROM payroll_runs WHERE id=? FOR UPDATE', [$runId]);
       if (!$run || $run['status'] !== 'draft') { throw new \DomainException('Payslips can only be generated while the run is a draft.'); }
       [$from, $to] = self::monthRange($run['period_month']);
+      $prev = [];
+      foreach (DB::all('SELECT user_id, edits, shortage_cover, edited_by, edited_at FROM payslips WHERE run_id=?', [$runId]) as $r) { $prev[(int) $r['user_id']] = ['edits' => json_decode((string) $r['edits'], true) ?: [], 'cover' => json_decode((string) $r['shortage_cover'], true) ?: null, 'by' => $r['edited_by'], 'at' => $r['edited_at']]; }
       DB::query("UPDATE reimbursements SET payslip_id=NULL WHERE status='approved' AND payslip_id IN (SELECT id FROM payslips WHERE run_id=?)", [$runId]);
       DB::delete('payslips', 'run_id=?', [$runId]);
       $comps = self::effectiveCompensations($from, $to);
@@ -283,29 +365,45 @@ final class PayrollService {
       /* Hours-based pay needs time tracking: hourly pay is capped by the schedule, monthly salary only while "from tracked time" is on. */
       $byHours = array_merge(self::hoursPay() ? $hourly : [], self::trackedSalary() ? $monthly : []);
       $hx = self::hoursBreakdown($byHours, $from, $to);
+      $hpd = $byHours ? self::hoursPerDay($byHours) : [];
       $plain = array_values(array_diff($hourly, $byHours));
       $hours = self::approvedHours($plain, $from, $to);
       $global = []; $personal = [];
       if ($ids) {
         foreach (DB::all('SELECT * FROM pay_components WHERE active=1 AND (user_id IS NULL OR user_id IN '.DB::in($ids).") ORDER BY kind, user_id IS NOT NULL, name", $ids) as $c) {
+          $c = ['id' => (int) $c['id'], 'user_id' => $c['user_id'], 'name' => $c['name'], 'kind' => $c['kind'], 'calc' => $c['calc'], 'value' => (float) $c['value']];
           if ($c['user_id'] === null) { $global[] = $c; } else { $personal[(int) $c['user_id']][] = $c; } } }
       $claims = [];
       if ($ids && feature_on('reimbursements')) { foreach (DB::all("SELECT id, user_id, amount FROM reimbursements WHERE status='approved' AND payslip_id IS NULL AND expense_date<=? AND user_id IN ".DB::in($ids).' FOR UPDATE', [$to, ...$ids]) as $r) { $claims[(int) $r['user_id']][] = $r; } }
-      $total = 0.0; $flagged = 0; $now = date('Y-m-d H:i:s');
+      $total = 0.0; $flagged = 0; $kept = 0; $covered = 0; $now = date('Y-m-d H:i:s'); $done = [];
       foreach ($comps as $c) {
-        $u = (int) $c['user_id'];
+        $u = (int) $c['user_id']; $done[$u] = true;
         $mine = $claims[$u] ?? [];
         $x = $hx[$u] ?? null;
-        $s = self::compute($c, $ownDays[$u] ?? $wd, $unpaid[$u] ?? 0.0, $x ? (float) $x['worked'] : ($hours[$u] ?? 0.0), [...$global, ...($personal[$u] ?? [])], array_sum(array_map(static fn ($r) => (float) $r['amount'], $mine)), null, $x);
-        $flagged += (int) $s['flagged'];
-        $sid = DB::insert('payslips', ['run_id' => $runId, 'user_id' => $u, 'pay_type' => $s['pay_type'], 'rate' => $s['rate'], 'working_days' => $s['working_days'], 'paid_days' => $s['paid_days'], 'unpaid_leave_days' => $s['unpaid_leave_days'], 'worked_hours' => $s['worked_hours'], 'expected_hours' => $s['expected_hours'],
-          'payable_hours' => $s['payable_hours'], 'overtime_hours' => $s['overtime_hours'], 'overtime_pay' => $s['overtime_pay'], 'hour_rate' => $s['hour_rate'], 'flex_mode' => $s['flex_mode'],
-          'base_pay' => $s['base_pay'], 'earnings' => json_encode($s['earnings'], JSON_UNESCAPED_UNICODE), 'deductions' => json_encode($s['deductions'], JSON_UNESCAPED_UNICODE), 'reimbursement_total' => $s['reimbursement_total'], 'gross' => $s['gross'], 'total_deductions' => $s['total_deductions'], 'net' => $s['net'], 'created_at' => $now]);
+        $calc = ['comp' => ['pay_type' => $c['pay_type'], 'amount' => (float) $c['amount']], 'wd' => $ownDays[$u] ?? $wd, 'unpaid' => $unpaid[$u] ?? 0.0, 'hours' => $x ? (float) $x['worked'] : ($hours[$u] ?? 0.0),
+          'components' => array_map(static fn ($k) => array_diff_key($k, ['user_id' => 1]), [...$global, ...($personal[$u] ?? [])]), 'reimb' => array_sum(array_map(static fn ($r) => (float) $r['amount'], $mine)), 'hx' => $x, 'hpd' => $hpd[$u] ?? null];
+        $edits = $discardEdits ? [] : ($prev[$u]['edits'] ?? []);
+        $s = self::computeSlip($calc, $edits, self::coverFor($calc, $u, $run['period_month'], true, !empty($prev[$u]['cover']['hours'])));
+        $flagged += (int) $s['flagged']; $kept += (int) $s['edited']; $covered += (int) ($s['shortage_cover'] !== null);
+        $sid = DB::insert('payslips', ['run_id' => $runId, 'user_id' => $u] + self::slipRow($s) + ['calc' => json_encode($calc, JSON_UNESCAPED_UNICODE), 'edits' => $s['edited'] ? json_encode($edits, JSON_UNESCAPED_UNICODE) : null,
+          'edited_by' => $s['edited'] ? ($prev[$u]['by'] ?? null) : null, 'edited_at' => $s['edited'] ? ($prev[$u]['at'] ?? null) : null, 'created_at' => $now]);
         if ($mine) { $cid = array_map(static fn ($r) => (int) $r['id'], $mine); DB::query('UPDATE reimbursements SET payslip_id=? WHERE id IN '.DB::in($cid), [$sid, ...$cid]); }
         $total += $s['net']; }
+      /* Employees who left the run release the leave that covered their shortage. */
+      $released = self::releaseCovers(array_diff_key($prev, $done), $run['period_month']);
       DB::update('payroll_runs', ['working_days' => $wd, 'total_net' => round($total, 2)], 'id=?', [$runId]);
-      Audit::log('payroll.run.generate', 'payroll_run', $runId, ['slips' => count($comps), 'total_net' => round($total, 2), 'flagged' => $flagged, 'flex_mode' => $byHours ? self::flexMode() : null, 'overtime' => $byHours ? self::overtimeMultiplier() : null]);
-      return ['count' => count($comps), 'total' => round($total, 2), 'flagged' => $flagged]; }); }
+      $discarded = $discardEdits ? count(array_filter($prev, static fn ($p) => $p['edits'])) : 0;
+      Audit::log('payroll.run.generate', 'payroll_run', $runId, ['slips' => count($comps), 'total_net' => round($total, 2), 'flagged' => $flagged, 'flex_mode' => $byHours ? self::flexMode() : null, 'overtime' => $byHours ? self::overtimeMultiplier() : null,
+        'edits_kept' => $kept, 'edits_discarded' => $discarded, 'shortage_covered' => $covered, 'covers_released' => $released]);
+      return ['count' => count($comps), 'total' => round($total, 2), 'flagged' => $flagged, 'kept' => $kept, 'discarded' => $discarded, 'covered' => $covered]; }); }
+
+  /** Release recorded shortage covers ([uid => ['cover' => [...]]]) by recording 0 h for the month. Returns how many were released. */
+  private static function releaseCovers(array $rows, string $period): int {
+    $rows = array_filter($rows, static fn ($p) => !empty($p['cover']['hours']));
+    if (!$rows || !self::shortageOn()) { return 0; }
+    $hpd = self::hoursPerDay(array_keys($rows));
+    foreach (array_keys($rows) as $u) { self::coverShortage((int) $u, $period, 0.0, $hpd[$u] ?? 8.0, true); }
+    return count($rows); }
 
   /**
    * Hours breakdown of a payslip for display (web and PDF): [[label, value]], empty when pay was not based on hours.
@@ -320,6 +418,7 @@ final class PayrollService {
     $rate = ($s['hour_rate'] ?? null) !== null ? (float) $s['hour_rate'] : ($monthly ? ($exp > 0 ? (float) $s['rate'] / $exp : 0.0) : (float) $s['rate']);
     $ot = (float) ($s['overtime_hours'] ?? 0); $otPay = (float) ($s['overtime_pay'] ?? 0);
     $out = [['Flexible hours', self::FLEX_SHORT[$s['flex_mode'] ?? 'monthly'] ?? self::FLEX_SHORT['monthly']], ['Expected hours', $h($exp)], ['Worked hours (approved)', $h($worked)], ['Payable hours', $h($payable)]];
+    if ($sc = self::coverOf($s)) { $out[] = ['Shortage covered by Paid Leave', self::coverLabel($sc)]; }
     if ($ot > 0) { $out[] = ['Overtime hours', $h($ot)]; }
     $out[] = [$monthly ? 'Hourly rate this month' : 'Hourly rate', money(round($rate, 2))];
     $out[] = ['Base pay', money($s['base_pay'])];
@@ -327,6 +426,12 @@ final class PayrollService {
     if ($monthly) { $out[] = ['Deduction for missing hours', money(max(0.0, round((float) $s['rate'] - (float) $s['base_pay'], 2)))]; }
     if ($otPay <= 0 && $worked - $payable > 0.004) { $out[] = ['Extra hours (overtime off, not paid)', $h($worked - $payable)]; }
     return $out; }
+
+  /** Shortage cover stored on a payslip row (array or JSON), or null. */
+  public static function coverOf(array $s): ?array { $c = $s['shortage_cover'] ?? null; $c = is_array($c) ? $c : json_decode((string) $c, true); return is_array($c) && (float) ($c['hours'] ?? 0) > 0 ? $c : null; }
+
+  /** "1.5 days (12 h)". */
+  public static function coverLabel(array $c): string { $n = static fn ($x): string => rtrim(rtrim(number_format((float) $x, 2, '.', ''), '0'), '.'); return $n($c['days']).' day'.((float) $c['days'] == 1.0 ? '' : 's').' ('.$n($c['hours']).' h)'; }
 
   /** Estimate of one employee's base pay for a period with the current settings (compensation page preview). Null without compensation. */
   public static function estimate(array $comp, string $from, string $to): ?array {
@@ -346,18 +451,33 @@ final class PayrollService {
       self::generate($id);
       return $id; }); }
 
+  /** Draft → Published: locks the run, makes payslips visible and notifies each employee (again after a reopen: "updated"). */
   public static function finalize(int $runId): int {
     [$run, $list] = DB::transaction(static function () use ($runId): array {
       $run = DB::first('SELECT * FROM payroll_runs WHERE id=? FOR UPDATE', [$runId]);
       if (!$run || $run['status'] !== 'draft') { throw new \DomainException('Only draft runs can be finalized.'); }
       $slips = DB::all('SELECT id, user_id FROM payslips WHERE run_id=?', [$runId]);
       if (!$slips) { throw new \DomainException('This run has no payslips. Add compensation records and regenerate first.'); }
-      DB::update('payroll_runs', ['status' => 'finalized', 'finalized_by' => Auth::id(), 'finalized_at' => date('Y-m-d H:i:s')], 'id=?', [$runId]);
-      Audit::log('payroll.run.finalize', 'payroll_run', $runId, ['slips' => count($slips), 'total_net' => (float) $run['total_net']]);
+      $now = date('Y-m-d H:i:s');
+      DB::update('payroll_runs', ['status' => 'finalized', 'finalized_by' => Auth::id(), 'finalized_at' => $now, 'notified_at' => $now], 'id=?', [$runId]);
+      Audit::log('payroll.run.finalize', 'payroll_run', $runId, ['slips' => count($slips), 'total_net' => (float) $run['total_net'], 'edited' => (int) DB::value('SELECT COUNT(*) FROM payslips WHERE run_id=? AND edits IS NOT NULL', [$runId]), 'republished' => $run['reopened_at'] !== null]);
       return [$run, $slips]; });
     $label = self::monthLabel($run['period_month']);
-    foreach ($list as $s) { Notify::user((int) $s['user_id'], "Your payslip for $label is ready", 'Your payslip has been published. You can view and download it any time.', '/payslips/'.$s['id'], true, 'wallet'); }
+    $again = $run['notified_at'] !== null;
+    foreach ($list as $s) { Notify::user((int) $s['user_id'], $again ? "Your payslip for $label was updated" : "Your payslip for $label is ready", $again ? 'HR corrected and republished your payslip. Open it to see the current figures.' : 'Your payslip has been published. You can view and download it any time.', '/payslips/'.$s['id'], true, 'wallet'); }
     return count($list); }
+
+  /** Published → Draft so HR can edit again; refused once the run is marked paid. Employees stop seeing the payslips until it is republished. */
+  public static function reopen(int $runId, string $reason): void {
+    $reason = trim($reason);
+    if (mb_strlen($reason) < 3) { throw new \DomainException('Give a reason for reopening this run (at least 3 characters).'); }
+    DB::transaction(static function () use ($runId, $reason): void {
+      $run = DB::first('SELECT * FROM payroll_runs WHERE id=? FOR UPDATE', [$runId]);
+      if (!$run) { throw new \DomainException('Payroll run not found.'); }
+      if ($run['status'] === 'paid') { throw new \DomainException('This run is marked as paid, so it can no longer be reopened. Record corrections in the next run.'); }
+      if ($run['status'] !== 'finalized') { throw new \DomainException('Only a published run can be reopened.'); }
+      DB::update('payroll_runs', ['status' => 'draft', 'reopened_by' => Auth::id(), 'reopened_at' => date('Y-m-d H:i:s'), 'finalized_by' => null, 'finalized_at' => null], 'id=?', [$runId]);
+      Audit::log('payroll.run.reopen', 'payroll_run', $runId, ['reason' => mb_substr($reason, 0, 500), 'month' => $run['period_month'], 'finalized_at' => $run['finalized_at'], 'notified_at' => $run['notified_at'], 'total_net' => (float) $run['total_net']]); }); }
 
   public static function markPaid(int $runId): int {
     return DB::transaction(static function () use ($runId): int {
@@ -368,13 +488,17 @@ final class PayrollService {
       Audit::log('payroll.run.paid', 'payroll_run', $runId, ['reimbursements_paid' => $n]);
       return $n; }); }
 
+  /** Delete a draft run; leave that covered shortages in it is released (recorded again as 0 h for the month). */
   public static function deleteRun(int $runId): void {
     DB::transaction(static function () use ($runId): void {
       $run = DB::first('SELECT * FROM payroll_runs WHERE id=? FOR UPDATE', [$runId]);
       if (!$run || $run['status'] !== 'draft') { throw new \DomainException('Only draft runs can be deleted.'); }
+      $covers = [];
+      foreach (DB::all('SELECT user_id, shortage_cover FROM payslips WHERE run_id=? AND shortage_cover IS NOT NULL', [$runId]) as $r) { $covers[(int) $r['user_id']] = ['cover' => json_decode((string) $r['shortage_cover'], true)]; }
+      $released = self::releaseCovers($covers, $run['period_month']);
       DB::query("UPDATE reimbursements SET payslip_id=NULL WHERE status='approved' AND payslip_id IN (SELECT id FROM payslips WHERE run_id=?)", [$runId]);
       DB::delete('payroll_runs', 'id=?', [$runId]);
-      Audit::log('payroll.run.delete', 'payroll_run', $runId, ['month' => $run['period_month']]); }); }
+      Audit::log('payroll.run.delete', 'payroll_run', $runId, ['month' => $run['period_month'], 'covers_released' => $released]); }); }
 
   /** Month the next run should cover: the month after the latest run, or the current month. */
   public static function nextRunMonth(): string {

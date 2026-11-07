@@ -5,13 +5,17 @@
  *   not_started --start--> tracking --pause--> paused --resume--> tracking   (switch: tracking -> tracking, no gap)
  * There is no "end day": the day ends at midnight (workspace time zone). A running entry is closed at 00:00 and tracking
  * continues in the new day on the same project/task; a paused day simply ends and the next Start begins the new day.
- * Activity (activity.js + meter.js): tracked seconds are grouped in 10-second windows, a window is active when it had keyboard
- * or mouse input (or input a few seconds before it began). Seconds are summed per slot (the screenshot interval, aligned to the
+ * Activity (activity.js + meter.js): the system idle time is read every second (whether there was keyboard or mouse input,
+ * nothing is counted); tracked seconds are grouped in 12-second blocks, a block is active when it had input (rules and
+ * constants in meter.js: grace, bridging a short pause, locked screen inactive, the block after waking ignored). Seconds are summed per slot (the screenshot interval, aligned to the
  * workspace's midnight): activity % = active / tracked seconds of the slot (paused time excluded); each slot is reported to
  * /api/agent/activity and the screenshot taken at its end carries that %.
  * Idle: after idle_minutes without input the person is idle from the last input; the timer keeps running and the span is saved
  * as idle time automatically (heartbeat idle_seconds + idle_spans). Idle up to idle_auto_pause_minutes (from the last input)
  * pauses tracking at last input + that maximum; on return a short message offers Resume. Nothing is ever asked.
+ * Meeting mode (setMeeting): time is tracked as usual (screenshots as configured) but idle detection is off and the slots it
+ * mostly covers are sent with meeting: 1, so the server keeps their activity without counting it in any average. It turns
+ * off by itself after an hour (MEETING_MS), on Pause, or when switched off.
  * Pomodoro (pomodoro.js, optional, local only): after N minutes tracked without a break a reminder offers a break (pause +
  * countdown, "Break over" offers Resume) or a 10-minute snooze.
  * Heartbeats (at most every 60 s) keep the running entry alive on the server; the local session (tracking or not, last alive
@@ -32,9 +36,12 @@ const { Activity } = require('./activity');
 const meter = require('./meter');
 const { Pomodoro } = require('./pomodoro');
 const errors = require('./errors');
+const { MEETING_MS } = require('../shared/status');
 
 const ACTIONS = { start: 'day/start', pause: 'pause', resume: 'resume', switch: 'switch' };
 const SAVE_MS = 15000;
+const UPDATE_EVERY_MS = 30 * 60000;
+const QUIT_SYNC_MS = 60000;
 const iso = ms => new Date(ms).toISOString();
 const clock = ms => new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
@@ -59,7 +66,8 @@ class Tracker extends EventEmitter {
     this.pomo = new Pomodoro(store.get('pomodoro'));
     this.pomo.on('due', m => { errors.log(`pomodoro: break reminder (${m} min)`); this.emit('pomodoro', 'due', m); this.changed(); });
     this.pomo.on('over', m => { if (this.state === 'tracking') return; this.emit('pomodoro', 'over', m); this.changed(); });
-    this.slot = null;          /* {start, len, tracked, active, keys, mouse, counted, w, pend, on}: the open activity slot (w/pend/on: meter.js window) */
+    this.slot = null;          /* meter.slot(): {start, len, tracked, active, meet, ...block state}: the open activity slot */
+    this.away = false;         /* screen locked or the system suspended (power events): activity blocks are inactive */
     this.lastSlot = null;
     this.activityApi = true;   /* false when the server has no /api/agent/activity (older workspace) */
     this.trackingSince = 0;
@@ -78,6 +86,9 @@ class Tracker extends EventEmitter {
     this.loops = [];
     this.lastCaptureError = 0;
     this.selection = { project_id: null, task_id: null };
+    this.meeting = null;       /* {since, until} (ms) while meeting mode is on */
+    this.idleFloor = 0;        /* ms: idle never starts before this (the end of the last meeting) */
+    this.quitSync = null;      /* {total, left, startedAt, until, shown}: sending the offline queue before quitting */
     this.queue.on('change', () => this.changed());
     this.queue.on('online', on => { this.offline = !on; this.changed(); if (on) this.refreshState(); });
     this.queue.on('unauthorized', () => this.signedOutRemotely());
@@ -145,7 +156,7 @@ class Tracker extends EventEmitter {
     store.setToken(null); store.set('bootCache', undefined); store.set('session', undefined);
     this.queue.clear();
     this.activity.stop();
-    this.boot = null; this.snap = null; this.idlePause = null; this.spans = []; this.idleFrom = 0; this.slot = null; this.lastSlot = null;
+    this.boot = null; this.snap = null; this.idlePause = null; this.spans = []; this.idleFrom = 0; this.slot = null; this.lastSlot = null; this.meeting = null;
     this.api.configure(store.get('workspaceUrl'), null);
     this.updater.configure(null, null);
     this.error = message; this.notice = null;
@@ -250,6 +261,7 @@ class Tracker extends EventEmitter {
   async action(name, body = {}, { quiet = false, at = null } = {}) {
     if (!ACTIONS[name] || !this.signedIn) return { ok: false };
     if (name === 'pause' && this.idleFrom) this.closeIdle(Date.now());
+    if (name === 'pause') this.endMeeting('pause');
     body = Object.assign({}, body, { at: at || new Date().toISOString() });
     if (name === 'pause') this.flushHeartbeat();
     const before = this.snap;
@@ -312,7 +324,7 @@ class Tracker extends EventEmitter {
     const now = Date.now();
     if (!this.signedIn || (!force && now - this.savedAt < SAVE_MS)) return;
     this.savedAt = now;
-    store.set('session', { user: this.boot.user.id, tracking: this.state === 'tracking', aliveAt: now, day: this.day || this.dayKey(now), device: os.hostname().slice(0, 90), slot: this.slot }); }
+    store.set('session', { user: this.boot.user.id, tracking: this.state === 'tracking', aliveAt: now, day: this.day || this.dayKey(now), device: os.hostname().slice(0, 90), slot: this.slot, meeting: this.meeting }); }
 
   /**
    * Start-up after the app was killed or the computer was switched off while tracking (a clean quit pauses first and saves
@@ -326,15 +338,16 @@ class Tracker extends EventEmitter {
     if (!s || !this.boot) return;
     /* the activity slot that was open: continue it when it is still the current slot, else report it */
     if (s.slot && s.user === this.boot.user.id && s.slot.tracked >= 1) {
-      if (s.slot.start === this.slotStart(Date.now() - 500) && s.slot.len === this.slotLen()) this.slot = s.slot;
-      else { this.slot = s.slot; this.closeSlot(false); } }
+      const sl = Object.assign(meter.slot(s.slot.start, s.slot.len), { tracked: +s.slot.tracked || 0, active: +s.slot.active || 0, meet: +s.slot.meet || 0 });
+      if (s.slot.start === this.slotStart(Date.now() - 500) && s.slot.len === this.slotLen()) { this.slot = sl; meter.wake(sl, Date.now()); }
+      else { this.slot = sl; this.closeSlot(false); } }
     if (!s.tracking || s.user !== this.boot.user.id) { this.saveSession(true); return; }
     const run = this.snap && this.snap.running;
     if (this.state === 'tracking' && run && run.device && s.device && run.device !== s.device) { this.saveSession(true); return; }
     const gap = Date.now() - (+s.aliveAt || 0);
     if (gap <= this.staleMs) {
-      if (this.state === 'tracking') this.action('pause', {}, { quiet: true, at: iso(s.aliveAt) }).then(() => this.action('resume', {}, { quiet: true }));
-      else if (['stopped', 'not_started'].includes(this.state)) this.action('resume', {}, { quiet: true });
+      if (this.state === 'tracking') this.action('pause', {}, { quiet: true, at: iso(s.aliveAt) }).then(() => this.action('resume', {}, { quiet: true })).then(() => this.restoreMeeting(s.meeting));
+      else if (['stopped', 'not_started'].includes(this.state)) { this.action('resume', {}, { quiet: true }); this.restoreMeeting(s.meeting); }
       else return;
       this.flash(`Niyanta Tracker was closed unexpectedly at ${clock(s.aliveAt)}. The time it was not running is not counted; tracking continues.`, 'info');
       return; }
@@ -360,7 +373,7 @@ class Tracker extends EventEmitter {
     this.loops.push(setInterval(() => this.tick(), 1000));
     this.loops.push(setInterval(() => this.refreshState(), 60000));
     this.loops.push(setInterval(() => this.refreshBoot(), 15 * 60000));
-    this.loops.push(setInterval(() => this.checkUpdates(), 6 * 3600000));
+    this.loops.push(setInterval(() => this.checkUpdates(), UPDATE_EVERY_MS));
     setTimeout(() => this.checkUpdates(), 8000);
     this.queue.resume();
     this.reconcile(); }
@@ -382,7 +395,9 @@ class Tracker extends EventEmitter {
     if (this.localTracking) this.saveSession();
     const thr = this.idleThreshold();
     const input = this.activity.sample(now);
-    const idleSec = input.idle;
+    if (this.meeting && (this.state !== 'tracking' || now >= this.meeting.until)) this.endMeeting(now >= this.meeting.until ? 'timeout' : 'stopped');
+    /* meeting mode: nobody types in a meeting, so idle detection (and the automatic pause) is off; afterwards idle counts from its end */
+    const idleSec = this.meeting ? 0 : Math.min(input.idle, Math.max(0, Math.floor((now - this.idleFloor) / 1000)));
     if (idleSec < thr) this.idleArmed = true;
     /* back at the computer after the automatic pause: the message (and a notification) offers Resume, nothing is asked */
     if (this.idlePause && !this.idlePause.back && idleSec < 3) { this.idlePause.back = true; this.changed(); this.emit('idle-return', this.idlePause); }
@@ -392,7 +407,7 @@ class Tracker extends EventEmitter {
     if (this.pomo.brk) this.pomo.resumed();
     if (!this.idleFrom && this.idleArmed && idleSec >= thr) {
       /* no input for the threshold: idle since the last input (not before tracking started); those seconds move to idle */
-      this.idleFrom = Math.max(now - idleSec * 1000, this.trackingSince || 0);
+      this.idleFrom = Math.max(now - idleSec * 1000, this.trackingSince || 0, this.idleFloor);
       const back = Math.round((now - this.idleFrom) / 1000);
       this.hb.i += back; this.hb.a = Math.max(0, this.hb.a - back);
       this.changed(); }
@@ -406,6 +421,7 @@ class Tracker extends EventEmitter {
 
   /** The event loop did not run (sleep, hibernate): an open idle span ends where the sleep began; wait for input again. */
   onWake(sleptAt) {
+    this.wokeAt = Date.now(); meter.wake(this.slot, this.wokeAt);
     if (this.idleFrom) this.closeIdle(sleptAt);
     if (Date.now() - sleptAt >= this.pomo.prefs.brk * 60000) this.pomo.rest();
     this.idleArmed = false;
@@ -459,11 +475,10 @@ class Tracker extends EventEmitter {
     const start = this.slotStart(now - 500);
     if (this.slot && (this.slot.start !== start || this.slot.len !== this.slotLen())) this.closeSlot(this.slot.len === this.slotLen() && now - (this.slot.start + this.slot.len * 1000) < 5000);
     if (dt) {
-      if (!this.slot) this.slot = { start, len: this.slotLen(), tracked: 0, active: 0, keys: 0, mouse: 0, counted: true };
+      if (!this.slot) { this.slot = meter.slot(start, this.slotLen()); if (this.wokeAt && now - this.wokeAt < meter.BLOCK_S * 1000) meter.wake(this.slot, this.wokeAt); }
       const s = this.slot;
-      s.tracked = Math.min(s.len, s.tracked + dt);
-      meter.credit(s, now, dt, input.last);
-      if (input.keys === null) s.counted = false; else { s.keys += input.keys; s.mouse += input.mouse; } }
+      const added = meter.tick(s, now, dt, input.last, { input: input.input, away: this.away || input.locked });
+      if (this.meeting) s.meet = Math.min(s.tracked, (s.meet || 0) + added); }
     if (this.slot && now >= this.slot.start + this.slot.len * 1000) this.closeSlot(true); }
 
   /** Report the open slot (and, at the natural end of a slot while tracking, take the screenshot that carries its activity; not after a sleep). */
@@ -471,10 +486,12 @@ class Tracker extends EventEmitter {
     const s = this.slot;
     this.slot = null;
     if (!s || s.tracked < 1) return null;
+    meter.finish(s);
     const secs = Math.min(s.len, Math.round(s.tracked));
-    const rec = { slot_start: iso(s.start), slot_seconds: secs, active_seconds: Math.min(secs, Math.round(s.active)), keystrokes: s.counted ? s.keys : null, mouse_events: s.counted ? s.mouse : null };
+    const rec = { slot_start: iso(s.start), slot_seconds: secs, active_seconds: Math.min(secs, Math.round(s.active)), meeting: meter.meetingSlot(s) ? 1 : 0 };
     const pct = Math.round(100 * rec.active_seconds / Math.max(1, secs));
-    this.lastSlot = { start: rec.slot_start, seconds: secs, pct, keystrokes: rec.keystrokes, mouse_events: rec.mouse_events };
+    this.lastSlot = { start: rec.slot_start, seconds: secs, pct, meeting: !!rec.meeting };
+    if (!rec.meeting && this.dayKey(s.start) === this.dayKey()) { const d = this.dayAct && this.dayAct.day === this.dayKey() ? this.dayAct : { day: this.dayKey(), tracked: 0, active: 0 }; d.tracked += secs; d.active += rec.active_seconds; this.dayAct = d; }
     if (this.activityApi) this.queue.add({ type: 'activity', path: 'activity', json: { slots: [rec] } });
     if (natural && this.state === 'tracking' && secs >= Math.min(10, s.len) && this.captureAllowed()) this.screenshot(pct, rec);
     this.changed();
@@ -518,8 +535,8 @@ class Tracker extends EventEmitter {
       this.changed();
       return; }
     const at = new Date().toISOString();
-    for (const s of shots) this.queue.addScreenshot(s.jpeg, { activity_pct: activity, keystrokes: slot.keystrokes, mouse_events: slot.mouse_events, display: s.index, captured_at: at });
-    if (this.notifyOn()) toast.show({ title: 'Screenshot taken', body: `${shots.length > 1 ? shots.length + ' screens · ' : ''}${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · activity ${activity}%`, thumb: shots[0].thumb });
+    for (const s of shots) this.queue.addScreenshot(s.jpeg, { activity_pct: activity, meeting: slot.meeting ? 1 : 0, display: s.index, captured_at: at });
+    if (this.notifyOn()) toast.show({ title: 'Screenshot taken', body: `${shots.length > 1 ? shots.length + ' screens · ' : ''}${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · ${slot.meeting ? 'meeting' : 'activity ' + activity + '%'}`, thumb: shots[0].thumb });
     this.changed(); }
 
   onRejected(job, err) {
@@ -527,6 +544,36 @@ class Tracker extends EventEmitter {
     if (job.type === 'screenshot' && /consent|turned off/i.test(err.message)) { this.queue.dropScreenshots(); this.refreshState(); return; }
     if (job.type === 'action') { this.flash(err.message, 'error'); this.refreshState(); return; }
     if (job.type !== 'error' && !/too quickly|only accepted while/i.test(err.message)) this.report('sync', err, { path: job.path, status: err.status }, 'warning'); }
+
+  /* ---------- meeting mode ---------- */
+
+  /**
+   * Meeting mode on: tracking continues as usual (starts or resumes it when needed), idle detection is off and the slots it
+   * mostly covers are flagged as meeting (their activity is not averaged). Off after MEETING_MS, on Pause or when switched off.
+   */
+  async setMeeting(on) {
+    if (!this.signedIn) return { ok: false };
+    if (!on) { this.endMeeting('off'); return { ok: true }; }
+    if (this.state !== 'tracking') {
+      const r = await this.action(['not_started', 'ended'].includes(this.state) ? 'start' : 'resume', this.selection);
+      if (!r.ok || this.state !== 'tracking') return { ok: false }; }
+    const now = Date.now();
+    if (this.idleFrom) this.closeIdle(now);
+    this.meeting = { since: now, until: now + MEETING_MS };
+    errors.log('meeting mode on');
+    this.saveSession(true); this.changed();
+    return { ok: true }; }
+
+  endMeeting(why) {
+    if (!this.meeting) return;
+    this.meeting = null;
+    this.idleFloor = Date.now();
+    errors.log(`meeting mode off (${why})`);
+    if (why === 'timeout') this.flash('Meeting mode turned off after 1 hour. Activity counts again.', 'info');
+    this.saveSession(true); this.changed(); }
+
+  /** After a crash or an update restart: meeting mode continues until its original end. */
+  restoreMeeting(m) { if (m && +m.until > Date.now() && this.state === 'tracking') { this.meeting = { since: +m.since, until: +m.until }; this.changed(); } }
 
   /* ---------- pomodoro break reminder ---------- */
 
@@ -549,6 +596,10 @@ class Tracker extends EventEmitter {
 
   onPower(kind) {
     if (!this.signedIn) return;
+    /* locked or asleep: activity blocks are inactive at once; after waking the first block is left out (meter.js) */
+    if (kind === 'suspend' || kind === 'lock-screen') this.away = true;
+    if (kind === 'unlock-screen') this.away = false;
+    if (kind === 'resume') { this.away = false; this.wokeAt = Date.now(); meter.wake(this.slot, this.wokeAt); }
     if ((kind === 'suspend' || kind === 'lock-screen') && this.idleFrom) this.closeIdle(Math.min(Date.now(), this.idleFrom + this.maxIdle() * 1000));
     if ((kind === 'suspend' || kind === 'lock-screen') && this.settings.auto_pause_on_lock && this.state === 'tracking') {
       this.autoPaused = true;
@@ -558,11 +609,36 @@ class Tracker extends EventEmitter {
       this.autoPaused = false;
       setTimeout(() => this.action('resume', {}, { quiet: true }), kind === 'resume' ? 4000 : 500); }
     if (kind === 'suspend') this.saveSession(true);
-    if (kind === 'resume') { this.idleArmed = false; this.tick(); setTimeout(() => this.refreshState(), 6000); } }
+    if (kind === 'resume') { this.idleArmed = false; this.tick(); setTimeout(() => this.refreshState(), 6000); }
+    /* back from sleep or the lock screen: look for an update (the loop timer may have been asleep for hours) */
+    if (kind === 'resume' || kind === 'unlock-screen') { clearTimeout(this._wakeCheck); this._wakeCheck = setTimeout(() => this.checkUpdates(), 15000); } }
+
+  /**
+   * Quitting with data still in the offline queue (actions, heartbeats, activity, screenshots): send it first. The window
+   * shows "Syncing your data to the server..." with progress (main.js shows it after 1.2 s, so a quick sync is invisible) and
+   * the app quits when the queue is empty, after QUIT_SYNC_MS, or when the person clicks Quit anyway (the rest stays queued
+   * on disk and is sent on the next start). Resolves {done, left}.
+   */
+  async syncBeforeQuit(ms = QUIT_SYNC_MS) {
+    if (!this.signedIn || !this.queue.size) return { done: true, left: 0 };
+    this.stop();
+    const now = Date.now();
+    this.quitSync = { total: this.queue.size, left: this.queue.size, startedAt: now, until: now + ms, shown: false };
+    const show = setTimeout(() => { if (this.quitSync) { this.quitSync.shown = true; this.emit('quit-sync-show'); this.changed(); } }, 1200);
+    this.changed();
+    const r = await this.queue.flush(ms, left => { if (this.quitSync) { this.quitSync.total = Math.max(this.quitSync.total, left); this.quitSync.left = left; } });
+    clearTimeout(show);
+    errors.log(`quit: ${r.done ? 'all data synced' : r.left + ' item(s) left queued for the next start'}`);
+    this.quitSync = null;
+    return r; }
+
+  /** "Quit anyway": stop waiting; what is left stays in the queue for the next start. */
+  quitAnyway() { if (this.queue.abortFlush) this.queue.abortFlush(); return { ok: true }; }
 
   /** Best-effort pause before the app quits, so the server does not count the minutes until the entry goes stale. */
   async beforeQuit(wait = 4000) {
     if (this.signedIn) this.closeSlot(false);
+    if (this.signedIn) this.flushHeartbeat();
     if (this.signedIn && this.state === 'tracking') await Promise.race([this.action('pause', {}, { quiet: true }), new Promise(r => setTimeout(r, wait))]);
     this.activity.stop();
     this.saveSession(true);
@@ -571,7 +647,7 @@ class Tracker extends EventEmitter {
   /* ---------- updates ---------- */
 
   /**
-   * On start and every 6 hours: GET /api/agent/version (what the workspace offers); when it is newer, the updater finds out
+   * On start, every 30 minutes and after waking up or unlocking: GET /api/agent/version (what the workspace offers); when it is newer, the updater finds out
    * what one click installs (updater.js). The window shows the update card and main.js one notification per version.
    */
   async checkUpdates(manual = false) {
@@ -579,7 +655,7 @@ class Tracker extends EventEmitter {
     try {
       const r = await this.api.get('version', { timeout: 15000 });
       this.update = { available: !!r.update_available, latest: r.latest, url: r.download_page, checkedAt: new Date().toISOString() };
-      if (r.update_available) { this.updater.configure(this.api.base, this.api.token); await this.updater.check({ latest: r.latest, files: r.files || {} }); }
+      if (r.update_available) { this.updater.configure(this.api.base, this.api.token); await this.updater.check({ latest: r.latest, files: r.files || {} }); this.emit('update-available', this.updater.state.version || r.latest); }
       if (manual) this.flash(!r.update_available ? (r.latest ? 'You have the latest version.' : 'No version is available from your workspace yet.') : `Niyanta Tracker ${r.latest} is available. Click Update now to install it.`, 'info'); }
     catch (e) { if (manual) this.flash('Could not check for updates: ' + e.message, 'error'); }
     this.changed(); }
@@ -599,7 +675,7 @@ class Tracker extends EventEmitter {
    */
   markUpdateRestart() {
     if (!this.signedIn) return;
-    store.set('updateRestart', { user: this.boot.user.id, tracking: this.state === 'tracking', at: Date.now(), from: app.getVersion(), to: this.updater.state.version || (this.update && this.update.latest) || null, exe: process.execPath }); }
+    store.set('updateRestart', { user: this.boot.user.id, tracking: this.state === 'tracking', meeting: this.meeting, at: Date.now(), from: app.getVersion(), to: this.updater.state.version || (this.update && this.update.latest) || null, exe: process.execPath }); }
 
   /** First start after an update restart: resume tracking if it was on (within 30 minutes) and say what happened. */
   afterUpdateRestart() {
@@ -610,8 +686,8 @@ class Tracker extends EventEmitter {
     const resume = r.tracking && Date.now() - (+r.at || 0) < 30 * 60000;
     if (resume) {
       /* the pause did not reach the server before the restart: close the entry at the click, then resume */
-      if (this.state === 'tracking') this.action('pause', {}, { quiet: true, at: iso(r.at) }).then(() => this.action('resume', {}, { quiet: true }));
-      else if (['paused', 'stopped', 'not_started'].includes(this.state)) this.action('resume', {}, { quiet: true }); }
+      if (this.state === 'tracking') this.action('pause', {}, { quiet: true, at: iso(r.at) }).then(() => this.action('resume', {}, { quiet: true })).then(() => this.restoreMeeting(r.meeting));
+      else if (['paused', 'stopped', 'not_started'].includes(this.state)) { this.action('resume', {}, { quiet: true }); this.restoreMeeting(r.meeting); } }
     const updated = cmpVersion(app.getVersion(), r.from) > 0;
     if (!updated) this.updater.notInstalled(r.to);
     /* macOS: the old folder was not writable, so the new version went to ~/Applications (login item follows the new path) */
@@ -639,7 +715,11 @@ class Tracker extends EventEmitter {
     const latest = u.version && cmpVersion(u.version, cur) > 0 ? u.version : (this.update && this.update.latest) || null;
     const available = !!(this.update && this.update.available) || !!(u.version && cmpVersion(u.version, cur) > 0);
     return { available, latest, current: cur, url: this.update && this.update.url, notes: u.notes || [], mode: u.mode, auto: this.updater.auto, status: u.status,
-      percent: u.percent || 0, error: u.error, want: !!u.want, manual: u.manual, platform: process.platform, checkedAt: this.update && this.update.checkedAt }; }
+      percent: u.percent || 0, error: u.error, want: !!u.want, manual: u.manual, platform: process.platform, checkedAt: this.update && this.update.checkedAt,
+      prompt: available && !!latest && !u.want && !['manual', 'error'].includes(u.status) && store.get('updatePrompted') !== latest }; }
+
+  /** The update prompt was answered (Update now or Later): it is shown once per version; the card stays. */
+  updatePrompted(v) { if (v) store.set('updatePrompted', String(v).slice(0, 40)); this.changed(); return { ok: true }; }
 
   setSelection(sel) { this.selection = { project_id: sel.project_id || null, task_id: sel.task_id || null }; }
 
@@ -655,10 +735,14 @@ class Tracker extends EventEmitter {
       login: { url: store.get('workspaceUrl') || '', email: store.get('email') || '' },
       account: this.boot ? { name: this.boot.user.name, email: this.boot.user.email, initials: this.boot.user.initials, workspace: this.boot.workspace } : null,
       state: v, chip, idle, offline: this.offline, pending: this.queue.size, pendingShots: this.queue.pendingShots,
+      skew: this.snap && this.snap.server_time ? Date.parse(this.snap.server_time) - this.snapAt : 0,
+      meeting: this.meeting && this.state === 'tracking' ? this.meeting : null, quitSync: this.quitSync && this.quitSync.shown ? Object.assign({ offline: this.offline }, this.quitSync) : null,
+      dayActivity: this.dayAct && this.dayAct.day === this.dayKey() && this.dayAct.tracked ? Math.round(100 * this.dayAct.active / this.dayAct.tracked) : null,
       projectsEnabled: !!this.settings.projects_enabled, projects: this.boot ? this.boot.projects : [], selection: this.selection,
       settings: this.settings, consent: this.boot ? { given: !!this.boot.consent, needed: this.consentNeeded(), policy: this.boot.policy } : null,
       monitoring: { on: !!this.settings.screenshots_enabled && !!(this.boot && this.boot.consent), interval: this.settings.screenshot_interval_seconds, permission: this.permission },
-      idlePause: this.idlePause, activity: { source: this.activity.source, counting: this.activity.counting, slot: this.slotPct(), last: this.lastSlot }, update: this.updateUi(),
+      idlePause: this.idlePause, activity: { source: this.activity.source, slot: this.slotPct(), last: this.lastSlot }, update: this.updateUi(),
+      tracking: st === 'tracking' && !idle, idleSince: idle ? this.idleFrom : null,
       prefs: { launchAtLogin: store.get('launchAtLogin', true), notify: this.notifyOn(), notifyAllowed: !!this.settings.screenshot_notify_user_can_disable, tone: store.get('alertTone', true), tokenProtected: store.tokenProtected() },
       pomodoro: this.pomo.view(),
       at: Date.now() }; } }

@@ -1,6 +1,6 @@
 <?php
 namespace Modules\Admin\Controllers;
-use Core\{Storage, Audit, Auth, Controller, DB, Mailer, Response};
+use Core\{Storage, Audit, Auth, Controller, DB, Mailer, Modules, Response};
 
 /** User management. HR may manage non-admin users; only a Super Admin can create or edit Super Admins. */
 final class UserController extends Controller {
@@ -20,7 +20,15 @@ final class UserController extends Controller {
   public function edit(int $id): Response {
     $u = $this->findOr404('users', $id);
     $this->guardTarget($u);
-    return $this->view('admin::users/form', ['title' => 'Edit '.$u['name'], 'u' => $u, 'styles' => ['css/admin.css']] + $this->lookups()); }
+    return $this->view('admin::users/form', ['title' => 'Edit '.$u['name'], 'u' => $u, 'styles' => ['css/admin.css'], 'hrLinks' => $this->hrLinks($id)] + $this->lookups()); }
+
+  /** Account | HR profile | Work & pay tab bar: only the pages the viewer can open. */
+  private function hrLinks(int $id): array {
+    if (!feature_on('employees') || !Modules::enabled('hr')) { return []; }
+    $l = [];
+    if ($this->can('hr.employees.manage')) { $l['hr'] = '/hr/employees/'.$id.'/edit'; $l['work'] = '/hr/employees/'.$id.'/edit#work'; }
+    if ($this->can('hr.employees.view')) { $l['view'] = '/hr/employees/'.$id; }
+    return $l; }
 
   private function lookups(): array {
     $roles = Auth::isSuperAdmin() ? DB::pairs('SELECT id, name FROM roles ORDER BY id') : DB::pairs("SELECT id, name FROM roles WHERE slug<>'super_admin' ORDER BY id");

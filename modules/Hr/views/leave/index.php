@@ -1,12 +1,12 @@
 <?php use Modules\Hr\Services\LeaveService as LS;
-$ohId = (int) ($optional['id'] ?? 0);
+$ohId = (int) ($paidType['id'] ?? $optional['id'] ?? 0);
 $defaultType = old('leave_type_id', $_GET['type'] ?? ($ohId ?: ''));
 $statuses = ['' => 'All', 'pending' => 'Pending', 'approved' => 'Approved', 'rejected' => 'Rejected', 'cancelled' => 'Cancelled'];
 $cur = $_GET['status'] ?? '';
 $extra = '<div class="tile bg-lemon"><span class="tile-ic">'.icon('clock').'</span><div><div class="num">'.(int) ($stats['pending'] ?? 0).'</div><div class="lbl">Pending requests</div><div class="hr-tsub">'.($manager ? 'Approver: '.e($manager) : 'Reviewed by HR').'</div></div></div>'
   .'<div class="tile bg-mint"><span class="tile-ic">'.icon('plane').'</span><div><div class="num">'.e(LS::num($stats['taken'] ?? 0)).'</div><div class="lbl">Days off taken in '.(int) $year.'</div><div class="hr-tsub">'.($nextLeave ? 'Next: '.e(fdate($nextLeave['start_date'], 'd M')).' · '.e($nextLeave['type_name']) : 'No upcoming leave booked').'</div></div></div>';
 ?>
-<?= partial('partials/page_head', ['title' => 'Leave', 'subtitle' => 'Plan time off, track your balance and follow approvals.', 'crumbs' => [['My HR'], ['Leave']], 'actions' => '<button type="button" class="btn primary" data-modal="leave-req">'.icon('plus', 'sm').' Request leave</button>']) ?>
+<?= partial('partials/page_head', ['title' => 'Leave', 'subtitle' => 'Plan time off, track your balance and follow approvals.', 'crumbs' => [['My HR'], ['Leave']], 'actions' => '<a class="btn ghost" href="'.e(url('/hr/leave/ledger')).'">'.icon('list', 'sm').' My ledger</a><button type="button" class="btn primary" data-modal="leave-req">'.icon('plus', 'sm').' Request leave</button>']) ?>
 <?= partial('hr::leave/_tabs', ['tab' => $tab, 'pendingCount' => $pendingCount]) ?>
 <?= partial('hr::leave/_balances', ['balances' => $balances, 'year' => $year, 'extra' => $extra]) ?>
 <div class="grid g-side hr-top">
@@ -29,11 +29,20 @@ $extra = '<div class="tile bg-lemon"><span class="tile-ic">'.icon('clock').'</sp
     <?php endif ?>
   </div>
   <div class="stack">
+    <?php if ($paidType): ?>
     <div class="card">
-      <div class="hr-side-head"><span class="hr-ic sky"><?= icon('gift') ?></span><div><h4 class="mb0">How optional days work</h4><div class="xs muted">One simple pool for everything</div></div></div>
-      <p class="small mb0">Fixed holidays are off for everyone. On top of that you get <b><?= e(LS::num($optional['annual_quota'] ?? 0)) ?> optional days</b> a year, use them for festivals, personal errands or medical emergencies.</p>
+      <div class="hr-side-head"><span class="hr-ic mint"><?= icon('umbrella') ?></span><div><h4 class="mb0">How <?= e($paidType['name']) ?> works</h4><div class="xs muted">Builds up every month</div></div></div>
+      <p class="small mb0">Fixed holidays are off for everyone. You also get <b><?= e(LS::num($paidType['monthly_accrual'] ?: $paidType['annual_quota'])) ?> day(s) of <?= e($paidType['name']) ?></b> <?= $paidType['allowance'] === 'monthly' ? 'every month' : 'a year' ?> for any festival (Eid, Christmas, New Year...), personal work or a medical emergency.<?= $shortageOn ? ' If you work fewer hours than expected in a month, the shortage is taken from this balance first so your pay is not cut.' : '' ?></p>
+      <div class="flex wrap mt"><a class="btn sm soft" href="<?= e(url('/hr/leave/ledger')) ?>"><?= icon('list', 'sm') ?> See my ledger</a></div>
+    </div>
+    <?php endif ?>
+    <?php if ($optional): ?>
+    <div class="card">
+      <div class="hr-side-head"><span class="hr-ic sky"><?= icon('gift') ?></span><div><h4 class="mb0">How optional days work</h4><div class="xs muted">A pool for festival days</div></div></div>
+      <p class="small mb0">On top of fixed holidays you get <b><?= e(LS::num($optional['annual_quota'] ?? 0)) ?> optional days</b> a year, use them for festivals, personal errands or medical emergencies.</p>
       <div class="flex wrap mt"><a class="btn sm soft" href="<?= e(url('/hr/holidays')) ?>"><?= icon('calendar', 'sm') ?> See festival days</a></div>
     </div>
+    <?php endif ?>
     <div class="card">
       <div class="hr-side-head"><span class="hr-ic mint"><?= icon('clock') ?></span><div><h4 class="mb0">My work week</h4><div class="xs muted"><?= e(LS::num($schedule['hours_per_day'])) ?> h per day<?= $schedule['custom_hours'] || $schedule['custom_days'] ? ' · personal schedule' : ' · company default' ?></div></div></div>
       <div class="hr-days ro"><?php foreach (LS::DAY_NAMES as $n => $dn): $off = in_array($n, $schedule['off_days'], true); ?><span class="<?= $off ? 'on' : 'wk' ?>" title="<?= $off ? 'Weekly off' : 'Working day' ?>"><?= e($dn) ?></span><?php endforeach ?></div>
@@ -50,8 +59,8 @@ $extra = '<div class="tile bg-lemon"><span class="tile-ic">'.icon('clock').'</sp
 <dialog class="modal" id="leave-req"<?= errors() ? ' data-open' : '' ?> aria-labelledby="leave-req-t">
   <div class="modal-head"><h3 id="leave-req-t">Request leave</h3><button type="button" class="btn icon sm ghost" data-close aria-label="Close"><?= icon('x', 'sm') ?></button></div>
   <form class="modal-body form" method="post" action="<?= e(url('/hr/leave')) ?>" data-leave-form data-preview="hr/leave/preview"><?= csrf_field() ?>
-    <div class="hr-optbox"><?= icon('info') ?><p>Use <b>optional days</b> for festivals, personal errands or medical emergencies. Your approver: <b><?= e($manager ?? 'HR team') ?></b>.</p></div>
-    <div class="field"><label for="lr-type">Leave type *</label><select id="lr-type" name="leave_type_id" required><option value="">Choose…</option><?php foreach ($balances as $b): ?><option value="<?= (int) $b['id'] ?>"<?= selected($b['id'], $defaultType) ?>><?= e($b['name']) ?><?= (int) $b['paid'] ? ', '.($b['allocated_row'] ? e(LS::num(max(0, (float) $b['available']))).' days left' : 'not allocated') : ', unpaid' ?></option><?php endforeach ?></select><?= error_for('leave_type_id') ?></div>
+    <div class="hr-optbox"><?= icon('info') ?><p>Use <b><?= e($paidType['name'] ?? 'optional days') ?></b> for festivals, personal errands or medical emergencies. Your approver: <b><?= e($manager ?? 'HR team') ?></b>.</p></div>
+    <div class="field"><label for="lr-type">Leave type *</label><select id="lr-type" name="leave_type_id" required><option value="">Choose…</option><?php foreach ($balances as $b): ?><option value="<?= (int) $b['id'] ?>"<?= selected($b['id'], $defaultType) ?>><?= e($b['name']) ?><?= (int) $b['paid'] ? ', '.($b['allocated_row'] ? e(LS::num(max(0, (float) $b['available']))).' days left' : 'no balance yet') : ', unpaid' ?><?= (int) $b['allow_half_day'] ? '' : ', full days only' ?></option><?php endforeach ?></select><?= error_for('leave_type_id') ?></div>
     <div class="form-grid">
       <div class="field"><label for="lr-from">From *</label><input id="lr-from" type="date" name="start_date" value="<?= e(old('start_date', $_GET['date'] ?? '')) ?>" required><?= error_for('start_date') ?></div>
       <div class="field"><label for="lr-to">To</label><input id="lr-to" type="date" name="end_date" value="<?= e(old('end_date', $_GET['date'] ?? '')) ?>"><div class="hint">Leave empty for a single day.</div><?= error_for('end_date') ?></div>
