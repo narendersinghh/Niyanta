@@ -43,7 +43,9 @@ const SAVE_MS = 15000;
 const UPDATE_EVERY_MS = 30 * 60000;
 const QUIT_SYNC_MS = 60000;
 const iso = ms => new Date(ms).toISOString();
-const clock = ms => new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+/* 12-hour clock unless the workspace chose 24-hour (boot.workspace.clock, from Settings › General › Time format) */
+let clock24 = false;
+const clock = ms => new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: !clock24 });
 
 class Tracker extends EventEmitter {
   constructor(report) {
@@ -167,6 +169,7 @@ class Tracker extends EventEmitter {
 
   applyBoot(b, cached = false) {
     this.boot = { user: b.user, workspace: b.workspace, permissions: b.permissions, settings: b.settings, consent: b.consent, policy: b.policy, projects: b.projects || [] };
+    clock24 = !!(b.workspace && b.workspace.clock === 24);
     if (!cached) store.set('bootCache', Object.assign({}, this.boot, { state: b.state }));
     if (b.state) this.setSnap(b.state, cached);
     const cur = this.snap && (this.snap.running || this.snap.last);
@@ -536,7 +539,7 @@ class Tracker extends EventEmitter {
       return; }
     const at = new Date().toISOString();
     for (const s of shots) this.queue.addScreenshot(s.jpeg, { activity_pct: activity, meeting: slot.meeting ? 1 : 0, display: s.index, captured_at: at });
-    if (this.notifyOn()) toast.show({ title: 'Screenshot taken', body: `${shots.length > 1 ? shots.length + ' screens · ' : ''}${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · ${slot.meeting ? 'meeting' : 'activity ' + activity + '%'}`, thumb: shots[0].thumb });
+    if (this.notifyOn()) toast.show({ title: 'Screenshot taken', body: `${shots.length > 1 ? shots.length + ' screens · ' : ''}${clock(Date.now())} · ${slot.meeting ? 'meeting' : 'activity ' + activity + '%'}`, thumb: shots[0].thumb });
     this.changed(); }
 
   onRejected(job, err) {

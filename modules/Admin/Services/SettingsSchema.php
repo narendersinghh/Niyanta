@@ -133,7 +133,7 @@ final class SettingsSchema {
       'general' => [
         ['key' => 'general.timezone', 'label' => 'Timezone', 'type' => 'select', 'options' => $tz, 'rules' => 'required', 'section' => 'Region'],
         ['key' => 'general.date_format', 'label' => 'Date format', 'type' => 'select', 'rules' => 'required', 'options' => self::sample(['d M Y', 'd/m/Y', 'm/d/Y', 'Y-m-d', 'd-m-Y', 'M j, Y', 'j F Y'])],
-        ['key' => 'general.time_format', 'label' => 'Time format', 'type' => 'select', 'rules' => 'required', 'options' => self::sample(['h:i A', 'g:i a', 'H:i'])],
+        ['key' => 'general.time_format', 'label' => 'Time format', 'type' => 'select', 'rules' => 'required|in:h:i A,g:i a,H:i', 'default' => 'h:i A', 'options' => ['h:i A' => '12-hour, 04:45 PM', 'g:i a' => '12-hour, 4:45 pm', 'H:i' => '24-hour, 16:45'], 'hint' => 'Used everywhere in the web app and in the Niyanta Tracker desktop app.'],
         ['key' => 'general.week_start', 'label' => 'Week starts on', 'type' => 'select', 'rules' => 'required', 'options' => ['1' => 'Monday', '7' => 'Sunday', '6' => 'Saturday']],
         ['key' => 'general.currency_symbol', 'label' => 'Currency symbol', 'type' => 'text', 'rules' => 'required|max:5', 'section' => 'Money', 'hint' => 'Shown before amounts, e.g. ₹, $, €.'],
         ['key' => 'general.currency_code', 'label' => 'Currency code', 'type' => 'text', 'rules' => 'required|regex:/^[A-Z]{3}$/', 'hint' => 'ISO 4217 code, e.g. INR, USD, EUR.', 'upper' => true],

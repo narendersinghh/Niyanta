@@ -74,7 +74,7 @@ final class AgentController extends Controller {
       foreach (DB::all("SELECT id, project_id, title, assignee_id=? AS mine FROM tasks WHERE status<>'done' AND project_id IN ".DB::in($ids).' ORDER BY (assignee_id=?) DESC, position, id LIMIT 3000', [$uid, ...$ids, $uid]) as $t) { $projects[(int) $t['project_id']]['tasks'][] = ['id' => (int) $t['id'], 'title' => $t['title'], 'mine' => (bool) $t['mine']]; } }
     $c = Monitoring::consent($uid);
     return ['user' => ['id' => $uid, 'name' => $u['name'], 'email' => $u['email'], 'role' => $u['role_name'] ?? null, 'initials' => strtoupper(mb_substr(preg_replace('/[^\p{L} ]/u', '', $u['name']), 0, 1))],
-      'workspace' => ['name' => company_name(), 'url' => absolute_url('/'), 'time_page' => absolute_url('/time'), 'screenshots_page' => absolute_url('/time/screenshots'), 'timezone' => date_default_timezone_get()],
+      'workspace' => ['name' => company_name(), 'url' => absolute_url('/'), 'time_page' => absolute_url('/time'), 'screenshots_page' => absolute_url('/time/screenshots'), 'timezone' => date_default_timezone_get(), 'clock' => str_contains((string) Settings::get('general.time_format', 'h:i A'), 'H') ? 24 : 12],
       'permissions' => ['track' => true, 'manual_entries' => true, 'view_team' => Gate::allows('attendance.view_all', $u)],
       'settings' => self::settings(), 'consent' => $c ? ['policy_version' => $c['policy_version'], 'consented_at' => date('c', strtotime($c['consented_at']))] : null, 'policy' => Monitoring::policy(),
       'projects' => array_values($projects), 'state' => Tracker::state($uid), 'server_time' => date('c')]; }

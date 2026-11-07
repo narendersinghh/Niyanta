@@ -8,7 +8,8 @@
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const every = s => !s ? '' : (s % 60 ? (s > 60 ? `${Math.floor(s / 60)} min ${s % 60} s` : `${s} s`) : (s === 60 ? 'minute' : `${s / 60} min`));
   const icon = (id, cls = '') => `<svg class="ic ${cls}"><use href="#i-${id}"/></svg>`;
-  const time = v => new Date(v).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }).replace(/\s?([AP]M)$/i, (m, x) => ' ' + x.toLowerCase());
+  /* 12-hour clock unless the workspace chose 24-hour (Settings › General › Time format in the web app) */
+  const time = v => new Date(v).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: !(ui && ui.account && ui.account.workspace && ui.account.workspace.clock === 24) }).replace(/\s?([AP]M)$/i, (m, x) => ' ' + x.toLowerCase());
   const { hms, hm, mmss } = S;
   let ui = null;
   let noticeShown = 0;

@@ -10,14 +10,14 @@ setInterval(ticks,1000);
 const LS=$$("[data-live-status]");
 if(LS.length){const dots={tracking:"dot-in pulse",paused:"dot-break",stopped:"dot-break",ended:"dot-done",not_started:"dot-out"},esc=s=>N().esc(String(s??""));
 const hm=s=>{s=Math.max(0,+s||0);const h=Math.floor(s/3600),m=Math.floor(s%3600/60);return h?h+"h "+pad(m)+"m":m+"m"};
-const tm=iso=>iso?new Date(iso).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}):"";
+const tm=iso=>iso?new Date(iso).toLocaleTimeString([],{hour:"numeric",minute:"2-digit",hour12:document.documentElement.dataset.clock!=="24"}):"";
 const line=(j,side)=>{const r=j.running;if(r)return(side?(r.device?"On <b>"+esc(r.device)+"</b> · ":""):"Tracking"+(r.device?" on <b>"+esc(r.device)+"</b>":"")+" · ")+"<b>"+esc(r.project||(j.projects===false?"Tracked time":"No project"))+"</b>"+(r.task&&!side?" · "+esc(r.task):"");
 return{paused:side?"Paused in the desktop app":"Paused since <b>"+tm(j.day.paused_since)+"</b>. Resume in the desktop app.",stopped:side?"Day open, not tracking":"Your day is open but nothing is being tracked. Is the desktop app running?",ended:side?"Day ended":"Day ended at <b>"+tm(j.day.clock_out)+"</b>. Nice work.",not_started:side?"Start your day in Niyanta Tracker":"Not started yet. Open Niyanta Tracker and click <b>Start</b>."}[j.state]||""};
 const paint=j=>LS.forEach(c=>{const run=j.state==="tracking",side=c.classList.contains("side-timer");c.dataset.state=j.state;c.classList.toggle("running",run);
 const ch=$("[data-ls-chip]",c);if(ch){ch.classList.toggle("live",run);ch.classList.toggle("idle",!side&&(j.state==="paused"||j.state==="stopped"));const dt=$(".dotc",ch);if(dt)dt.className="dotc "+dots[j.state]}
 const lb=$("[data-ls-label]",c);if(lb)lb.textContent=j.label;rebase($("[data-ls-total]",c),j.totals.tracked,run);
 const ln=$("[data-ls-line]",c);if(ln)ln.innerHTML=line(j,side);const en=$("[data-ls-entry]",c);if(en){en.classList.toggle("hide",!run);rebase($("[data-ls-entry-t]",c),run?j.running.elapsed:0,run)}
-const up=$("[data-ls-updated]",c);if(up)up.textContent="Updated "+new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})});
+const up=$("[data-ls-updated]",c);if(up)up.textContent="Updated "+new Date().toLocaleTimeString([],{hour:"numeric",minute:"2-digit",hour12:document.documentElement.dataset.clock!=="24"})});
 const tiles=j=>{[["active","active"],["idle","idle"],["paused","paused"],["tracked","tracked"]].forEach(([k,a])=>{const el=$("[data-ls-"+a+"]");if(el)el.textContent=hm(j.totals[k])})};
 let busy=false;const poll=async()=>{if(busy||d.hidden)return;busy=true;try{const j=await N().req("time/status");paint(j);tiles(j)}catch(e){}finally{busy=false}};
 setInterval(poll,30000);d.addEventListener("visibilitychange",()=>{if(!d.hidden)poll()})}

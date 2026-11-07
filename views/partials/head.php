@@ -5,7 +5,7 @@ $theme = (user()['theme'] ?? 'system') === 'system' ? (string) setting('appearan
 $vars = array_filter(['--primary' => setting('appearance.primary_color'), '--sidebar' => setting('appearance.sidebar_color'), '--lav' => setting('appearance.accent_1'), '--mint' => setting('appearance.accent_2'), '--lemon' => setting('appearance.accent_3'), '--peach' => setting('appearance.accent_4'), '--fs' => ($fs = (int) setting('appearance.font_size', 0)) ? $fs.'px' : null, '--r' => ($rad = setting('appearance.radius')) !== null ? (int) $rad.'px' : null], static fn ($v) => $v !== null && $v !== '' && preg_match('/^(#[0-9a-f]{3,8}|\d+px)$/i', (string) $v));
 $fav = setting('branding.favicon');
 ?><!doctype html>
-<html lang="en" data-theme="<?= $theme === 'dark' ? 'dark' : 'light' ?>" data-pref="<?= e($theme) ?>" data-guest="<?= user() ? 0 : 1 ?>">
+<html lang="en" data-theme="<?= $theme === 'dark' ? 'dark' : 'light' ?>" data-pref="<?= e($theme) ?>" data-guest="<?= user() ? 0 : 1 ?>" data-clock="<?= str_contains((string) setting('general.time_format', 'h:i A'), 'H') ? 24 : 12 ?>">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="csrf-token" content="<?= e(csrf_token()) ?>"><meta name="base-url" content="<?= e(url('')) ?>"><meta name="robots" content="noindex,nofollow"><?php if (\Core\AutoCron::due() && !\Core\AutoCron::canFinishRequest()): ?><meta name="cron-due" content="1"><?php endif ?><meta name="icons" content="<?= e(asset('img/icons.svg')) ?>">
 <title><?= e(isset($title) ? $title.' · '.$appName : $appName) ?></title>
