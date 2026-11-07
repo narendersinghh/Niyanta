@@ -34,11 +34,18 @@ echo partial('partials/head', get_defined_vars());
   </div>
   <nav class="nav" data-nav>
     <a href="<?= e(url('/')) ?>" class="<?= $path === '/' ? 'active' : '' ?>"><span class="ni" style="--c:#7C5CFF"><?= icon('home') ?></span> Dashboard</a>
+    <?php /* icon colours: keep each item's own colour unless it matches the item above (features switched off can make neighbours repeat); then take the next brand colour that differs from both neighbours */
+    $pal = ['#7C5CFF', '#12B5A0', '#F5A524', '#FF6F59', '#2E9BF6', '#F0508A']; $fam = static fn (string $c): string => strtoupper($c) === '#5B4CF5' ? '#7C5CFF' : strtoupper($c);
+    $flat = []; foreach ($nav as $sec => $items) { foreach ($items as $i => $n) { $flat[] = [$sec, $i, $fam($n['color'] ?? '#7C5CFF')]; } }
+    $navColor = []; $prev = '#7C5CFF';
+    foreach ($flat as $k => [$sec, $i, $c]) {
+      if ($c === $prev) { $next = $flat[$k + 1][2] ?? ''; $at = (int) array_search($c, $pal, true); for ($j = 1; $j < 6; $j++) { $cand = $pal[($at + $j) % 6]; if ($cand !== $prev && $cand !== $next) { $c = $cand; break; } } }
+      $navColor[$sec.'.'.$i] = $prev = $c; } ?>
     <?php foreach ($nav as $sec => $items): [$label] = Modules::SECTIONS[$sec]; if ($sec === 'clients' && !feature_on('clients')) { $label = 'Billing'; }
       $on = static fn (array $n): bool => $isActive($n['url']) || (bool) array_filter($n['also'] ?? [], $isActive);
       $hasActive = (bool) array_filter($items, $on);
       $links = '';
-      foreach ($items as $n) { $links .= '<a href="'.e(url($n['url'])).'" class="'.($on($n) ? 'active' : '').'"><span class="ni" style="--c:'.e($n['color']).'">'.icon($n['icon'] ?? 'grid').'</span> '.e($n['label']).'</a>'; } ?>
+      foreach ($items as $i => $n) { $links .= '<a href="'.e(url($n['url'])).'" class="'.($on($n) ? 'active' : '').'"><span class="ni" style="--c:'.e($navColor[$sec.'.'.$i] ?? $n['color']).'">'.icon($n['icon'] ?? 'grid').'</span> '.e($n['label']).'</a>'; } ?>
       <?php if ($label): ?><div class="nav-group"><?= e($label) ?></div><?php endif ?><?= $links ?>
     <?php endforeach ?>
   </nav>
