@@ -1,6 +1,6 @@
 <?php
-use Modules\Attendance\Controllers\{AgentController, AttendanceController, HubController, InstallController, ScreenshotController, SettingsController, TeamNowController, TimeController, TimesheetController};
-use Modules\Attendance\Services\{AttendanceService, DesktopApp, Monitoring, TimeService, Widgets};
+use Modules\Attendance\Controllers\{AgentController, AttendanceController, ConnectController, HubController, InstallController, ScreenshotController, SettingsController, TeamNowController, TimeController, TimesheetController};
+use Modules\Attendance\Services\{AttendanceService, DesktopApp, DesktopConnect, Monitoring, TimeService, Widgets};
 
 return [
   'key' => 'attendance', 'name' => 'Attendance & Time Tracking', 'icon' => 'clock', 'order' => 40, 'version' => '1.2.0',
@@ -33,6 +33,10 @@ return [
     $r->get('/time/desktop/install.sh', [InstallController::class, 'shell'], $inst);
     $r->get('/time/desktop/install.ps1', [InstallController::class, 'powershell'], $inst);
     $r->get('/time/desktop/get/{file}', [InstallController::class, 'file'], $inst);
+    /* "Sign in with your browser" for the desktop app (deep link niyanta-tracker://connect, see Services/DesktopConnect.php) */
+    $r->post('/time/desktop/connect-link', [ConnectController::class, 'link'], ['perm' => $t, 'throttle' => [10, 60]]);
+    $r->get('/time/desktop/connect', [ConnectController::class, 'show'], ['perm' => $t, 'throttle' => [30, 60]]);
+    $r->post('/time/desktop/connect', [ConnectController::class, 'allow'], ['perm' => $t, 'throttle' => [20, 60]]);
     $r->get('/time/tasks', [TimeController::class, 'tasks'], $t);
     /* top-bar "active members" widget: count refresh (?count=1) and the popup lists, team-scoped */
     $r->get('/time/team/now', [TeamNowController::class, 'index'], ['perm' => 'attendance.view_all', 'throttle' => [60, 60]]);
@@ -56,6 +60,7 @@ return [
     /* Niyanta Tracker desktop API (token auth, see AGENT_API.md) */
     $api = ['auth' => false, 'csrf' => false, 'throttle' => [600, 60]];
     $r->post('/api/agent/login', [AgentController::class, 'login'], ['auth' => false, 'csrf' => false, 'throttle' => [300, 300]]);
+    $r->post('/api/agent/connect', [AgentController::class, 'connect'], ['auth' => false, 'csrf' => false, 'throttle' => [30, 300]]);
     $r->post('/api/agent/logout', [AgentController::class, 'logout'], $api);
     $r->get('/api/agent/bootstrap', [AgentController::class, 'bootstrap'], $api);
     $r->get('/api/agent/status', [AgentController::class, 'status'], $api);
@@ -84,6 +89,7 @@ return [
     'auto_close' => ['feature' => 'attendance', 'daily' => '23:55', 'run' => [AttendanceService::class, 'autoClose']],
     'stale_timers' => ['feature' => 'attendance', 'every' => 5, 'run' => [TimeService::class, 'staleTimers']],
     'screenshot_cleanup' => ['feature' => 'attendance', 'daily' => '03:40', 'run' => [Monitoring::class, 'cleanup']],
+    'connect_codes_cleanup' => ['every' => 60, 'run' => [DesktopConnect::class, 'cleanup']],
     'tracker_mirror' => ['feature' => 'attendance', 'every' => 30, 'run' => [DesktopApp::class, 'cron']],
   ],
   /* top bar: own live tracking chip (attendance.track, while tracking) and the team "N active" pill (attendance.view_all), next to Ask Goraiya */

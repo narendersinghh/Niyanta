@@ -1,7 +1,7 @@
 <?php
 namespace Modules\Attendance\Controllers;
 use Core\{Audit, Controller, Response};
-use Modules\Attendance\Services\{DesktopApp, DesktopInstall};
+use Modules\Attendance\Services\{DesktopApp, DesktopConnect, DesktopInstall};
 
 /**
  * Public, key-protected install routes for the one-line commands on Time Tracking (see DesktopInstall): the bash and
@@ -23,7 +23,9 @@ final class InstallController extends Controller {
     $f = DesktopInstall::files();
     if (!$f || ($kind === 'ps1' && !$f['windows']) || ($kind === 'sh' && !$f['mac_arm64'] && !$f['mac_x64'] && !$f['linux'])) { return new Response($err('The desktop app is not available on this workspace yet. Please try again later.'), 200, self::SCRIPT); }
     Audit::log('tracker.install_script', 'settings', null, ['version' => $f['version'], 'script' => $kind], (int) $u['id']);
-    return new Response($kind === 'sh' ? DesktopInstall::shell($key, $f) : DesktopInstall::powershell($key, $f), 200, self::SCRIPT); }
+    /* a fresh install signs in by itself: a one-time connect code (30 minutes) opened as niyanta-tracker://connect after installing */
+    $link = DesktopConnect::deepLink(DesktopConnect::issue((int) $u['id'], 'install', null, null, null, $kind === 'sh' ? null : 'win', $this->request->ip()));
+    return new Response($kind === 'sh' ? DesktopInstall::shell($key, $f, $link) : DesktopInstall::powershell($key, $f, $link), 200, self::SCRIPT); }
 
   /** An installer of the mirrored release (installers only, never the update files or the manifest). */
   public function file(string $file): Response {

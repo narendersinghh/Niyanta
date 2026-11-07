@@ -472,3 +472,16 @@ dialog.sv::backdrop{background:#0B0A18}
 .sv-row img{display:block;width:100%;height:100%;object-fit:cover}
 @media (max-width:640px){.sv-top{padding:10px 10px 8px 14px;gap:8px}.sv-bl{display:none}.sv-btn{padding:0 10px}.sv-x{width:38px;padding:0}.sv-stage{padding:8px 0}.sv-fig img{border-radius:0;box-shadow:none}.sv-nav{width:40px;height:40px}.sv-nav.prev{left:6px}.sv-nav.next{right:6px}.sv-cap{gap:4px 12px;font-size:.8rem;padding:8px 12px}.sv-p{flex-basis:100%}.sv-row button{width:64px}.sv-strip{padding:8px 10px 10px;gap:10px}.sv-grp+.sv-grp{padding-left:10px}}
 @media (prefers-reduced-motion:reduce){.sv-spin{animation-duration:2s}.sv-fig img{transition:none}}
+/* Connect Niyanta Tracker (sign in with the browser): centred card on the blank layout */
+.cx-wrap{min-height:100vh;display:grid;place-items:center;padding:56px 16px 24px;background:radial-gradient(70% 50% at 10% 0%,var(--lav-s) 0%,transparent 60%),radial-gradient(60% 50% at 100% 100%,var(--peach-s) 0%,transparent 60%),var(--bg);position:relative}
+.cx-card{width:100%;max-width:440px;padding:28px;display:flex;flex-direction:column;gap:12px;text-align:left}
+.cx-card h1{font-size:1.35rem;margin:0}.cx-card p{margin:0}
+.cx-brand{display:flex;align-items:center;gap:.6rem;margin-bottom:6px}.cx-brand .brand-logo img{width:28px;height:28px}
+.cx-ic{width:44px;height:44px;border-radius:14px;display:grid;place-items:center;background:var(--lav-s);color:var(--lav-d)}
+.cx-ic.cx-ok{background:var(--mint-s);color:var(--mint-d)}.cx-ic.cx-warn{background:var(--lemon-s);color:var(--lemon-d)}
+.cx-facts{margin:4px 0;display:grid;gap:8px;border:1px solid var(--border);border-radius:14px;padding:12px 14px;background:var(--surface-2)}
+.cx-facts div{display:flex;justify-content:space-between;gap:12px;align-items:baseline;flex-wrap:wrap}.cx-facts dt{color:var(--muted);font-size:.82rem}.cx-facts dd{margin:0;display:flex;flex-direction:column;align-items:flex-end;min-width:0;overflow-wrap:anywhere;text-align:right}
+.cx-actions{display:flex;gap:.6rem;flex-wrap:wrap}.cx-actions .btn{flex:1;justify-content:center;min-width:130px}
+.cx-out{display:flex;align-items:center;gap:.3rem;margin:0}.cx-link{background:none;border:0;padding:0;color:var(--primary);font-weight:600;cursor:pointer;text-decoration:underline}
+.dl-connect .cx-actions{margin:4px 0 8px}.dl-connect .cx-actions .btn{flex:0 0 auto}
+@media (max-width:480px){.cx-card{padding:20px}.cx-actions .btn{flex:1 1 100%}}

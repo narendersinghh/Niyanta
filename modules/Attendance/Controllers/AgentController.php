@@ -1,7 +1,7 @@
 <?php
 namespace Modules\Attendance\Controllers;
-use Core\{Audit, Auth, Controller, DB, ErrorLog, Gate, Modules, Response, Settings};
-use Modules\Attendance\Services\{DesktopApp, Monitoring, Tracker, TimeService as T};
+use Core\{Audit, Auth, Controller, DB, ErrorLog, Gate, Modules, RateLimiter, Response, Settings};
+use Modules\Attendance\Services\{DesktopApp, DesktopConnect, Monitoring, Tracker, TimeService as T};
 
 /**
  * Niyanta Tracker (desktop app) JSON API. Personal device token in "Authorization: Bearer nyt_…" or "X-Agent-Token"
@@ -91,13 +91,40 @@ final class AgentController extends Controller {
       $u = DB::first("SELECT u.*, r.slug AS role_slug, r.name AS role_name FROM users u JOIN roles r ON r.id=u.role_id WHERE u.id=? AND u.status='active' LIMIT 1", [$row['id']]);
       unset($u['password_hash']);
       if (!Gate::allows('attendance.track', $u)) { Audit::log('agent.login_denied', 'user', (int) $u['id'], ['reason' => 'permission'], (int) $u['id']); return $this->json(['ok' => false, 'error' => 'Your role is not allowed to track time. Ask your administrator.', 'code' => 'forbidden'], 403); }
-      $os = mb_substr(preg_replace('/[^0-9A-Za-z._ -]/', '', (string) ($in['os'] ?? '')), 0, 40) ?: null;
-      [$plain, $tid] = Monitoring::createToken((int) $u['id'], (string) ($in['device_name'] ?? 'Desktop'), 'desktop', $os, $this->appVersion());
-      DB::update('agent_tokens', ['last_used_at' => date('Y-m-d H:i:s'), 'last_ip' => $this->request->ip()], 'id=?', [$tid]);
-      DB::update('users', ['last_login_at' => date('Y-m-d H:i:s'), 'last_login_ip' => $this->request->ip()], 'id=?', [$u['id']]);
-      Audit::log('agent.login', 'agent_token', $tid, ['device' => $in['device_name'] ?? null, 'os' => $os, 'version' => $this->appVersion()], (int) $u['id']);
-      $this->agent = $u + ['token_id' => $tid];
-      return $this->json(['ok' => true, 'token' => $plain] + $this->payload($u)); }
+      return $this->signIn($u, (string) ($in['device_name'] ?? 'Desktop'), (string) ($in['os'] ?? ''), 'agent.login'); }
+    catch (\DomainException $e) { return $this->json(['ok' => false, 'error' => $e->getMessage()], 422); }
+    catch (\Throwable $e) { return $this->fail($e); } }
+
+  /** Device token + bootstrap for a verified user (password sign-in and connect codes answer the same shape). */
+  private function signIn(array $u, string $device, string $os, string $action): Response {
+    $os = mb_substr(preg_replace('/[^0-9A-Za-z._ -]/', '', $os), 0, 40) ?: null;
+    [$plain, $tid] = Monitoring::createToken((int) $u['id'], $device, 'desktop', $os, $this->appVersion());
+    DB::update('agent_tokens', ['last_used_at' => date('Y-m-d H:i:s'), 'last_ip' => $this->request->ip()], 'id=?', [$tid]);
+    DB::update('users', ['last_login_at' => date('Y-m-d H:i:s'), 'last_login_ip' => $this->request->ip()], 'id=?', [$u['id']]);
+    Audit::log($action, 'agent_token', $tid, ['device' => $device, 'os' => $os, 'version' => $this->appVersion()], (int) $u['id']);
+    $this->agent = $u + ['token_id' => $tid];
+    return $this->json(['ok' => true, 'token' => $plain] + $this->payload($u)); }
+
+  /**
+   * POST /api/agent/connect {code, verifier?, device_name, device_os, app_version}: trade a one-time connect code from the
+   * browser (deep link niyanta-tracker://connect, see DesktopConnect) for a device token; same answer as login.
+   */
+  public function connect(): Response {
+    try {
+      $err = ['code_invalid' => [401, 'This sign-in link is not valid any more. Please sign in again from the app.'], 'code_expired' => [401, 'This sign-in link has expired. Please sign in again from the app.'],
+        'verifier_mismatch' => [401, 'This sign-in link was started on another device. Please sign in again from the app.'], 'forbidden' => [403, 'Your role is not allowed to track time. Ask your administrator.'], 'disabled' => [403, 'Time tracking is turned off for this workspace.']];
+      $ipKey = 'connect-fail:'.$this->request->ip();
+      if (RateLimiter::blocked($ipKey, 20)) { return $this->json(['ok' => false, 'error' => 'Too many failed sign-in attempts. Try again in 15 minutes.', 'code' => 'locked'], 429); }
+      $in = $this->input();
+      [$ok, $code] = DesktopConnect::consume(trim((string) ($in['code'] ?? '')), isset($in['verifier']) ? (string) $in['verifier'] : null, $this->request->ip());
+      if (!$ok) {
+        if ($code !== 'disabled') { RateLimiter::hit($ipKey, 20, 900); }
+        return $this->json(['ok' => false, 'error' => $err[$code][1], 'code' => $code], $err[$code][0]); }
+      $c = $ok['code'];
+      $os = (string) ($in['device_os'] ?? $in['os'] ?? '') ?: (string) $c['device_os'];
+      $res = $this->signIn($ok['user'], DesktopConnect::deviceName((string) ($in['device_name'] ?? '')) ?? $c['device_name'] ?? 'Desktop', $os, 'agent.login');
+      Audit::log('desktop.connect.used', 'desktop_connect_code', (int) $c['id'], ['purpose' => $c['purpose'], 'token_id' => (int) $this->agent['token_id']], (int) $ok['user']['id']);
+      return $res; }
     catch (\DomainException $e) { return $this->json(['ok' => false, 'error' => $e->getMessage()], 422); }
     catch (\Throwable $e) { return $this->fail($e); } }
 
@@ -200,7 +227,7 @@ final class AgentController extends Controller {
       $l = DesktopApp::latest();
       $cur = $this->appVersion();
       $files = [];
-      foreach ($l['platforms'] as $p => $list) { foreach ($list as $f) { $files[$p][] = ['name' => $f['name'], 'arch' => $f['arch'], 'ext' => $f['ext'], 'size' => $f['size'], 'version' => $f['version']]; } }
+      foreach ($l['platforms'] as $p => $list) { foreach ($list as $f) { $files[$p][] = ['name' => $f['name'], 'arch' => $f['arch'], 'ext' => $f['ext'], 'size' => $f['size'], 'version' => $f['version'], 'sha512' => DesktopApp::sha512($f['name'])]; } }
       return ['latest' => $l['version'], 'current' => $cur, 'update_available' => $l['version'] !== null && $cur !== null && version_compare($l['version'], preg_replace('/[^0-9.].*$/', '', $cur), '>'), 'released_at' => $l['date'],
         'download_page' => absolute_url('/time#desktop'), 'updates_feed' => absolute_url('/api/agent/updates/'), 'files' => $files]; }); }
 

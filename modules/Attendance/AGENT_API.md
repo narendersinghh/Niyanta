@@ -37,15 +37,82 @@ Accept: application/json
 Sign-in uses the same rate limits and lockout as the web sign-in (`Core\Auth::verify`: per email+IP, per IP, 10 failures lock the
 account for 30 minutes) and is audit-logged (`agent.login`). Signing in again with the same device name replaces the old token;
 at most 5 devices stay connected (the least recently used desktop token is revoked). People see and disconnect devices on
-**Time Tracking › Connected devices**. A token that has not been used for `attendance.token_idle_days` (default 90, 0 = never)
+**Time Tracking › Your devices**. A token that has not been used for `attendance.token_idle_days` (default 90, 0 = never)
 is revoked at its next use. A revoked or expired token, a deactivated user, a role without `attendance.track` or time tracking
 switched off answer `401`/`403`; the app then signs out and asks for a fresh sign-in.
+
+Device tokens are independent of web sessions: signing out of the website (`POST /logout`, idle or absolute session
+timeout) never signs the app out. Only Disconnect under **Your devices**, `POST /api/agent/logout`, the idle expiry, a
+deactivated user, a role change or time tracking switched off end a device token.
+
+## Sign in with your browser (no typing)
+
+The app never asks for the workspace address or a password in this flow. The browser hands it a one-time **connect code** with
+the custom URL scheme (registered by the app on install):
+
+```
+niyanta-tracker://connect?ws=<urlencoded workspace base URL>&code=<code>[&state=<state>]
+```
+
+`ws` is the workspace base URL the app stores (the same value as `workspace.url` in the bootstrap payload, with a trailing
+`/`); `code` is 43 characters `[A-Za-z0-9_-]`; `state` is present only in flow B and equals the `state` the app sent. The app
+should accept the link only when `ws` is `https://` (or a local development address) and, in flow B, when `state` matches.
+
+**Flow A, started from the web.** Time Tracking › Get the desktop app › **Connect the desktop app** (`POST
+/time/desktop/connect-link`, signed in, `attendance.track`, CSRF, 10 per minute) mints a code (`purpose = web`, 2 minutes) and
+answers a small page that opens the deep link (a normal link plus an automatic `location` change in `js/tt-connect.js`). The
+personal install scripts (`install.sh`, `install.ps1`) mint a code too (`purpose = install`, 30 minutes) when they are generated
+and open the deep link after installing: macOS `open "<link>"` after the first launch; Linux starts the AppImage with the link as
+its first argument (the `.desktop` entry also declares `MimeType=x-scheme-handler/niyanta-tracker;` with `%U`); Windows waits up
+to 25 minutes for `HKEY_CLASSES_ROOT\niyanta-tracker` (the app or its setup must register the scheme) and then
+`Start-Process "<link>"`. Flow A codes have no challenge, so no `verifier` is sent.
+
+**Flow B, started from the app.** The app creates a PKCE verifier (43 to 128 characters `[A-Za-z0-9._~-]`), its challenge
+`base64url(sha256(verifier))` without padding (43 characters) and a random `state` (16 to 64 characters `[A-Za-z0-9._~-]`), then
+opens in the system browser:
+
+```
+GET <workspace>/time/desktop/connect?challenge=<43 chars>&state=<state>&device=<name, max 100>&os=<win|mac|linux>
+```
+
+The person signs in to the website if needed (then comes back to this URL), sees the workspace, who is signed in, the device
+name and system, and chooses **Allow** or **Cancel** ("Not you? Sign out" signs out and returns here after the next sign-in).
+Allow (`POST /time/desktop/connect`, CSRF) mints a code (`purpose = browser`, 2 minutes) bound to the user, challenge, state,
+device and os, and opens `niyanta-tracker://connect?ws=…&code=…&state=…` the same way; the page says "You can close this tab".
+Invalid parameters answer `400` with an explanation; Cancel mints nothing and sends nothing to the app.
+
+**Exchange (both flows).**
+
+```
+POST /api/agent/connect
+{"code": "…", "verifier": "…" (flow B only), "device_name": "…", "device_os": "win|mac|linux", "app_version": "1.5.0"}
+```
+
+Success: exactly the answer of a successful `POST /api/agent/login` (`ok`, `token`, then the bootstrap payload: `user`,
+`workspace` (incl. `url`), `permissions`, `settings`, `consent`, `policy`, `projects`, `state`, `server_time`), so the app reuses
+its login path. The token is created like a password sign-in (same device-name replacement and 5-device limit, audit
+`agent.login`). `device_name` / `device_os` fall back to the values from the flow B request. Errors (`{ok: false, error, code}`):
+
+| Status | `code` | When |
+|---|---|---|
+| 401 | `code_invalid` | unknown, malformed or already used code, or the user is no longer active |
+| 401 | `code_expired` | older than 2 minutes (web button, flow B) or 30 minutes (install script) |
+| 401 | `verifier_mismatch` | the code was created with a challenge and `verifier` is missing or `base64url(sha256(verifier))` differs (compared in constant time); the code is burned |
+| 403 | `forbidden` | the role may not track time |
+| 403 | `disabled` | time tracking is turned off (the code is not used up) |
+| 422 | | rule violation, e.g. 5 devices already connected |
+| 429 | `locked` (or none) | 20 failed codes per IP in 15 minutes, or more than 30 requests per IP in 5 minutes |
+
+Codes are stored as SHA-256 only (`desktop_connect_codes`: user, hash, challenge, state, device, os, purpose, expiry, used
+time, IP), are used up atomically (`UPDATE … WHERE used_at IS NULL AND expires_at > now`), and expired rows are deleted by the
+`attendance.connect_codes_cleanup` job (hourly, bounded). Audit log: `desktop.connect.issued`, `desktop.connect.used`,
+`desktop.connect.failed` (with the reason). `POST /api/agent/login` with email and password stays as the fallback.
 
 ## Responses and errors
 
 JSON everywhere. Success: `{"ok": true, …}`. Errors: `{"ok": false, "error": "message", "code"?: "…"}` with `401`
 (signed out), `403` (no permission / feature off), `422` (rule violation), `429` (rate limit), `500` (server failure, recorded in
-**Audit log › Error logs** with source `desktop`, the app version and a `ref`). Rate limits per IP: 600/min (login 20 per 5 min,
+**Audit log › Error logs** with source `desktop`, the app version and a `ref`). Rate limits per IP: 600/min (login 20 per 5 min, connect 30 per 5 min,
 screenshots 240/min, error reports 60/min, version 30/min, update files 60/min per file).
 
 ## Endpoints
@@ -53,6 +120,7 @@ screenshots 240/min, error reports 60/min, version 30/min, update files 60/min p
 | Method & path | Body | Returns |
 |---|---|---|
 | `POST /api/agent/login` | `email, password, device_name, os, app_version` | `token` + bootstrap payload |
+| `POST /api/agent/connect` | `code, verifier?, device_name, device_os, app_version` | `token` + bootstrap payload (see Sign in with your browser) |
 | `POST /api/agent/logout` | | revokes the token |
 | `GET /api/agent/bootstrap` | | `user, workspace, permissions, settings, consent, policy, projects[{id,name,tasks[]}], state` |
 | `GET /api/agent/state` | | `state, settings, consent` (cheap refresh) |
@@ -68,7 +136,7 @@ screenshots 240/min, error reports 60/min, version 30/min, update files 60/min p
 | `POST /api/agent/consent` | `agree: true, policy_version` | `consent` |
 | `POST /api/agent/screenshot` | multipart `screenshot`, `activity_pct`, `meeting`, `display`, `captured_at` | `id` |
 | `POST /api/agent/error` | `level, message, where, stack, file, line, os, arch, context{}` | token optional |
-| `GET /api/agent/version` | | `latest, current, update_available, released_at, download_page, updates_feed, files` |
+| `GET /api/agent/version` | | `latest, current, update_available, released_at, download_page, updates_feed, files{windows,mac,linux,deb}[{name, arch, ext, size, version, sha512}]` |
 | `GET /api/agent/updates/{file}` | | electron-updater feed (not JSON): `latest.yml`, `latest-mac.yml`, `latest-linux.yml`, `latest-linux-arm64.yml`, `latest-linux-armv7l.yml` as `text/yaml`, or a mirrored installer / `.blockmap` (streamed). `404` when the file is not in the mirrored release |
 | `GET /api/agent/status` | | legacy alias of bootstrap |
 
@@ -173,6 +241,10 @@ non-draft, non-prerelease release once into `storage/desktop/<version>/` (privat
 against `latest*.yml`; newest 2 versions kept). Super Admins can force it with **Settings › Updates › Refresh now**.
 
 - `GET /api/agent/version` compares `X-App-Version` with the mirrored version and links to the download page (`/time#desktop`).
+  Every file carries `sha512`: base64 of the raw SHA-512 digest (electron-builder format), recorded in the manifest when
+  mirrored, else read from the mirrored `latest*.yml`, else hashed once and cached in `sha512.json` next to the mirror (never
+  per request). `download_page` and `updates_feed` are built from the configured workspace URL (`app_url`; a spoofed Host header
+  does not change them), and no `/api/agent/*` endpoint answers with a redirect.
 - `GET /api/agent/updates/{file}` (device token, same auth as the other endpoints) is the feed of electron-updater's generic
   provider: the app sets the feed URL to `<workspace>/api/agent/updates/` at runtime and sends `Authorization: Bearer <token>`.
   The `latest*.yml` files are served with every `url:` / `path:` rewritten to `<workspace>/api/agent/updates/<file name>`, so

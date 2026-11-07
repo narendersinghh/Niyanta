@@ -73,9 +73,12 @@ $archLbl = ['arm64' => 'Apple silicon', 'x64' => 'Intel', 'universal' => 'Univer
           <li data-os-step="linux"><b>Linux:</b> make the AppImage executable (<span class="mono">chmod +x</span>) and run it, or install the .deb with <span class="mono">sudo apt install ./niyanta-tracker-*.deb</span>.</li>
           <li><b>Updates:</b> the app tells you when a new version is out. Click <b>Update now</b>: it downloads, restarts by itself and your tracking continues.</li></ol></div>
       <?php if ($dl): ?></div></details><?php endif ?>
-      <div class="dl-connect">
-        <h4><?= icon('link', 'sm') ?> Connect</h4><p class="small mb">Sign in with your Niyanta email and password and this workspace address:</p>
-          <div class="token-box"><code><?= e(absolute_url('/')) ?></code><button type="button" class="btn icon sm ghost" data-copy="<?= e(absolute_url('/')) ?>" aria-label="Copy workspace address"><?= icon('copy', 'sm') ?></button></div></div>
+      <div class="dl-connect" id="connect">
+        <h4><?= icon('link', 'sm') ?> Then connect the desktop app</h4><p class="small mb0">Installed? Click the button: Niyanta Tracker opens and signs in as you. Nothing to type.</p>
+        <form method="post" action="<?= e(url('/time/desktop/connect-link')) ?>" class="cx-actions"><?= csrf_field() ?><button class="btn primary"><?= icon('monitor', 'sm') ?> Connect the desktop app</button></form>
+        <p class="xs muted">The app stays signed in even when you sign out of the website. Remove a computer any time under <a href="#devices">Your devices</a>.</p>
+        <details class="dl-more"><summary><span class="grow"><span class="xs muted">Sign in with email and password instead</span></span><span class="dl-more-chev"><?= icon('chevron-down', 'sm') ?></span></summary><div class="dl-more-body"><p class="small mb">In the app, sign in with your Niyanta email and password and this workspace address:</p>
+          <div class="token-box"><code><?= e(absolute_url('/')) ?></code><button type="button" class="btn icon sm ghost" data-copy="<?= e(absolute_url('/')) ?>" aria-label="Copy workspace address"><?= icon('copy', 'sm') ?></button></div></div></details></div>
     </div>
 
   </div>
@@ -107,8 +110,8 @@ $archLbl = ['arm64' => 'Apple silicon', 'x64' => 'Intel', 'universal' => 'Univer
     </div>
     <?php endif ?>
     <div class="card" id="devices">
-      <div class="card-head"><h3>Connected devices</h3><span class="pill pill-sky"><?= icon('monitor', 'sm') ?> <?= count($tokens) ?></span></div>
-      <?php if (!$tokens): ?><p class="small muted mb0">No computer is connected yet. Install the desktop app and sign in.</p><?php else: ?><div class="list"><?php foreach ($tokens as $tk): ?>
+      <div class="card-head"><h3>Your devices</h3><span class="pill pill-sky"><?= icon('monitor', 'sm') ?> <?= count($tokens) ?></span></div>
+      <?php if (!$tokens): ?><p class="small muted mb0">No computer is connected yet. Install the desktop app and click <b>Connect the desktop app</b>.</p><?php else: ?><div class="list"><?php foreach ($tokens as $tk): ?>
         <div class="list-item"><span class="tok-ic"><?= icon($tk['kind'] === 'desktop' ? 'monitor' : 'key', 'sm') ?></span><div class="grow"><b class="small"><?= e($tk['name']) ?></b><div class="meta"><?= e(trim(($tk['device_os'] ?? '').($tk['app_version'] ? ' · v'.$tk['app_version'] : ''), ' ·')) ?><?= $tk['device_os'] || $tk['app_version'] ? ' · ' : '' ?><?= $tk['last_used_at'] ? 'active '.e(ago($tk['last_used_at'])) : 'never used' ?></div></div>
           <form method="post" action="<?= e(url('/time/tokens/'.$tk['id'].'/revoke')) ?>" data-confirm="Disconnect <?= e($tk['name']) ?>? The tracker there signs out."><?= csrf_field() ?><button class="btn sm ghost">Disconnect</button></form></div>
       <?php endforeach ?></div><?php endif ?>

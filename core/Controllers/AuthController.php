@@ -14,7 +14,11 @@ final class AuthController extends Controller {
     $next = (string) $this->request->input('next', '');
     return $this->redirect(preg_match('#^/[^/\\\\]#', $next) ? $next : '/'); }
 
-  public function logout(): Response { Auth::logout(); return $this->redirect('/login'); }
+  /** Sign out of this browser only (desktop device tokens are separate and stay signed in); a safe local `next` comes back after the next sign-in. */
+  public function logout(): Response {
+    $next = (string) $this->request->input('next', '');
+    Auth::logout();
+    return $this->redirect('/login'.(preg_match('#^/[^/\\\\]#', $next) ? '?next='.rawurlencode($next) : '')); }
 
   public function showForgot(): Response { return $this->view('auth/forgot', ['title' => 'Forgot password'], 'layouts/blank'); }
 

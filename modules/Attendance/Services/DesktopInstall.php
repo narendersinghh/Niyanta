@@ -14,6 +14,8 @@ use Core\{Crypto, DB, Gate, Modules};
  * credential: "<user id>-<expiry>-<signature>", the signature being an HMAC (app key, purpose-bound subkey) of the purpose,
  * the user id, the expiry and the user's session version. It works for 2 hours, only for these install routes, only while
  * the user is active and may track time, and stops working when they sign out everywhere or change their password.
+ * Each generated script also carries a one-time connect code (DesktopConnect, 30 minutes) and opens
+ * niyanta-tracker://connect after installing, so a fresh install signs in by itself.
  */
 final class DesktopInstall {
   public const TTL = 7200;
@@ -89,11 +91,12 @@ final class DesktopInstall {
     return "# Niyanta Tracker installer\nWrite-Host ".self::pq('Niyanta Tracker: '.$msg)." -ForegroundColor Red\n"; }
 
   /** macOS + Linux installer (bash). Everything runs inside main(), so a cut-off download never runs half a script. */
-  public static function shell(string $key, array $f): string {
+  public static function shell(string $key, array $f, string $connect = ''): string {
     $v = static fn (?array $x, string $k): string => self::sq((string) ($x[$k] ?? ''));
     $head = implode("\n", [
       'BASE='.self::sq(self::fileBase()),
       'KEY='.self::sq($key),
+      'CONNECT='.self::sq($connect),
       'VERSION='.self::sq($f['version']),
       'MAC_ARM64='.$v($f['mac_arm64'], 'name'), 'MAC_ARM64_SHA='.$v($f['mac_arm64'], 'sha512'),
       'MAC_X64='.$v($f['mac_x64'], 'name'), 'MAC_X64_SHA='.$v($f['mac_x64'], 'sha512'),
@@ -140,7 +143,8 @@ install_mac() {
   xattr -cr "$dest" 2>/dev/null || true
   say "Installed to $dest"
   open "$dest"
-  say "Done. Allow Screen Recording when macOS asks (needed for screenshots only), then sign in."; }
+  if [ -n "$CONNECT" ] && { sleep 3; open "$CONNECT" >/dev/null 2>&1; }; then say "Done. Niyanta Tracker signs you in by itself. Allow Screen Recording when macOS asks (needed for screenshots only)."
+  else say "Done. Allow Screen Recording when macOS asks (needed for screenshots only), then sign in with your browser."; fi; }
 
 install_linux() {
   local bin="$HOME/.local/bin" dest apps icons
@@ -159,14 +163,15 @@ install_linux() {
   if (cd "$TMP" && "$dest" --appimage-extract 'niyanta-tracker.png' >/dev/null 2>&1) && [ -f "$TMP/squashfs-root/niyanta-tracker.png" ]; then
     mkdir -p "$icons" && cp -f "$TMP/squashfs-root/niyanta-tracker.png" "$icons/niyanta-tracker.png" || true
   fi
-  printf '[Desktop Entry]\nType=Application\nName=%s\nComment=Niyanta time tracker\nExec="%s" %%U\nIcon=niyanta-tracker\nTerminal=false\nCategories=Office;\nStartupWMClass=Niyanta Tracker\n' "$APP" "$dest" > "$apps/niyanta-tracker.desktop"
+  printf '[Desktop Entry]\nType=Application\nName=%s\nComment=Niyanta time tracker\nExec="%s" %%U\nIcon=niyanta-tracker\nTerminal=false\nCategories=Office;\nStartupWMClass=Niyanta Tracker\nMimeType=x-scheme-handler/niyanta-tracker;\n' "$APP" "$dest" > "$apps/niyanta-tracker.desktop"
   command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$apps" >/dev/null 2>&1 || true
+  command -v xdg-mime >/dev/null 2>&1 && xdg-mime default niyanta-tracker.desktop x-scheme-handler/niyanta-tracker >/dev/null 2>&1 || true
   say "Installed to $dest (and added to your applications menu)"
   if command -v ldconfig >/dev/null 2>&1 && ! ldconfig -p 2>/dev/null | grep -q 'libfuse\.so\.2'; then
     say "If the app does not open, install FUSE 2 first: sudo apt install libfuse2 (Ubuntu 24.04: libfuse2t64)"
   fi
-  nohup "$dest" >/dev/null 2>&1 &
-  say "Done. Sign in with your workspace address, email and password."; }
+  if [ -n "$CONNECT" ]; then nohup "$dest" "$CONNECT" >/dev/null 2>&1 & say "Done. Niyanta Tracker opens and signs you in by itself."
+  else nohup "$dest" >/dev/null 2>&1 & say "Done. Open Niyanta Tracker and sign in with your browser."; fi; }
 
 main() {
   TMP="$(mktemp -d "${TMPDIR:-/tmp}/niyanta-install.XXXXXX")"
@@ -190,13 +195,14 @@ SH;
    * Unblock-File, no TLS or execution-policy tweaks, nothing in %TEMP%); the person clicks through the setup, which starts the
    * app at the end. Never `exit` (it would close the window).
    */
-  public static function powershell(string $key, array $f): string {
+  public static function powershell(string $key, array $f, string $connect = ''): string {
     $w = $f['windows'];
     $head = implode("\n", [
       '  $version = '.self::pq($f['version']),
       '  $url = '.self::pq(self::fileBase().rawurlencode($w['name']).'?k='.$key),
       '  $sha = '.self::pq(strtoupper($w['sha512'])),
-      '  $name = '.self::pq($w['name'])]);
+      '  $name = '.self::pq($w['name']),
+      '  $connect = '.self::pq($connect)]);
     $body = <<<'PS'
   $ErrorActionPreference = 'Stop'
   $dir = Join-Path $env:USERPROFILE 'Downloads'
@@ -213,8 +219,16 @@ SH;
   try { Start-Process -FilePath $out }
   catch { Write-Host "Could not open the setup. Open $out yourself (double-click it in your Downloads folder)." -ForegroundColor Red; return }
   Write-Host '==> The Niyanta Tracker setup is open: follow it to the end (Next, Install, Finish).' -ForegroundColor Green
-  Write-Host '    Niyanta Tracker then starts by itself: sign in with your workspace address, email and password.' -ForegroundColor Green
   Write-Host '    If Windows Security blocks the file, tell your Niyanta administrator: it can be reported to Microsoft as a false positive.' -ForegroundColor Green
+  if (-not $connect) { Write-Host '    Niyanta Tracker then starts by itself: sign in with your browser.' -ForegroundColor Green; return }
+  Write-Host '    Niyanta Tracker then starts and signs you in by itself. Keep this window open until it does.' -ForegroundColor Green
+  $scheme = 'Registry::HKEY_CLASSES_ROOT\niyanta-tracker'
+  $until = (Get-Date).AddMinutes(25)
+  while (-not (Test-Path -LiteralPath $scheme) -and ((Get-Date) -lt $until)) { Start-Sleep -Seconds 3 }
+  if (-not (Test-Path -LiteralPath $scheme)) { Write-Host 'Niyanta Tracker was not set up in time. Open it and choose Sign in with your browser.' -ForegroundColor Yellow; return }
+  Start-Sleep -Seconds 4
+  try { Start-Process -FilePath $connect; Write-Host '==> Niyanta Tracker is signing you in. You can close this window.' -ForegroundColor Green }
+  catch { Write-Host 'Could not open Niyanta Tracker. Open it and choose Sign in with your browser.' -ForegroundColor Yellow }
 PS;
     return "# Niyanta Tracker installer for Windows, generated by ".preg_replace('/[^\x20-\x7e]/', '', absolute_url('/'))."\n"
       ."# Downloads only from this workspace and checks the sha512. This link works until ".gmdate('Y-m-d H:i', (int) self::expires($key))." UTC.\n"

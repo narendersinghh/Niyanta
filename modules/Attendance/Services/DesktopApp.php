@@ -152,8 +152,11 @@ final class DesktopApp {
         $a = $rel['assets'][$n];
         if (!isset($files[$n]) || !is_file($dir.'/'.$n)) { self::download($a, $n, $dir); $res['downloaded']++; }
         if (in_array($n, self::UPDATE_FILES, true)) { $sums += self::ymlFiles((string) file_get_contents($dir.'/'.$n)); }
-        elseif (isset($sums[$n]) && !hash_equals($sums[$n], base64_encode(hash_file('sha512', $dir.'/'.$n, true)))) { @unlink($dir.'/'.$n); throw new \RuntimeException($n.' does not match the sha512 in the update file.'); }
-        $files[$n] = ['size' => (int) filesize($dir.'/'.$n)] + (self::classify($n) ?? []); }
+        else {
+          $h = base64_encode(hash_file('sha512', $dir.'/'.$n, true));
+          if (isset($sums[$n]) && !hash_equals($sums[$n], $h)) { @unlink($dir.'/'.$n); throw new \RuntimeException($n.' does not match the sha512 in the update file.'); } }
+        $files[$n] = ['size' => (int) filesize($dir.'/'.$n)] + (isset($h) && !in_array($n, self::UPDATE_FILES, true) ? ['sha512' => $h] : []) + (self::classify($n) ?? []);
+        unset($h); }
       $m = ['version' => $rel['version'], 'tag' => $rel['tag'], 'name' => $rel['name'], 'published_at' => $rel['published_at'], 'synced_at' => date('Y-m-d H:i:s'), 'repo' => self::repo(), 'files' => $files];
       file_put_contents($dir.'/manifest.json', json_encode($m, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES), LOCK_EX);
       self::$local = null;
@@ -215,7 +218,30 @@ final class DesktopApp {
     self::$local = $best ?? [];
     return $best; }
 
-  public static function forget(): void { self::$local = null; }
+  public static function forget(): void { self::$local = null; self::$sums = null; }
+
+  private static ?array $sums = null;
+
+  /**
+   * sha512 (base64 of the raw digest, electron-builder format) of a mirrored file of the newest version, or null. Taken from
+   * the manifest (recorded when mirrored), else from the mirrored latest*.yml, else hashed once and cached next to the mirror
+   * (sha512.json), so large installers are never hashed per request.
+   */
+  public static function sha512(string $name): ?string {
+    $m = self::local();
+    $p = self::path($name);
+    if (!$m || !$p) { return null; }
+    if (!empty($m['files'][$name]['sha512'])) { return (string) $m['files'][$name]['sha512']; }
+    $dir = dirname($p);
+    if (self::$sums === null) {
+      $c = is_file($dir.'/sha512.json') ? json_decode((string) file_get_contents($dir.'/sha512.json'), true) : null;
+      self::$sums = is_array($c) ? $c : [];
+      foreach (self::UPDATE_FILES as $y) { if ($yp = self::path($y)) { self::$sums = self::ymlFiles((string) file_get_contents($yp)) + self::$sums; } } }
+    if (!isset(self::$sums[$name])) {
+      self::$sums[$name] = base64_encode(hash_file('sha512', $p, true));
+      $c = is_file($dir.'/sha512.json') ? json_decode((string) file_get_contents($dir.'/sha512.json'), true) : null;
+      @file_put_contents($dir.'/sha512.json', json_encode([$name => self::$sums[$name]] + (is_array($c) ? $c : []), JSON_UNESCAPED_SLASHES), LOCK_EX); }
+    return self::$sums[$name]; }
 
   /** Absolute path of a mirrored file of the newest version, or null (names are checked against the manifest). */
   public static function path(string $name): ?string {
