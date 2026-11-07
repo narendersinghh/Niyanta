@@ -20,7 +20,8 @@ src/main/      main.js (lifecycle, tray, window, tracking dot on the app icon, I
                queue.js (offline queue), capture.js (screenshots),
                toast.js (capture notice), store.js (prefs + encrypted token), errors.js (error reporting),
                updater.js (update check, Update now, manual download), selfupdate.js (pure helpers: feed parsing,
-               macOS helper script)
+               macOS helper script), guard.js (pure: IPC argument validation, link allowlist, rate limiter, safe file
+               names, screenshot encryption)
 src/preload/   contextIsolation bridge (window.tracker) and the notice window bridge
 src/shared/    status.js (what the big counter shows; used by the window and the checks)
 src/renderer/  index.html / app.js / styles.css (384 x 700 window, brand colours only), toast.html (capture notice)
@@ -28,7 +29,8 @@ build/         icon.png (1024, converted by electron-builder), icons/ (Linux), t
 scripts/       icons.js (regenerate icons from the logo), check.js (syntax check + simulation + update checks + status-check.js:
                counter, meeting slots, sync before quitting, tracking dot, Windows activity and build), simulate.js
                (activity and pomodoro simulation on fake input timelines), updates-check.js (selfupdate.js checks, runs the
-               generated macOS helper on fake bundles), adhoc-sign.js (afterPack: ad-hoc signature without a certificate)
+               generated macOS helper on fake bundles), security-check.js (security regression checks, see Security),
+               after-pack.js (afterPack: Electron fuses, then adhoc-sign.js: ad-hoc signature without a certificate)
 ```
 
 ## Develop
@@ -235,6 +237,56 @@ Escape closes them).
 - **Errors**: uncaught exceptions, unhandled rejections, failed syncs and capture failures are written to
   `userData/logs/tracker.log` and sent to the workspace error log (Audit log › Error logs, source *desktop*, with the version).
 - **Updates**: see *Updates (in the app)* above.
+
+## Security
+
+What the app does to keep the device token, the screenshots and the computer safe; `npm run check` runs
+`scripts/security-check.js`, which fails when any of this regresses (window flags, CSP, IPC validation, HTTPS and redirect
+policy, storage, fuses, package contents).
+
+- **Process and windows**: `app.enableSandbox()`; every window has `contextIsolation`, `sandbox`, `nodeIntegration: false`,
+  `webviewTag: false`, `webSecurity`, no plugins or experimental features, devtools only in development. The pages are the
+  two bundled files (`file://` inside `src/renderer`): navigation anywhere else, redirects, `window.open`, `<webview>` and page
+  downloads are refused for every web contents; every permission request (camera, notifications, clipboard read, devices...)
+  is denied (screenshots are taken by the main process with `desktopCapturer`). Certificate errors are never accepted. No
+  custom protocol is registered. `ELECTRON_RUN_AS_NODE` and `NODE_OPTIONS` are removed from the environment at start.
+- **Fuses** (`scripts/after-pack.js`, `@electron/fuses`): in every installer `runAsNode` is off (the binary cannot be used as
+  a Node runtime), `NODE_OPTIONS` and `--inspect` are ignored, cookie encryption is on, the app loads only from `app.asar`,
+  and on macOS and Windows the asar is validated against the hash electron-builder embeds (a modified `app.asar` does not
+  start). The fuses are flipped before the ad-hoc signature, so the macOS signature stays valid.
+- **Pages**: strict Content-Security-Policy (`default-src 'none'`, scripts and styles only from the app, no inline scripts,
+  `connect-src 'none'`), no inline event handlers, every server string is HTML-escaped (`esc`) before it is rendered.
+- **IPC**: the preload exposes a fixed set of typed functions (`window.tracker`), never `ipcRenderer`. Each handler checks that
+  the call comes from the main frame of the app's own window, validates every argument (types, allowlists, id ranges, string
+  lengths: `src/main/guard.js`) and is rate limited per channel (renderer error reports 10/min, sign-in 10/min). Links leave
+  the app through one function: only http(s) URLs on the signed-in workspace (or niyanta.app) reach `shell.openExternal`;
+  the macOS Screen Recording pane is a constant.
+- **Network**: workspace addresses must be `https://` (http only for localhost development); other schemes and addresses
+  with credentials are refused. Requests use Electron's network stack (`net.request`, system proxy and certificate store)
+  with manual redirect handling: a redirect is followed only within the workspace's origin, so the device token never
+  travels to another site; responses are capped (4 MB JSON, 1 MB update feed, 600 MB installer) and every request has a
+  timeout (downloads also a 60 s stall limit). Retries use exponential backoff with jitter (3 s doubling to 5 minutes) and
+  the periodic state refresh backs off the same way while offline. `electron-updater` 6.8.11 or newer (fixes the
+  cross-origin credential leak of older versions), no downgrades or prereleases; everything it and the macOS updater
+  download is verified against the sha512 in `latest*.yml` before it is installed; manual installers are verified when the
+  server offers a checksum (`/api/agent/version` `files[].sha512`, else the feed). File names from the server are checked
+  (`guard.safeFileName`) before they are joined to a folder.
+- **Data at rest** (`userData`, file mode 600, folders 700): the device token and the screenshot key are encrypted with the
+  OS keychain (`safeStorage`); screenshots waiting in the offline queue are AES-256-GCM encrypted files (`pending/*.enc`,
+  a random key per installation), deleted right after the upload, bounded to 400 files / 120 MB / 24 hours (oldest first),
+  and files no queued job refers to are deleted at start. Nothing is captured while the screen is locked or the computer
+  asleep. Sign-out deletes the token, the key, the queue, the cached bootstrap and the saved session. Logs rotate at 2 MB
+  (two backups) and bearer tokens / password fields are scrubbed from every line before it is written or sent.
+- **Quitting**: the sync before quitting is bounded (at most 60 s, Quit anyway at any time) and a hard ceiling of 75 s
+  guarantees the app exits even if a request hangs. A crashed page is reloaded (at most 3 times in 5 minutes).
+- **Package**: one runtime dependency (`electron-updater`, `npm audit --omit=dev` is clean); the installer contains `src/`
+  and `package.json` only (no scripts, tests or docs), nothing is unpacked from the asar, Windows asks for no elevation.
+  What `npm audit` still lists is in the build toolchain only (`electron-builder` 25 › `node-gyp` › `tar`), which never runs
+  on an installed app and never extracts untrusted archives here (no native modules).
+- **Verify on a real machine**: `npm run dist`, then `NIYANTA_CHECK_DIST=1 npm run check` reads the fuse wire of
+  `dist/*-unpacked`; on macOS `codesign -dv --verbose=2 "dist/mac-arm64/Niyanta Tracker.app"` must show a valid signature
+  after the fuses; `ELECTRON_RUN_AS_NODE=1 <binary> -e "console.log(1)"` must start the app, not print 1; the `pending/`
+  folder must hold only `.enc` files while offline.
 
 ## Privacy
 

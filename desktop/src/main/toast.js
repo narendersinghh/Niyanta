@@ -14,7 +14,8 @@ function ensure() {
   win = new BrowserWindow({
     width: W, height: H, show: false, frame: false, resizable: false, movable: false, minimizable: false, maximizable: false, fullscreenable: false,
     focusable: false, skipTaskbar: true, alwaysOnTop: true, hasShadow: false, transparent: !linux, backgroundColor: linux ? '#17162B' : '#00000000',
-    webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false, preload: path.join(__dirname, '..', 'preload', 'toast-preload.js') }
+    webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false, nodeIntegrationInWorker: false, nodeIntegrationInSubFrames: false, webviewTag: false, webSecurity: true, allowRunningInsecureContent: false,
+      experimentalFeatures: false, plugins: false, navigateOnDragDrop: false, spellcheck: false, devTools: false, preload: path.join(__dirname, '..', 'preload', 'toast-preload.js') }
   });
   win.setAlwaysOnTop(true, 'screen-saver');
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });

@@ -4,19 +4,42 @@
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
-const { app, BrowserWindow, Tray, Menu, Notification, ipcMain, shell, nativeTheme, nativeImage, powerMonitor, dialog, clipboard } = require('electron');
+const { app, BrowserWindow, Tray, Menu, Notification, ipcMain, shell, nativeTheme, nativeImage, powerMonitor, dialog, clipboard, session } = require('electron');
 const errors = require('./errors');
 const store = require('./store');
 const capture = require('./capture');
 const toast = require('./toast');
 const badge = require('./badge');
+const guard = require('./guard');
 const { Tracker } = require('./tracker');
+
+/* ---------- process hardening (before anything else runs) ---------- */
+/* Every renderer runs in the Chromium sandbox (also set per window; the fuses of the packaged app turn off runAsNode,
+   NODE_OPTIONS and --inspect). The variables below never reach a relaunch or the helper processes we spawn. */
+app.enableSandbox();
+for (const k of ['ELECTRON_RUN_AS_NODE', 'ELECTRON_ENABLE_LOGGING', 'NODE_OPTIONS', 'NODE_EXTRA_CA_CERTS']) delete process.env[k];
 
 app.setName('Niyanta Tracker');
 if (process.platform === 'win32') app.setAppUserModelId('app.niyanta.tracker');
 if (process.env.NIYANTA_TRACKER_PROFILE) app.setPath('userData', path.resolve(process.env.NIYANTA_TRACKER_PROFILE));
 
 if (!app.requestSingleInstanceLock()) { app.quit(); return; } // eslint-disable-line no-useless-return
+
+/* TLS: a certificate the OS does not trust is never accepted (the default; stated here so nothing can loosen it later). */
+app.on('certificate-error', (_e, _wc, _url, _err, _cert, callback) => callback(false));
+/* Every web contents (the window, the capture notice): no navigation, no new windows, no <webview>, no remote content. */
+app.on('web-contents-created', (_e, wc) => {
+  wc.setWindowOpenHandler(() => ({ action: 'deny' }));
+  wc.on('will-navigate', (e, url) => { if (!isOurPage(url)) e.preventDefault(); });
+  wc.on('will-redirect', e => e.preventDefault());
+  wc.on('will-attach-webview', e => e.preventDefault());
+  wc.on('devtools-opened', () => { if (app.isPackaged) wc.closeDevTools(); }); });
+
+const rendererDir = path.join(__dirname, '..', 'renderer');
+/** Only the app's own pages (file:// inside src/renderer) may be shown in a window. */
+function isOurPage(url) {
+  try { const u = new URL(url); if (u.protocol !== 'file:') return false; const p = decodeURIComponent(u.pathname); return path.resolve(process.platform === 'win32' ? p.replace(/^\//, '') : p).startsWith(rendererDir + path.sep); }
+  catch (e) { return false; } }
 
 errors.installGlobalHandlers();
 let win = null;
@@ -36,7 +59,7 @@ function createWindow() {
     show: false, resizable: true, maximizable: false, fullscreenable: false,
     title: 'Niyanta Tracker', icon: asset('renderer', 'icon.png'), autoHideMenuBar: true,
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#0E0D1C' : '#F4F4FA',
-    webPreferences: { preload: asset('preload', 'preload.js'), contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: false, devTools: !app.isPackaged } }));
+    webPreferences: Object.assign({ preload: asset('preload', 'preload.js') }, WEB_PREFS) }));
   /* some Linux window managers ignore maximizable:false (double-click on the title bar) */
   win.on('maximize', () => win.unmaximize());
   win.on('enter-full-screen', () => win.setFullScreen(false));
@@ -46,9 +69,28 @@ function createWindow() {
   win.once('ready-to-show', () => { if (!process.argv.includes('--hidden')) win.show(); });
   win.on('session-end', () => tracker && tracker.onShutdown());
   win.on('focus', () => win.flashFrame(false));
+  /* a hidden window gets no state pushes (nothing to paint); the latest state is sent when it shows again */
+  for (const ev of ['show', 'restore', 'focus']) win.on(ev, flushUi);
   win.on('close', e => { if (!quitting) { e.preventDefault(); win.hide(); if (process.platform === 'darwin') app.dock && app.dock.hide(); } });
-  win.webContents.setWindowOpenHandler(({ url }) => { if (/^https?:/.test(url)) shell.openExternal(url); return { action: 'deny' }; });
-  win.webContents.on('will-navigate', (e, url) => { if (!url.startsWith('file:')) { e.preventDefault(); shell.openExternal(url); } }); }
+  /* the page crashed (or was killed): reload it, at most 3 times in 5 minutes */
+  win.webContents.on('render-process-gone', (_e, d) => {
+    if (d.reason === 'clean-exit' || quitting) return;
+    const now = Date.now(); crashes = crashes.filter(t => now - t < 300000); crashes.push(now);
+    if (crashes.length <= 3 && win && !win.isDestroyed()) setTimeout(() => { if (win && !win.isDestroyed()) win.webContents.reload(); }, 500); }); }
+
+/** Shared by the main window and the capture notice: sandboxed, isolated, no Node, no webview, no remote content. */
+const WEB_PREFS = { contextIsolation: true, sandbox: true, nodeIntegration: false, nodeIntegrationInWorker: false, nodeIntegrationInSubFrames: false, webviewTag: false, webSecurity: true,
+  allowRunningInsecureContent: false, experimentalFeatures: false, plugins: false, navigateOnDragDrop: false, spellcheck: false, safeDialogs: true, disableBlinkFeatures: 'Auxclick', devTools: !app.isPackaged };
+let crashes = [];
+let uiDirty = false;
+
+/** Deny every permission a page could ask for (nothing in the app needs one; screenshots are taken by the main process). */
+function lockSession() {
+  const ses = session.defaultSession;
+  ses.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
+  ses.setPermissionCheckHandler(() => false);
+  ses.setDevicePermissionHandler(() => false);
+  ses.on('will-download', e => e.preventDefault()); }
 
 function showWindow() {
   if (!win) createWindow();
@@ -56,9 +98,11 @@ function showWindow() {
   if (win.isMinimized()) win.restore();
   win.show(); win.focus(); }
 
+function flushUi() { if (uiDirty && lastUi && win && !win.isDestroyed()) { uiDirty = false; win.webContents.send('tracker:state', lastUi); } }
+
 function push(ui) {
   lastUi = ui;
-  if (win && !win.isDestroyed()) win.webContents.send('tracker:state', ui);
+  if (win && !win.isDestroyed()) { if (win.isVisible() && !win.isMinimized()) win.webContents.send('tracker:state', ui); else uiDirty = true; }
   updateTray(ui);
   indicator(!!(ui && ui.screen === 'tracker' && ui.tracking)); }
 
@@ -223,64 +267,81 @@ function setLaunchAtLogin(on) {
       if (!on) { fs.rmSync(file, { force: true }); return; }
       const exec = process.env.APPIMAGE || process.execPath;
       fs.mkdirSync(dir, { recursive: true });
-      fs.writeFileSync(file, `[Desktop Entry]\nType=Application\nName=Niyanta Tracker\nExec="${exec}" --hidden\nX-GNOME-Autostart-enabled=true\nTerminal=false\n`);
+      fs.writeFileSync(file, `[Desktop Entry]\nType=Application\nName=Niyanta Tracker\nExec=${guard.desktopExecArg(exec)} --hidden\nX-GNOME-Autostart-enabled=true\nTerminal=false\n`, { mode: 0o644 });
     } else {
       app.setLoginItemSettings({ openAtLogin: !!on, openAsHidden: true, args: ['--hidden'] }); }
   } catch (e) { errors.report('autostart', e, {}, 'warning'); } }
 
 /* ---------- links ---------- */
 
+/**
+ * The only way a link leaves the app: a fixed set of targets, and only http(s) URLs on the signed-in workspace (or
+ * niyanta.app) are handed to the browser (guard.allowedLink); the Screen Recording pane and the log folder are constants.
+ */
 function openTarget(what) {
+  if (!guard.OPEN_TARGETS.includes(what)) return false;
   const ws = tracker.boot && tracker.boot.workspace;
   const base = (ws && ws.url) || store.get('workspaceUrl');
   const urls = { web: base, time: ws && ws.time_page, screenshots: ws && ws.screenshots_page, download: (tracker.update && tracker.update.url) || (ws && ws.time_page ? ws.time_page + '#desktop' : null) };
   if (what === 'permissions') return capture.openPermissionSettings();
   if (what === 'logs') return shell.showItemInFolder(errors.logFile());
-  if (urls[what] && /^https?:\/\//.test(urls[what])) return shell.openExternal(urls[what]); }
+  const url = urls[what];
+  if (!guard.allowedLink(url, tracker.api.base || base)) { if (url) errors.log(`open: refused link outside the workspace (${what})`); return false; }
+  shell.openExternal(url, { activate: true });
+  return true; }
 
 /* ---------- IPC ---------- */
 
+/**
+ * Every handler checks that the call comes from the main frame of our own window (not the notice window, not a frame),
+ * validates its arguments (types, ranges, lengths: guard.js) and is rate limited per channel. Errors never leak stacks to
+ * the page, only the message.
+ */
+const limiter = new guard.RateLimiter({ state: 240, select: 120, action: 60, error: 10, signIn: 10, copy: 30, updates: 10, refresh: 10 }, 60000, 60);
+function validSender(e) {
+  if (!win || win.isDestroyed() || e.sender !== win.webContents) return false;
+  const f = e.senderFrame;
+  return !!f && f === win.webContents.mainFrame && isOurPage(f.url); }
+const obj = v => (v && typeof v === 'object' && !Array.isArray(v) ? v : {});
+
 function registerIpc() {
   const h = (name, fn) => ipcMain.handle('tracker:' + name, async (e, arg) => {
-    if (!win || e.sender !== win.webContents) return null;
-    try { return await fn(arg); } catch (err) { errors.report('ipc:' + name, err); return { ok: false, error: err.message }; } });
+    if (!validSender(e)) return null;
+    if (!limiter.allow(name)) return { ok: false, error: 'Too many requests. Please wait a moment.' };
+    try { return await fn(arg); } catch (err) { errors.report('ipc:' + name, err); return { ok: false, error: String(err && err.message || 'Something went wrong.').slice(0, 300) }; } });
   h('state', () => tracker.ui());
-  h('signIn', d => tracker.signIn(d));
+  h('signIn', d => { d = obj(d); return tracker.signIn({ url: guard.str(d.url, 300), email: guard.str(d.email, 200), password: guard.str(d.password, 1000) }); });
   h('signOut', () => tracker.signOut());
-  h('action', ({ name, body }) => tracker.action(name, sanitizeSel(body)));
-  h('select', sel => { tracker.setSelection(sanitizeSel(sel)); return { ok: true }; });
+  h('action', a => { a = obj(a); const name = guard.str(a.name, 10); return ['start', 'pause', 'resume', 'switch'].includes(name) ? tracker.action(name, guard.selection(a.body)) : { ok: false }; });
+  h('select', sel => { tracker.setSelection(guard.selection(sel)); return { ok: true }; });
   h('consent', () => tracker.acceptConsent());
-  h('pref', ({ key, value }) => {
+  h('pref', p => {
+    const key = guard.str(obj(p).key, 40), value = !!obj(p).value;
+    if (!guard.PREF_KEYS.includes(key)) return { ok: false };
     if (key === 'launchAtLogin') setLaunchAtLogin(value);
-    if (key === 'notify' && tracker.settings.screenshot_notify_user_can_disable) store.set('notifyScreenshots', !!value);
-    if (key === 'tone') store.set('alertTone', !!value);
+    if (key === 'notify' && tracker.settings.screenshot_notify_user_can_disable) store.set('notifyScreenshots', value);
+    if (key === 'tone') store.set('alertTone', value);
     tracker.changed();
     return { ok: true }; });
-  h('pomodoro', ({ op, prefs }) => {
-    if (op === 'save') return tracker.setPomodoro(prefs);
+  h('pomodoro', p => {
+    const op = guard.str(obj(p).op, 10);
+    if (!guard.POMODORO_OPS.includes(op)) return { ok: false };
+    if (op === 'save') return tracker.setPomodoro(obj(obj(p).prefs));
     if (op === 'break') return tracker.takeBreak();
     if (op === 'snooze') return tracker.snoozeBreak();
-    if (op === 'dismiss') return tracker.dismissBreakOver();
-    return { ok: false }; });
-  h('open', what => { openTarget(what); return { ok: true }; });
+    return tracker.dismissBreakOver(); });
+  h('open', what => ({ ok: openTarget(guard.str(what, 40)) !== false }));
   h('updates', () => tracker.checkUpdates(true));
   h('installUpdate', () => tracker.updateNow());
-  h('updatePrompted', v => tracker.updatePrompted(v));
+  h('updatePrompted', v => tracker.updatePrompted(guard.str(v, 40)));
   h('meeting', on => tracker.setMeeting(!!on));
   h('quitAnyway', () => tracker.quitAnyway());
   h('downloadInstaller', () => tracker.downloadInstaller());
   h('openInstaller', () => ({ ok: tracker.updater.open() }));
   h('restartApp', () => { restartToUpdate(false); return { ok: true }; });
-  h('copy', text => { clipboard.writeText(String(text || '').slice(0, 2000)); return { ok: true }; });
+  h('copy', text => { clipboard.writeText(guard.str(text, 2000)); return { ok: true }; });
   h('refresh', async () => { await tracker.refreshBoot(); await tracker.refreshState(); return { ok: true }; });
-  h('error', info => { const e = new Error(info.message); e.stack = info.stack || e.stack; errors.report('renderer', e); return { ok: true }; }); }
-
-function sanitizeSel(b) {
-  const out = {};
-  if (!b || typeof b !== 'object') return out;
-  if ('project_id' in b) { out.project_id = Number.isInteger(+b.project_id) && +b.project_id > 0 ? +b.project_id : null; out.task_id = Number.isInteger(+b.task_id) && +b.task_id > 0 ? +b.task_id : null; }
-  if (typeof b.description === 'string') out.description = b.description.slice(0, 500);
-  return out; }
+  h('error', info => { info = obj(info); const e = new Error(guard.str(info.message, 900) || 'Unknown renderer error'); e.stack = guard.str(info.stack, 6000) || e.stack; errors.report('renderer', e); return { ok: true }; }); }
 
 /* ---------- lifecycle ---------- */
 
@@ -294,10 +355,15 @@ app.on('window-all-closed', e => { /* keep running in the tray */ });
  * installs on the way out). Update restarts and system shutdowns do not wait for the sync (the queue is saved on disk).
  */
 let closing = null;
+const QUIT_CEILING_MS = 75000;
 async function prepareQuit(wait, sync = false) {
   closing = closing || (async () => {
-    try { await tracker.beforeQuit(wait); } catch (err) { /* quitting anyway */ }
-    if (sync) { try { await tracker.syncBeforeQuit(); } catch (err) { /* quitting anyway */ } }
+    const work = (async () => {
+      try { await tracker.beforeQuit(wait); } catch (err) { /* quitting anyway */ }
+      if (sync) { try { await tracker.syncBeforeQuit(); } catch (err) { /* quitting anyway */ } } })();
+    /* whatever happens (a hung request, a stuck sync) the app quits after QUIT_CEILING_MS: the queue is on disk */
+    await Promise.race([work, new Promise(r => setTimeout(r, QUIT_CEILING_MS))]);
+    try { tracker.quitAnyway(); } catch (err) { /* nothing to abort */ }
     toast.destroy();
     quitting = true;
   })();
@@ -327,6 +393,7 @@ async function restartToUpdate(install = true) {
   app.quit(); }
 
 app.whenReady().then(async () => {
+  lockSession();
   tracker = new Tracker(errors.report);
   errors.attach(tracker);
   tracker.on('change', push);

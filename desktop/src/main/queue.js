@@ -1,16 +1,20 @@
 'use strict';
 /* Offline queue: everything that must reach the server (tracking actions, heartbeats with idle spans, activity slots,
-   screenshots, error reports) goes through here. Jobs are persisted to userData/queue.json (screenshots as files in userData/pending), sent in
-   order and retried with exponential backoff while the network or the server is unavailable. */
+   screenshots, error reports) goes through here. Jobs are persisted to userData/queue.json (mode 600); screenshots are
+   files in userData/pending (mode 600, AES-256-GCM with a key kept in the OS keychain, see store.js), deleted as soon as
+   they are uploaded, at most MAX_SHOTS / MAX_SHOT_BYTES / 24 h (oldest first). Jobs are sent in order and retried with
+   exponential backoff and jitter while the network or the server is unavailable. */
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { EventEmitter } = require('events');
 const { app } = require('electron');
+const guard = require('./guard');
 
 const MAX_JOBS = 2000;
 const MAX_AGE_MS = 24 * 3600 * 1000;
 const MAX_SHOTS = 400;
+const MAX_SHOT_BYTES = 120 * 1048576;
 const GAP_MS = 120000;
 const MAX_SLOTS = 200;
 
@@ -19,12 +23,15 @@ function contiguous(a, b) {
   if (!a.at || !b.at) return true;
   return Date.parse(b.at) - (b.active_seconds + b.idle_seconds) * 1000 - Date.parse(a.at) <= GAP_MS; }
 
+const rmQuiet = p => { if (p) { try { fs.rmSync(p, { force: true }); } catch (e) { /* already gone */ } } };
+
 class Queue extends EventEmitter {
-  constructor(api) {
+  constructor(api, opts = {}) {
     super();
     this.api = api;
     this.dir = path.join(app.getPath('userData'), 'pending');
     this.file = path.join(app.getPath('userData'), 'queue.json');
+    this.keyFn = opts.key || (() => require('./store').getQueueKey());
     this.jobs = [];
     this.running = false;
     this.timer = null;
@@ -33,12 +40,24 @@ class Queue extends EventEmitter {
     this.online = true;
     this.flushing = false;
     this.abortFlush = null;
-    try { this.jobs = JSON.parse(fs.readFileSync(this.file, 'utf8')) || []; } catch (e) { this.jobs = []; } }
+    try { const j = JSON.parse(fs.readFileSync(this.file, 'utf8')); this.jobs = Array.isArray(j) ? j.filter(x => x && typeof x === 'object' && typeof x.type === 'string' && typeof x.path === 'string') : []; } catch (e) { this.jobs = []; }
+    /* only files that belong to a queued screenshot may stay in pending/: anything else (a crash between the write and the
+       persist, an old plain .jpg) is deleted */
+    this.sweep(); }
+
+  key() { try { return this.keyFn(); } catch (e) { return null; } }
+
+  sweep() {
+    try {
+      if (!fs.existsSync(this.dir)) return;
+      const keep = new Set(this.jobs.map(j => j.filePath && path.basename(j.filePath)).filter(Boolean));
+      for (const name of fs.readdirSync(this.dir)) if (!keep.has(name)) rmQuiet(path.join(this.dir, name));
+    } catch (e) { /* best effort */ } }
 
   persist() {
     try {
-      fs.mkdirSync(path.dirname(this.file), { recursive: true });
-      fs.writeFileSync(this.file + '.tmp', JSON.stringify(this.jobs));
+      fs.mkdirSync(path.dirname(this.file), { recursive: true, mode: 0o700 });
+      fs.writeFileSync(this.file + '.tmp', JSON.stringify(this.jobs), { mode: 0o600 });
       fs.renameSync(this.file + '.tmp', this.file);
     } catch (e) { console.error('queue persist failed', e); } }
 
@@ -67,31 +86,35 @@ class Queue extends EventEmitter {
     this.kick();
     return job; }
 
-  /** Store screenshot bytes on disk and queue the upload. */
+  /** Encrypt the screenshot, store it on disk (mode 600) and queue the upload. Without a usable key nothing is stored. */
   addScreenshot(buffer, form) {
-    fs.mkdirSync(this.dir, { recursive: true });
-    const filePath = path.join(this.dir, Date.now() + '-' + crypto.randomBytes(4).toString('hex') + '.jpg');
-    fs.writeFileSync(filePath, buffer);
-    return this.add({ type: 'screenshot', path: 'screenshot', form, filePath }); }
+    const key = this.key();
+    if (!key) { this.emit('dropped', { type: 'screenshot', path: 'screenshot' }, 'no-key'); return null; }
+    fs.mkdirSync(this.dir, { recursive: true, mode: 0o700 });
+    const filePath = path.join(this.dir, Date.now() + '-' + crypto.randomBytes(4).toString('hex') + '.enc');
+    fs.writeFileSync(filePath, guard.encrypt(key, buffer), { mode: 0o600 });
+    return this.add({ type: 'screenshot', path: 'screenshot', form, filePath, bytes: buffer.length }); }
 
   trim() {
     const now = Date.now();
-    const drop = j => { if (j.filePath) fs.rm(j.filePath, { force: true }, () => {}); };
-    this.jobs = this.jobs.filter(j => { const keep = now - j.createdAt < MAX_AGE_MS; if (!keep) { drop(j); this.emit('dropped', j, 'expired'); } return keep; });
-    let shots = this.jobs.filter(j => j.type === 'screenshot');
-    while (shots.length > MAX_SHOTS) { const j = shots.shift(); drop(j); this.jobs.splice(this.jobs.indexOf(j), 1); }
-    while (this.jobs.length > MAX_JOBS) { const j = this.jobs.shift(); drop(j); } }
+    const drop = (j, why) => { rmQuiet(j.filePath); this.emit('dropped', j, why); };
+    this.jobs = this.jobs.filter(j => { const keep = now - j.createdAt < MAX_AGE_MS; if (!keep) drop(j, 'expired'); return keep; });
+    const shots = this.jobs.filter(j => j.type === 'screenshot');
+    let bytes = shots.reduce((n, j) => n + (+j.bytes || 0), 0);
+    while (shots.length > MAX_SHOTS || (bytes > MAX_SHOT_BYTES && shots.length > 1)) { const j = shots.shift(); bytes -= +j.bytes || 0; drop(j, 'over-limit'); this.jobs.splice(this.jobs.indexOf(j), 1); }
+    while (this.jobs.length > MAX_JOBS) { const j = this.jobs.shift(); drop(j, 'over-limit'); } }
 
   clear() {
-    for (const j of this.jobs) if (j.filePath) fs.rm(j.filePath, { force: true }, () => {});
+    for (const j of this.jobs) rmQuiet(j.filePath);
     this.jobs = [];
     this.persist();
+    this.sweep();
     this.emit('change'); }
 
   /** Remove queued screenshots (consent revoked or monitoring switched off). */
   dropScreenshots() {
     const before = this.jobs.length;
-    this.jobs = this.jobs.filter(j => { if (j.type === 'screenshot') { if (j.filePath) fs.rm(j.filePath, { force: true }, () => {}); return false; } return true; });
+    this.jobs = this.jobs.filter(j => { if (j.type === 'screenshot') { rmQuiet(j.filePath); return false; } return true; });
     if (before !== this.jobs.length) { this.persist(); this.emit('change'); } }
 
   /**
@@ -123,6 +146,9 @@ class Queue extends EventEmitter {
 
   setOnline(on) { if (this.online !== on) { this.online = on; this.emit('online', on); } }
 
+  /** Current retry delay: 3 s doubling up to 5 min, with 20% jitter so many clients do not retry in step; 2 s while flushing. */
+  backoff() { return this.flushing ? 2000 : Math.min(300000, 3000 * Math.pow(2, Math.min(this.failures, 7))) * (0.8 + Math.random() * 0.4); }
+
   async run() {
     if (this.running || this.paused || !this.jobs.length) return;
     this.running = true;
@@ -132,7 +158,7 @@ class Queue extends EventEmitter {
         try {
           const res = await this.send(job);
           this.jobs.shift();
-          if (job.filePath) fs.rm(job.filePath, { force: true }, () => {});
+          rmQuiet(job.filePath);
           this.failures = 0;
           this.setOnline(true);
           this.persist();
@@ -145,13 +171,12 @@ class Queue extends EventEmitter {
             this.failures++;
             this.setOnline(!err.offline);
             this.persist();
-            const wait = this.flushing ? 2000 : Math.min(300000, 3000 * Math.pow(2, Math.min(this.failures, 7))) * (0.8 + Math.random() * 0.4);
             if (job.tries === 5) this.emit('stuck', job, err);
-            this.kick(wait);
+            this.kick(this.backoff());
             break; }
           /* 4xx rule violation: the server refused this job for good (e.g. consent revoked); drop it and tell the app */
           this.jobs.shift();
-          if (job.filePath) fs.rm(job.filePath, { force: true }, () => {});
+          rmQuiet(job.filePath);
           this.persist();
           this.emit('rejected', job, err);
           this.emit('change'); } }
@@ -160,8 +185,12 @@ class Queue extends EventEmitter {
   async send(job) {
     if (job.type === 'screenshot') {
       let data;
-      try { data = fs.readFileSync(job.filePath); } catch (e) { return { skipped: true }; }
-      return this.api.request('POST', job.path, { form: job.form, file: { field: 'screenshot', name: path.basename(job.filePath), type: 'image/jpeg', data }, timeout: 60000 }); }
+      try {
+        const blob = fs.readFileSync(job.filePath);
+        if (guard.isEncrypted(blob)) { const key = this.key(); if (!key) return { skipped: true }; data = guard.decrypt(key, blob); }
+        else data = blob; }
+      catch (e) { return { skipped: true }; }
+      return this.api.request('POST', job.path, { form: job.form, file: { field: 'screenshot', name: path.basename(job.filePath, path.extname(job.filePath)) + '.jpg', type: 'image/jpeg', data }, timeout: 60000 }); }
     return this.api.request(job.method || 'POST', job.path, { json: job.json, auth: job.auth !== false }); } }
 
-module.exports = { Queue };
+module.exports = { Queue, MAX_SHOTS, MAX_SHOT_BYTES, MAX_JOBS, MAX_AGE_MS };

@@ -21,11 +21,17 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { execFile, spawn } = require('child_process');
-const { app, net, shell } = require('electron');
+const { app, shell } = require('electron');
 const { EventEmitter } = require('events');
 const su = require('./selfupdate');
+const { rawRequest, readBody, userAgent } = require('./api');
+const { safeFileName } = require('./guard');
 
 const FEED = { win32: 'latest.yml', darwin: 'latest-mac.yml', linux: 'latest-linux.yml' };
+const EXTS = ['exe', 'dmg', 'zip', 'appimage', 'deb'];
+const MAX_FEED_BYTES = 1048576;
+const MAX_DOWNLOAD_BYTES = 600 * 1048576;
+const STALL_MS = 60000;
 
 class Updater extends EventEmitter {
   constructor(report) {
@@ -114,7 +120,7 @@ class Updater extends EventEmitter {
     au.setFeedURL({ provider: 'generic', url: this.feed, channel: 'latest', requestHeaders: headers });
     au.requestHeaders = headers; }
 
-  headers() { return { Authorization: 'Bearer ' + this.token, 'X-Agent-Token': this.token, 'X-App-Version': app.getVersion(), 'User-Agent': `NiyantaTracker/${app.getVersion()} (${process.platform}; ${process.arch})` }; }
+  headers() { return { Authorization: 'Bearer ' + this.token, 'X-Agent-Token': this.token, 'X-App-Version': app.getVersion(), 'User-Agent': userAgent() }; }
 
   /** /api/agent/version said a newer version exists: find out what the click will install. */
   async check(offer) {
@@ -166,10 +172,12 @@ class Updater extends EventEmitter {
     const f = su.pickMacZip(this.macFeed.files, arch);
     if (!f) throw new Error('This release has no macOS update for ' + (arch === 'arm64' ? 'Apple silicon' : 'Intel') + ' Macs.');
     if (!f.sha512) throw new Error('The update file has no checksum.');
+    const name = safeFileName(f.name, ['zip']);
+    if (!name) throw new Error('The update file has an unexpected name.');
     const work = fs.mkdtempSync(path.join(os.tmpdir(), 'niyanta-update-'));
     try {
-      const zip = path.join(work, f.name);
-      await this.download(f.name, zip, f.size);
+      const zip = path.join(work, name);
+      await this.download(name, zip, f.size);
       this.set({ status: 'verifying' });
       if (await su.sha512File(zip) !== f.sha512) throw new Error('The downloaded update is damaged (checksum mismatch). Please try again.');
       const out = path.join(work, 'app');
@@ -215,14 +223,20 @@ class Updater extends EventEmitter {
     const arch = process.platform === 'darwin' && (process.arch === 'arm64' || app.runningUnderARM64Translation) ? 'arm64' : (process.arch === 'arm64' ? 'arm64' : 'x64');
     const f = su.pickInstaller(this.offer && this.offer.files, kind, arch);
     if (!f) throw new Error('Your workspace does not offer an installer for this computer yet.');
+    const name = safeFileName(f.name, EXTS);
+    if (!name) throw new Error('The installer has an unexpected file name.');
     let dir = app.getPath('downloads');
     try { fs.mkdirSync(dir, { recursive: true }); } catch (e) { dir = os.tmpdir(); }
-    const dest = path.join(dir, f.name);
+    const dest = path.join(dir, name);
     this.set({ status: 'downloading', percent: 0, error: null, want: true, manual: null });
-    await this.download(f.name, dest, f.size);
+    await this.download(name, dest, f.size);
+    /* the installer is checked against the sha512 the server offers (version answer or the latest*.yml of this platform) */
+    const sha = await this.expectedSha(name, f);
+    if (sha) { this.set({ status: 'verifying' }); if (await su.sha512File(dest) !== sha) { fs.rmSync(dest, { force: true }); throw new Error('The downloaded installer is damaged (checksum mismatch). Please try again.'); } }
+    else this.report('updater', new Error('No checksum offered for ' + name + '; the download was accepted over HTTPS from the workspace only.'), { kind }, 'warning');
     if (kind === 'linux') fs.chmodSync(dest, 0o755);
     if (kind === 'mac') await run('/usr/bin/xattr', ['-cr', dest]).catch(() => {});
-    const manual = { kind, file: f.name, path: dest, folder: dir, command: kind === 'deb' ? 'sudo apt install ' + su.sq(dest) : null };
+    const manual = { kind, file: name, path: dest, folder: dir, command: kind === 'deb' ? 'sudo apt install ' + su.sq(dest) : null };
     this.set({ status: 'manual', want: false, percent: 100, manual });
     this.open(kind);
     return { ok: true }; }
@@ -240,29 +254,46 @@ class Updater extends EventEmitter {
 
   /* ---------- HTTP (Electron's network stack: system proxy and certificates) ---------- */
 
+  /** A small text file (latest*.yml) from the feed; redirects off the workspace origin are refused (api.rawRequest). */
   async text(name) {
-    const res = await net.fetch(this.feed + encodeURIComponent(name), { headers: this.headers(), cache: 'no-store' });
-    if (!res.ok) throw new Error(`Update file ${name}: HTTP ${res.status}`);
-    return res.text(); }
+    const r = await rawRequest(this.feed + encodeURIComponent(name), { headers: this.headers(), timeout: 20000 });
+    if (r.status < 200 || r.status >= 300) { r.req.abort(); throw new Error(`Update file ${name}: HTTP ${r.status}`); }
+    return (await readBody(r, MAX_FEED_BYTES, 20000)).toString('utf8'); }
 
-  /** Stream a file from the workspace feed to `dest` (via dest.part) with progress. */
+  /** The sha512 (base64) the server offers for `name`: in the version answer, else in this platform's latest*.yml. */
+  async expectedSha(name, f) {
+    if (f && typeof f.sha512 === 'string' && f.sha512.length >= 64) return f.sha512;
+    try {
+      const feed = this.macFeed && process.platform === 'darwin' ? this.macFeed : su.parseFeed(await this.text(FEED[process.platform] || 'latest-linux.yml'));
+      const hit = (feed.files || []).find(x => x.name === name && x.sha512);
+      return hit ? hit.sha512 : (feed.path && su.baseName(feed.path) === name && feed.sha512 ? feed.sha512 : null); }
+    catch (e) { return null; } }
+
+  /** Stream a file from the workspace feed to `dest` (via dest.part, mode 600) with progress; bounded in size and stall time. */
   async download(name, dest, size) {
-    const res = await net.fetch(this.feed + encodeURIComponent(name), { headers: this.headers(), cache: 'no-store' });
-    if (!res.ok || !res.body) throw new Error(res.status === 404 ? 'The new version is not on your workspace any more. Check again in a minute.' : `Download failed (HTTP ${res.status}).`);
-    const total = +res.headers.get('content-length') || size || 0;
+    const r = await rawRequest(this.feed + encodeURIComponent(name), { headers: this.headers(), timeout: 30000 });
+    if (r.status < 200 || r.status >= 300) { r.req.abort(); throw new Error(r.status === 404 ? 'The new version is not on your workspace any more. Check again in a minute.' : `Download failed (HTTP ${r.status}).`); }
+    const total = +r.headers['content-length'] || size || 0;
+    if (total > MAX_DOWNLOAD_BYTES) { r.req.abort(); throw new Error('The update file is unexpectedly large.'); }
     const part = dest + '.part';
-    const out = fs.createWriteStream(part);
-    const reader = res.body.getReader();
+    fs.rmSync(part, { force: true });
+    const out = fs.createWriteStream(part, { mode: 0o600 });
     let got = 0; let last = -1;
     try {
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        got += value.length;
-        if (!out.write(Buffer.from(value))) await new Promise(r => out.once('drain', r));
-        const pc = total ? Math.min(99, Math.floor(got * 100 / total)) : 0;
-        if (pc !== last) { last = pc; this.set({ percent: pc }); } }
-      await new Promise((resolve, reject) => out.end(err => err ? reject(err) : resolve())); }
+      await new Promise((resolve, reject) => {
+        let stall = null;
+        const arm = () => { clearTimeout(stall); stall = setTimeout(() => { r.req.abort(); reject(new Error('stalled')); }, STALL_MS); };
+        arm();
+        r.res.on('data', chunk => {
+          got += chunk.length;
+          if (got > MAX_DOWNLOAD_BYTES) { r.req.abort(); reject(new Error('too large')); return; }
+          arm();
+          if (!out.write(chunk)) { r.res.pause(); out.once('drain', () => r.res.resume()); }
+          const pc = total ? Math.min(99, Math.floor(got * 100 / total)) : 0;
+          if (pc !== last) { last = pc; this.set({ percent: pc }); } });
+        r.res.on('end', () => { clearTimeout(stall); out.end(err => err ? reject(err) : resolve()); });
+        r.res.on('error', e => { clearTimeout(stall); reject(e); });
+        r.res.on('aborted', () => { clearTimeout(stall); reject(new Error('aborted')); }); }); }
     catch (e) { out.destroy(); fs.rmSync(part, { force: true }); throw new Error('The download was interrupted. Check your connection and try again.'); }
     if (total && got !== total) { fs.rmSync(part, { force: true }); throw new Error('The download was incomplete. Please try again.'); }
     fs.renameSync(part, dest); } }

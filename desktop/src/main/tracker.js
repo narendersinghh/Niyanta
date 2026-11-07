@@ -41,8 +41,19 @@ const { MEETING_MS } = require('../shared/status');
 const ACTIONS = { start: 'day/start', pause: 'pause', resume: 'resume', switch: 'switch' };
 const SAVE_MS = 15000;
 const UPDATE_EVERY_MS = 30 * 60000;
+const STATE_EVERY_MS = 60000;
+const STATE_FULL_MS = 5 * 60000;
+const STATE_OFFLINE_MAX_MS = 5 * 60000;
+const BOOT_EVERY_MS = 15 * 60000;
 const QUIT_SYNC_MS = 60000;
 const iso = ms => new Date(ms).toISOString();
+/* Intl formatters are costly to build; one per time zone is kept (the tracker asks every second). */
+const fmtCache = new Map();
+function fmt(kind, tz) {
+  const k = kind + '|' + (tz || '');
+  let f = fmtCache.get(k);
+  if (!f) { f = kind === 'day' ? new Intl.DateTimeFormat('en-CA', { timeZone: tz || undefined, year: 'numeric', month: '2-digit', day: '2-digit' }) : new Intl.DateTimeFormat('en-GB', { timeZone: tz || undefined, hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }); fmtCache.set(k, f); }
+  return f; }
 /* 12-hour clock unless the workspace chose 24-hour (boot.workspace.clock, from Settings › General › Time format) */
 let clock24 = false;
 const clock = ms => new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: !clock24 });
@@ -155,8 +166,9 @@ class Tracker extends EventEmitter {
 
   signOutLocal(message) {
     this.stop();
-    store.setToken(null); store.set('bootCache', undefined); store.set('session', undefined);
+    store.setToken(null); store.set('bootCache', undefined); store.set('session', undefined); store.set('updateRestart', undefined);
     this.queue.clear();
+    store.resetQueueKey();
     this.activity.stop();
     this.boot = null; this.snap = null; this.idlePause = null; this.spans = []; this.idleFrom = 0; this.slot = null; this.lastSlot = null; this.meeting = null;
     this.api.configure(store.get('workspaceUrl'), null);
@@ -181,14 +193,14 @@ class Tracker extends EventEmitter {
   /** Calendar date (YYYY-MM-DD) in the workspace time zone (the server's day), or the computer's when that is unknown. */
   dayKey(ms = Date.now()) {
     const tz = this.boot && this.boot.workspace && this.boot.workspace.timezone;
-    try { return new Intl.DateTimeFormat('en-CA', { timeZone: tz || undefined, year: 'numeric', month: '2-digit', day: '2-digit' }).format(ms); }
+    try { return fmt('day', tz).format(ms); }
     catch (e) { const d = new Date(ms); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; } }
 
   /** Seconds since midnight in the workspace time zone. */
   secondsIntoDay(ms = Date.now()) {
     const tz = this.boot && this.boot.workspace && this.boot.workspace.timezone;
     try {
-      const p = {}; new Intl.DateTimeFormat('en-GB', { timeZone: tz || undefined, hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }).formatToParts(ms).forEach(x => { p[x.type] = +x.value; });
+      const p = {}; fmt('time', tz).formatToParts(ms).forEach(x => { p[x.type] = +x.value; });
       return (p.hour % 24) * 3600 + p.minute * 60 + p.second; }
     catch (e) { const d = new Date(ms); return d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds(); } }
 
@@ -286,11 +298,23 @@ class Tracker extends EventEmitter {
       this.refreshState();
       return { ok: false, error: e.message }; } }
 
+  /**
+   * The periodic GET /state (every 60 s) is skipped while heartbeats (which answer with the same state) are flowing, except
+   * for a full refresh (settings, consent) every 5 minutes; while offline the interval doubles up to 5 minutes so a computer
+   * without a network does not try every minute.
+   */
+  stateDue(now) {
+    if (now < this.nextState) return false;
+    if (this.offline) { this.stateWait = Math.min(STATE_OFFLINE_MAX_MS, (this.stateWait || STATE_EVERY_MS) * 2); this.nextState = now + this.stateWait; return true; }
+    this.stateWait = STATE_EVERY_MS; this.nextState = now + STATE_EVERY_MS;
+    return !(this.state === 'tracking' && now - this.lastBeatAt < STATE_EVERY_MS && now - this.lastFullState < STATE_FULL_MS); }
+
   async refreshState() {
-    if (!this.signedIn) return;
+    if (!this.signedIn || this.refreshing) return;
+    this.refreshing = true;
     try {
       const r = await this.api.get('state', { timeout: 15000 });
-      this.offline = false;
+      this.offline = false; this.lastFullState = Date.now(); this.stateWait = STATE_EVERY_MS;
       if (!this.queue.jobs.some(j => j.type === 'action')) this.setSnap(r.state);
       const had = !!(this.boot && this.boot.consent);
       this.boot.settings = r.settings;
@@ -300,7 +324,8 @@ class Tracker extends EventEmitter {
       this.changed(); }
     catch (e) {
       if (e.status === 401) return this.signedOutRemotely();
-      if (e.offline) { this.offline = true; this.changed(); } } }
+      if (e.offline) { this.offline = true; this.changed(); } }
+    finally { this.refreshing = false; } }
 
   async refreshBoot() {
     if (!this.signedIn) return;
@@ -373,11 +398,10 @@ class Tracker extends EventEmitter {
     this.nextHeartbeat = Date.now() + this.beatMs;
     this.localTracking = this.state === 'tracking';
     this.activity.start();
+    /* one timer drives everything: the activity sample every second; state, bootstrap and update refreshes when due */
+    this.nextState = Date.now() + STATE_EVERY_MS; this.nextBoot = Date.now() + BOOT_EVERY_MS; this.nextUpdate = Date.now() + 8000;
+    this.lastBeatAt = 0; this.lastFullState = Date.now(); this.stateWait = STATE_EVERY_MS;
     this.loops.push(setInterval(() => this.tick(), 1000));
-    this.loops.push(setInterval(() => this.refreshState(), 60000));
-    this.loops.push(setInterval(() => this.refreshBoot(), 15 * 60000));
-    this.loops.push(setInterval(() => this.checkUpdates(), UPDATE_EVERY_MS));
-    setTimeout(() => this.checkUpdates(), 8000);
     this.queue.resume();
     this.reconcile(); }
 
@@ -391,6 +415,9 @@ class Tracker extends EventEmitter {
     this.lastTick = now;
     if (!this.signedIn) return;
     if (gap > 30) this.onWake(prev);
+    if (this.stateDue(now)) this.refreshState();
+    if (now >= this.nextBoot) { this.nextBoot = now + BOOT_EVERY_MS; if (!this.offline) this.refreshBoot(); }
+    if (now >= this.nextUpdate) { this.nextUpdate = now + UPDATE_EVERY_MS; if (!this.offline) this.checkUpdates(); }
     const day = this.dayKey(now);
     if (this.day && day !== this.day) { this.day = day; this.newDay(day); }
     this.day = day;
@@ -398,6 +425,7 @@ class Tracker extends EventEmitter {
     if (this.localTracking) this.saveSession();
     const thr = this.idleThreshold();
     const input = this.activity.sample(now);
+    this.locked = !!input.locked;
     if (this.meeting && (this.state !== 'tracking' || now >= this.meeting.until)) this.endMeeting(now >= this.meeting.until ? 'timeout' : 'stopped');
     /* meeting mode: nobody types in a meeting, so idle detection (and the automatic pause) is off; afterwards idle counts from its end */
     const idleSec = this.meeting ? 0 : Math.min(input.idle, Math.max(0, Math.floor((now - this.idleFloor) / 1000)));
@@ -442,7 +470,7 @@ class Tracker extends EventEmitter {
   sendHeartbeat(json) {
     if (this.queue.size) { this.queue.add({ type: 'heartbeat', path: 'heartbeat', json }); return; }
     this.api.post('heartbeat', json, { timeout: 15000 }).then(r => {
-      this.offline = false;
+      this.offline = false; this.lastBeatAt = Date.now();
       if (r.state && !this.queue.jobs.some(j => j.type === 'action')) { this.setSnap(r.state); this.reconcile(); } }).catch(e => {
       if (e.status === 401) return this.signedOutRemotely();
       if (e.retryable) { this.offline = !!e.offline; this.queue.add({ type: 'heartbeat', path: 'heartbeat', json }); }
@@ -507,8 +535,9 @@ class Tracker extends EventEmitter {
 
   consentNeeded() { return !!(this.settings.screenshots_enabled && this.boot && !this.boot.consent); }
 
+  /** Screenshots only with monitoring on, the person's consent, while tracking and never while the screen is locked or the computer asleep. */
   captureAllowed() {
-    if (!this.settings.screenshots_enabled || !this.boot || !this.boot.consent || this.state !== 'tracking') return false;
+    if (!this.settings.screenshots_enabled || !this.boot || !this.boot.consent || this.state !== 'tracking' || this.away || this.locked) return false;
     this.permission = capture.screenPermission();
     return this.permission === 'granted' || this.permission === 'unknown' || this.permission === 'not-determined'; }
 
@@ -531,7 +560,8 @@ class Tracker extends EventEmitter {
    */
   async screenshot(activity, slot) {
     let shots;
-    try { shots = await capture.captureAll(); }
+    const notify = this.notifyOn();
+    try { shots = await capture.captureAll({ thumb: notify }); }
     catch (e) {
       this.permission = capture.screenPermission();
       if (Date.now() - this.lastCaptureError > 10 * 60000) { this.lastCaptureError = Date.now(); this.report('capture', e, { permission: this.permission, displays: require('electron').screen.getAllDisplays().length }); }
@@ -539,7 +569,7 @@ class Tracker extends EventEmitter {
       return; }
     const at = new Date().toISOString();
     for (const s of shots) this.queue.addScreenshot(s.jpeg, { activity_pct: activity, meeting: slot.meeting ? 1 : 0, display: s.index, captured_at: at });
-    if (this.notifyOn()) toast.show({ title: 'Screenshot taken', body: `${shots.length > 1 ? shots.length + ' screens · ' : ''}${clock(Date.now())} · ${slot.meeting ? 'meeting' : 'activity ' + activity + '%'}`, thumb: shots[0].thumb });
+    if (notify) toast.show({ title: 'Screenshot taken', body: `${shots.length > 1 ? shots.length + ' screens · ' : ''}${clock(Date.now())} · ${slot.meeting ? 'meeting' : 'activity ' + activity + '%'}`, thumb: shots[0].thumb });
     this.changed(); }
 
   onRejected(job, err) {

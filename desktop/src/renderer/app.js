@@ -264,39 +264,52 @@
 
   /* ---------- live clock ---------- */
 
+  /* Only the texts that changed are written back to the DOM (no layout work when the second did not change a value). */
+  const shown = new Map();
+  const setText = (id, v) => { if (shown.get(id) !== v) { shown.set(id, v); $(id).textContent = v; } };
+  const setHtml = (id, v) => { if (shown.get('#' + id) !== v) { shown.set('#' + id, v); $(id).innerHTML = v; } };
+
   function tick() {
     if (!ui || ui.screen !== 'tracker' || !ui.state) return;
     const st = ui.state;
     const cur = S.current(ui);
     const live = st.state === 'tracking' ? Math.max(0, (Date.now() - ui.at) / 1000) : 0;
-    $('hero').dataset.kind = ui.offline && st.state === 'tracking' ? 'offline' : cur.kind;
-    $('chip-label').textContent = cur.label;
-    $('clock').textContent = hms(cur.seconds);
-    $('clock').setAttribute('aria-label', `${cur.label}: ${hm(cur.seconds)}`);
-    $('day-total').textContent = hms(cur.total);
+    const kind = ui.offline && st.state === 'tracking' ? 'offline' : cur.kind;
+    if ($('hero').dataset.kind !== kind) $('hero').dataset.kind = kind;
+    setText('chip-label', cur.label);
+    setText('clock', hms(cur.seconds));
+    const aria = `${cur.label}: ${hm(cur.seconds)}`;
+    if (shown.get('clock-aria') !== aria) { shown.set('clock-aria', aria); $('clock').setAttribute('aria-label', aria); }
+    setText('day-total', hms(cur.total));
     const r = st.running;
-    $('hero-proj').textContent = r && ui.projectsEnabled ? (r.project || 'No project') + (r.task ? ' · ' + r.task : '') : '';
+    setText('hero-proj', r && ui.projectsEnabled ? (r.project || 'No project') + (r.task ? ' · ' + r.task : '') : '');
     const since = cur.since ? `<b>${esc(time(cur.since))}</b>` : '';
     const pomo = ui.pomodoro && ui.pomodoro.breakUntil && st.state === 'paused' ? ui.pomodoro : null;
-    $('caption').innerHTML = {
+    setHtml('caption', {
       tracking: since ? `Current session since ${since}` : 'Current session',
       idle: ui.idleSince ? `Idle since <b>${esc(time(ui.idleSince))}</b>. The timer keeps running.` : 'Idle. The timer keeps running.',
       meeting: `Meeting mode, ends in <b>${mmss(cur.meetingLeft || 0)}</b>`,
       paused: pomo ? `On a break, <b>${mmss(pomo.breakUntil - Date.now())}</b> left` : (since ? `Paused since ${since}` : 'Paused. Resume when you are back.'),
       stopped: 'Not tracking right now. Press Resume to continue.',
       ended: 'Not tracking. Press Start to track again.',
-      not_started: 'Press Start when you begin working.' }[cur.kind] || '';
-    if (ui.meeting) $('meet-left').textContent = mmss(cur.meetingLeft || 0);
-    document.querySelectorAll('[data-countdown]').forEach(el => { el.textContent = mmss(+el.dataset.countdown - Date.now()); });
+      not_started: 'Press Start when you begin working.' }[cur.kind] || '');
+    if (ui.meeting) setText('meet-left', mmss(cur.meetingLeft || 0));
+    document.querySelectorAll('[data-countdown]').forEach(el => { const v = mmss(+el.dataset.countdown - Date.now()); if (el.textContent !== v) el.textContent = v; });
     const t = st.totals || {};
-    $('t-total').textContent = hm(cur.total);
-    $('t-active').textContent = hm((+t.active || 0) + (ui.idle ? 0 : live));
-    $('t-idle').textContent = hm((+t.idle || 0) + (ui.idle ? live : 0));
+    setText('t-total', hm(cur.total));
+    setText('t-active', hm((+t.active || 0) + (ui.idle ? 0 : live)));
+    setText('t-idle', hm((+t.idle || 0) + (ui.idle ? live : 0)));
     const act = Number.isFinite(t.activity) ? t.activity : (Number.isFinite(ui.dayActivity) ? ui.dayActivity : null);
-    $('t-act').textContent = act === null ? '-' : act + '%';
-    $('t-act-bar').style.width = (act || 0) + '%';
+    setText('t-act', act === null ? '-' : act + '%');
+    const bar = (act || 0) + '%';
+    if (shown.get('t-act-bar') !== bar) { shown.set('t-act-bar', bar); $('t-act-bar').style.width = bar; }
     if (ui.quitSync) syncProgress(); }
-  setInterval(tick, 1000);
+  /* the clock runs only while the window is visible (hidden in the tray nothing is painted); it catches up on show */
+  let ticker = null;
+  function startTicker() { if (!ticker) ticker = setInterval(tick, 1000); tick(); }
+  function stopTicker() { clearInterval(ticker); ticker = null; }
+  document.addEventListener('visibilitychange', () => { if (document.hidden) stopTicker(); else startTicker(); });
+  if (!document.hidden) startTicker();
 
   /* ---------- events ---------- */
 
