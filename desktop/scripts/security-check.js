@@ -17,7 +17,7 @@ const os = require('os');
 const path = require('path');
 const Module = require('module');
 const root = path.join(__dirname, '..');
-const read = f => fs.readFileSync(path.join(root, f), 'utf8');
+const read = f => fs.readFileSync(path.join(root, f), 'utf8').replace(/\r\n/g, '\n'); /* Windows checkouts may use CRLF */
 const src = {};
 for (const f of ['src/main/main.js', 'src/main/toast.js', 'src/main/api.js', 'src/main/connect.js', 'src/main/guard.js', 'build/installer.nsh', 'src/main/store.js', 'src/main/queue.js', 'src/main/updater.js', 'src/main/tracker.js', 'src/main/capture.js', 'src/main/errors.js',
   'src/preload/preload.js', 'src/preload/toast-preload.js', 'src/renderer/index.html', 'src/renderer/toast.html', 'src/renderer/app.js', 'src/renderer/toast.js', 'src/shared/status.js', 'package.json']) src[f] = read(f);
