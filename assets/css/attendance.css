@@ -245,6 +245,8 @@
 .hub-head{display:flex;align-items:flex-end;gap:1rem;flex-wrap:wrap;margin:4px 0 14px}
 .hub-head h1{font-size:1.7rem;margin:0 0 2px}
 .hub-actions{display:flex;gap:.5rem;flex-wrap:wrap}
+.hub-scope a{display:inline-flex;align-items:center;gap:6px}
+@media(max-width:640px){.hub-scope{width:100%}.hub-scope a{flex:1;justify-content:center}}
 .hub-tabs{margin-bottom:16px;max-width:100%;overflow-x:auto;flex-wrap:nowrap;scrollbar-width:none}
 .hub-tabs::-webkit-scrollbar{display:none}
 .hub-tabs a{display:inline-flex;align-items:center;gap:.4rem;white-space:nowrap}

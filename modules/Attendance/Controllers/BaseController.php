@@ -34,8 +34,10 @@ abstract class BaseController extends Controller {
     $u = $this->user(); $self = (int) $u['id'];
     $target = $this->request->int('user', $self) ?: $self;
     $can = $this->can($perm);
-    if ($target !== $self && !($can && \Modules\Attendance\Services\Team::includes($u, $target))) { \Core\Audit::log('access.denied', 'user', $target, ['area' => $area]); $this->abort(403, 'You cannot view this person\'s time.'); }
     $people = $can ? \Modules\Attendance\Services\Team::people($u, true) : [];
+    /* Organization view without a member picked: start with the first teammate */
+    if ($target === $self && $this->request->query('scope') === 'org' && ($first = array_key_first(array_diff_key($people, [$self => 1])))) { $target = (int) $first; }
+    if ($target !== $self && !($can && \Modules\Attendance\Services\Team::includes($u, $target))) { \Core\Audit::log('access.denied', 'user', $target, ['area' => $area]); $this->abort(403, 'You cannot view this person\'s time.'); }
     $name = $target === $self ? $u['name'] : (string) \Core\DB::value('SELECT name FROM users WHERE id=?', [$target]);
     if ($target !== $self && $name === '') { $this->abort(404, 'Person not found.'); }
     return [$target, $name, $people]; }
