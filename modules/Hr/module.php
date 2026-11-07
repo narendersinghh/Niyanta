@@ -25,8 +25,9 @@ return [
     ['label' => 'Holidays', 'icon' => 'calendar', 'color' => '#FF6F59', 'url' => '/hr/holidays', 'perm' => ['hr.leave.request', 'hr.leave.manage'], 'hide_if' => 'hr.leave.request', 'section' => 'me', 'order' => 4],
     ['label' => 'Company Docs', 'icon' => 'book', 'color' => '#2E9BF6', 'url' => '/hr/documents', 'perm' => 'hr.company_docs.view', 'section' => 'me', 'order' => 7],
     ['label' => 'Team Directory', 'icon' => 'users', 'color' => '#F5A524', 'url' => '/hr/employees', 'perm' => 'hr.directory.view', 'hide_if' => 'hr.employees.view', 'section' => 'me', 'order' => 8],
-    ['label' => 'Employees', 'icon' => 'id-card', 'color' => '#12B5A0', 'url' => '/hr/employees', 'perm' => 'hr.employees.view', 'section' => 'hr', 'order' => 1],
-    ['label' => 'Onboarding & exit', 'icon' => 'clipboard', 'color' => '#5B4CF5', 'url' => '/hr/processes', 'also' => ['/hr/process-templates'], 'perm' => ['hr.employees.manage', 'hr.employees.review_team'], 'section' => 'hr', 'order' => 2],
+    ['label' => 'Employees', 'icon' => 'id-card', 'color' => '#12B5A0', 'url' => '/hr/employees', 'also' => ['/hr/processes', '/hr/process-templates'], 'perm' => 'hr.employees.view', 'section' => 'hr', 'order' => 1],
+    /* managers who only review their team's onboarding & exit (no employee directory admin) keep a direct link */
+    ['label' => 'Onboarding & exit', 'icon' => 'clipboard', 'color' => '#5B4CF5', 'url' => '/hr/processes', 'also' => ['/hr/process-templates'], 'perm' => ['hr.employees.manage', 'hr.employees.review_team'], 'hide_if' => 'hr.employees.view', 'section' => 'hr', 'order' => 2],
     ['label' => 'Leave Approvals', 'icon' => 'check-circle', 'color' => '#F0508A', 'url' => '/hr/leave/approvals', 'perm' => 'hr.leave.approve', 'hide_if' => 'hr.leave.request', 'section' => 'hr', 'order' => 3],
   ],
   'routes' => function (Core\Router $r): void {
@@ -42,6 +43,7 @@ return [
     $r->post('/hr/employees/{id}/reveal', [EmployeeController::class, 'reveal'], ['perm' => 'hr.employees.manage', 'throttle' => [30, 300]]);
     $r->post('/hr/employees/{id}/documents', [EmployeeController::class, 'upload'], ['perm' => 'hr.documents.manage', 'throttle' => [40, 300]]);
     $r->post('/hr/employees/{id}/checklists/{type}', [EmployeeController::class, 'generateChecklist'], 'hr.employees.manage');
+    $r->post('/hr/employees/{id}/checklists/{type}/delete', [EmployeeController::class, 'deleteChecklist'], 'hr.employees.manage');
     $r->post('/hr/checklist-items/{id}/toggle', [EmployeeController::class, 'toggleItem'], 'hr.employees.manage');
     $r->post('/hr/employees/{id}/offboard', [EmployeeController::class, 'offboard'], 'hr.employees.manage');
     $r->post('/hr/employees/{id}/deactivate', [EmployeeController::class, 'deactivate'], 'hr.employees.manage');

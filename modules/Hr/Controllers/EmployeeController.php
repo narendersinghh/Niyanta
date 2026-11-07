@@ -259,6 +259,15 @@ final class EmployeeController extends Controller {
     $this->flash('Document uploaded securely.');
     return $this->redirect('/hr/employees/'.$id.'?tab=documents'); }
 
+  /** Remove an employee's earlier (pre Onboarding & exit) checklist of one type. */
+  public function deleteChecklist(int $id, string $type): Response {
+    $this->employee($id);
+    if (!in_array($type, self::CHECKLISTS, true)) { $this->abort(404); }
+    $n = DB::delete('employee_checklists', 'user_id=? AND type=?', [$id, $type]);
+    if ($n) { Audit::log('hr.checklist.delete', 'employee', $id, ['type' => $type, 'items' => $n]); }
+    $this->flash($n ? 'Earlier '.$type.' checklist removed.' : 'Nothing to remove.', $n ? 'success' : 'error');
+    return $this->redirect('/hr/employees/'.$id.'?tab=checklists'); }
+
   public function generateChecklist(int $id, string $type): Response {
     $this->employee($id);
     if (!in_array($type, self::CHECKLISTS, true)) { $this->abort(404); }

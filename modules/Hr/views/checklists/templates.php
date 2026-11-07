@@ -14,6 +14,7 @@ $taskForm = static function (?array $t, string $kind) use ($companyDocs): string
 <?php return (string) ob_get_clean(); };
 ?>
 <?= partial('partials/page_head', ['title' => 'Onboarding & exit templates', 'subtitle' => 'Tasks copied to an employee when you start their onboarding or exit. Started processes keep their own copy.', 'crumbs' => [['HR Admin'], ['Onboarding & exit', '/hr/processes'], ['Templates']], 'actions' => '<button type="button" class="btn primary" data-modal="tpl-new">'.icon('plus', 'sm').' New template</button>']) ?>
+<?= partial('hr::partials/emp_tabs', ['active' => 'processes']) ?>
 <div class="grid g-side hr-top">
   <aside>
     <?php foreach (['onboarding' => 'Onboarding', 'exit' => 'Exit'] as $k => $l): ?>

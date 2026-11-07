@@ -6,6 +6,7 @@ $actions = $hr ? '<a class="btn ghost" href="'.e(url('/hr/process-templates')).'
 $ret = '/hr/processes?view='.$view;
 ?>
 <?= partial('partials/page_head', ['title' => 'Onboarding & exit', 'subtitle' => $hr ? 'Every joiner and leaver: documents, agreements, reviews and handover in one place.' : 'Onboarding and exit of your direct reports.', 'crumbs' => [[$hr ? 'HR Admin' : 'Team'], ['Onboarding & exit']], 'actions' => $actions]) ?>
+<?= partial('hr::partials/emp_tabs', ['active' => 'processes']) ?>
 <nav class="tabs mb" aria-label="Views"><?php foreach ($tabs as $k => [$l, $ic, $n]): ?><a class="<?= $view === $k ? 'active' : '' ?>" href="<?= e(url('/hr/processes?view='.$k)) ?>"<?= $view === $k ? ' aria-current="page"' : '' ?>><?= icon($ic, 'sm') ?> <?= e($l) ?><?= $n ? ' <span class="pill pill-lemon">'.(int) $n.'</span>' : '' ?></a><?php endforeach ?></nav>
 <?php if ($view === 'processes'): ?>
 <div class="grid g4 mb">
