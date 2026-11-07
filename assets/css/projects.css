@@ -286,7 +286,8 @@ span.tick{cursor:default}
 .side-tip .illus{width:150px;margin:0 auto 6px}
 .type-seg{display:grid;grid-template-columns:1fr 1fr;gap:6px}
 .type-seg label{display:flex;align-items:center;justify-content:center;gap:.4rem;border:1px solid var(--border);background:var(--surface-2);border-radius:12px;padding:9px 10px;font-weight:650;font-size:.86rem;cursor:pointer;color:var(--muted)}
-.type-seg label:has(input:checked){background:var(--lav-s);border-color:var(--lav);color:var(--lav-d)}
+.type-seg label:has(input:checked){background:var(--primary);border-color:var(--primary);color:#fff}
+.type-seg label:has(input:checked):hover{background:var(--primary-2);border-color:var(--primary-2)}
 .type-seg label:has(input:focus-visible){outline:2px solid var(--primary);outline-offset:2px}
 /* My Tasks */
 .tgroups{display:grid;gap:14px}

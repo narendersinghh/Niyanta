@@ -10,9 +10,9 @@ if ($entries) { $h0 = intdiv($min($entries[0]['started_at']), 60); $h1 = 0; fore
 if ($h1 - $h0 < 4) { $h1 = min(24, $h0 + 4); $h0 = max(0, $h1 - 4); }
 $ph = 72; /* px per hour */
 ?>
-<?= partial('attendance::partials/hub', ['tab' => 'daily', 'title' => 'Time & Attendance', 'subtitle' => 'Every tracked block of the day on a timeline.', 'target' => $target, 'targetName' => $targetName, 'people' => $people, 'mode' => 'date', 'date' => $date, 'base' => '/time/daily',
+<?= partial('attendance::partials/hub', ['tab' => 'daily', 'title' => 'Time & Attendance', 'subtitle' => 'Every tracked block of the day, with activity and screenshots.', 'target' => $target, 'targetName' => $targetName, 'people' => $people, 'mode' => 'date', 'date' => $date, 'base' => '/time/daily',
   'actions' => $canAdd ? '<button class="btn primary" data-modal="entry-dialog" data-entry-new>'.icon('plus', 'sm').' Add manual time</button>' : '']) ?>
-<?= partial('attendance::partials/day_summary', ['sum' => $sum, 'targetName' => $targetName, 'chart' => $chart ?? null, 'shots' => $shots ?? []]) ?>
+<?= partial('attendance::partials/day_summary', ['sum' => $sum, 'targetName' => $targetName, 'own' => $own, 'chart' => $chart ?? null, 'shots' => $shots ?? []]) ?>
 <div class="card tl-day">
   <?php if (!$entries): ?><?= empty_state('Nothing tracked on this day', $own ? 'Start the Niyanta Tracker desktop app to track your time, or add time manually.' : e($targetName).' has no tracked time on this day.', 'clock-worker') ?>
   <?php else: ?>
@@ -25,7 +25,7 @@ $ph = 72; /* px per hour */
       $ipct = $en['dur'] ? min(100, (int) round(100 * $en['idle'] / $en['dur'])) : 0; ?>
     <div class="tld-b c-<?= e($pj ? ($en['project_color'] ?? 'gray') : 'gray') ?><?= $hgt < 46 ? ' slim' : '' ?><?= $en['is_running'] ? ' run' : '' ?>" style="top:<?= $top ?>px;height:<?= $hgt ?>px">
       <?php $src = $srcLbl[$en['source']] ?? ucfirst($en['source']); ?><span class="tld-src" title="<?= e($src.' entry') ?>"><?= e($hgt < 46 ? $src[0] : $src) ?></span>
-      <div class="tld-name"><b class="truncate"><?= e(TimeService::label($en)) ?></b><?php if ($hgt >= 46 && (($pj && $en['task_title']) || $en['description'])): ?><span class="truncate"><?= e(str_limit(($pj ? $en['task_title'] : null) ?: $en['description'], 60)) ?></span><?php endif ?></div>
+      <div class="tld-name"><b class="truncate"><?= e(TimeService::label($en)) ?></b><span class="tld-range"><?= e(ftime($en['started_at'])) ?> - <?= $en['is_running'] ? 'now' : e(ftime($en['end'])) ?></span><?php if ($hgt >= 46 && (($pj && $en['task_title']) || $en['description'])): ?><span class="truncate"><?= e(str_limit(($pj ? $en['task_title'] : null) ?: $en['description'], 60)) ?></span><?php endif ?></div>
       <span class="tld-t"><?= e(ftime($en['started_at'])) ?></span><span class="tld-t"><?= $en['is_running'] ? '<span class="rec">Now</span>' : e(ftime($en['end'])) ?></span>
       <span class="tld-t tot"><?= e(hours($en['dur'])) ?><?php if ($en['idle']): ?><small title="Idle time in this block"><?= e(hours($en['idle'])) ?> idle</small><?php endif ?></span>
       <span class="tld-acts"><?php if ($edit): ?><button class="btn icon sm ghost" data-modal="entry-dialog" data-entry-edit="<?= e(json_encode($edit)) ?>" aria-label="Edit entry" title="Edit"><?= icon('edit', 'sm') ?></button><?php endif ?></span>
@@ -33,7 +33,7 @@ $ph = 72; /* px per hour */
     </div>
     <?php endforeach ?>
   </div></div>
-  <div class="legend mt"><span><i class="lg-track"></i>Tracked block</span><span><i class="lg-idle"></i>Idle part</span><?php if ($own): ?><span class="muted">Click the pencil to fix a block. Closed weeks are read-only.</span><?php endif ?></div>
+  <div class="legend ta-legend"><span><i class="lg-track"></i>Tracked block</span><span><i class="lg-idle"></i>Idle part</span><?php if ($own): ?><span>Use the pencil on a block to fix it. Closed weeks are read-only.</span><?php endif ?></div>
   <?php endif ?>
 </div>
 <?php if ($canAdd || ($own && $entries)): ?><?= partial('attendance::partials/entry_dialog', ['projects' => $projects, 'date' => $date]) ?><?php endif ?>

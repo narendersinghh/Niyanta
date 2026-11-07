@@ -69,7 +69,8 @@ a.tile:hover{transform:translateY(-2px);color:var(--text)}
 .hr-mode label{cursor:pointer}
 .hr-mode input{position:absolute;opacity:0;pointer-events:none}
 .hr-mode span{display:block;padding:6px 14px;border-radius:99px;font-weight:600;font-size:.84rem;color:var(--muted)}
-.hr-mode input:checked+span{background:var(--surface);color:var(--text);box-shadow:var(--shadow)}
+.hr-mode input:checked+span{background:var(--primary);color:#fff;box-shadow:0 6px 14px -8px rgba(91,76,245,.75)}
+.hr-mode label:hover input:checked+span{background:var(--primary-2)}
 .hr-mode input:focus-visible+span{outline:2px solid var(--primary)}
 [data-mode-panel][hidden]{display:none}
 .hr-eff{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}

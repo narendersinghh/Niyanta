@@ -18,9 +18,12 @@ const ch=$("[data-ls-chip]",c);if(ch){ch.classList.toggle("live",run);ch.classLi
 const lb=$("[data-ls-label]",c);if(lb)lb.textContent=j.label;rebase($("[data-ls-total]",c),j.totals.tracked,run);
 const ln=$("[data-ls-line]",c);if(ln)ln.innerHTML=line(j,side);const en=$("[data-ls-entry]",c);if(en){en.classList.toggle("hide",!run);rebase($("[data-ls-entry-t]",c),run?j.running.elapsed:0,run)}
 const up=$("[data-ls-updated]",c);if(up)up.textContent="Updated "+new Date().toLocaleTimeString([],{hour:"numeric",minute:"2-digit",hour12:document.documentElement.dataset.clock!=="24"})});
-const tiles=j=>{[["active","active"],["idle","idle"],["paused","paused"],["tracked","tracked"]].forEach(([k,a])=>{const el=$("[data-ls-"+a+"]");if(el)el.textContent=hm(j.totals[k])})};
+const tiles=j=>{[["active","active"],["idle","idle"],["paused","paused"],["tracked","tracked"]].forEach(([k,a])=>{const el=$("[data-ls-"+a+"]");if(el)el.textContent=hm(j.totals[k])});
+const pg=$("[data-ls-prog]"),pc=$("[data-ls-pct]");if(pg&&+pg.dataset.target){const v=Math.min(100,Math.round(100*j.totals.tracked/pg.dataset.target));pg.style.width=v+"%";pg.parentNode.setAttribute("aria-valuenow",v);if(pc)pc.textContent=v+"%"}};
 let busy=false;const poll=async()=>{if(busy||d.hidden)return;busy=true;try{const j=await N().req("time/status");paint(j);tiles(j)}catch(e){}finally{busy=false}};
 setInterval(poll,30000);d.addEventListener("visibilitychange",()=>{if(!d.hidden)poll()})}
+/* folded sections ([data-hash-open] details) open when the address points at them or into them, e.g. /time#desktop or #connect */
+const HO=()=>{const h=location.hash.slice(1),t=h&&d.getElementById(h),x=t&&(t.matches("details[data-hash-open]")?t:t.closest("details[data-hash-open]"));if(x){x.open=true;setTimeout(()=>t.scrollIntoView({block:"start"}),0)}};HO();addEventListener("hashchange",HO);
 /* hub tabs scroll sideways on small screens: bring the current tab into view */
 const HT=$(".hub-tabs [aria-current=page]");if(HT){const t=HT.parentNode,r=HT.getBoundingClientRect(),q=t.getBoundingClientRect();if(r.right>q.right||r.left<q.left)t.scrollLeft+=r.left-q.left-(q.width-r.width)/2}
 /* desktop downloads: highlight the visitor's OS */

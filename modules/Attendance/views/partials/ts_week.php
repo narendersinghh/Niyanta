@@ -1,11 +1,10 @@
 <?php
-/* Timesheet week: week hero (the week navigator lives in the hub toolbar), status banner, summary tiles and the project x day grid.
+/* Timesheet week: one summary row (range, status, tracked vs expected, billable, overtime, days; the week navigator lives in the hub toolbar), action banners and the project x day grid.
    $ws, $s (Timesheets::summary), $ts (row|null), $person, $own, $locked, $canReview */
 use Modules\Attendance\Services\TimeService;
 $we = date('Y-m-d', strtotime($ws.' +6 days'));
 $thisWeek = TimeService::weekStart();
 $hm = static fn (int $x): string => $x ? sprintf('%d:%02d', intdiv($x, 3600), intdiv($x % 3600, 60)) : '-';
-$h1 = static fn (int $x): string => rtrim(rtrim(number_format($x / 3600, 1), '0'), '.');
 $status = $ts['status'] ?? null;
 $rejected = $status === 'rejected';
 $first = e(explode(' ', $person['name'])[0]);
@@ -13,16 +12,14 @@ $pct = $s['total'] ? (int) round(100 * $s['billable'] / $s['total']) : 0;
 $diff = $s['total'] - $s['expected'];
 $range = fdate($ws, 'd M').' - '.fdate($we, 'd M Y');
 ?>
-<div class="card hero ts-hero">
-  <div class="ts-nav">
-    <div class="grow">
-      <div class="eyebrow">Week <?= (int) date('W', strtotime($ws)) ?> · <?= e($ws === $thisWeek ? 'This week' : ($ws === date('Y-m-d', strtotime($thisWeek.' -7 days')) ? 'Last week' : date('Y', strtotime($ws)))) ?></div>
-      <h2><?= e($range) ?></h2>
-      <?php if (!$own): ?><div class="person"><?= avatar($person['name'], $person['avatar'] ?? null, 'sm') ?><span><b><?= e($person['name']) ?></b><?= !empty($person['designation']) ? ' · '.e($person['designation']) : '' ?></span></div><?php endif ?>
-    </div>
-  </div>
-  <?php if (($s['total'] || $ts) && ($rejected || !$own)): ?><div class="ts-tools"><span class="st<?= $rejected ? ' rej' : '' ?>"><?= icon($rejected ? 'alert' : 'check-circle', 'sm') ?> <?= $rejected ? 'Rejected' : 'Approved' ?></span></div><?php endif ?>
-</div>
+<section class="ta-stats ts-sum" aria-label="Week summary">
+  <div class="ta-stat ts-wk"><span class="k">Week <?= (int) date('W', strtotime($ws)) ?> · <?= e($ws === $thisWeek ? 'This week' : ($ws === date('Y-m-d', strtotime($thisWeek.' -7 days')) ? 'Last week' : date('Y', strtotime($ws)))) ?></span><span class="v ts-r"><?= e($range) ?></span>
+    <span class="ts-tags"><?php if (!$own): ?><span class="ts-person"><?= avatar($person['name'], $person['avatar'] ?? null, 'sm') ?><?= e($person['name']) ?></span><?php endif ?><?php if ($s['total'] || $ts): ?><?= $rejected ? '<span class="pill pill-red">'.icon('alert', 'sm').' Rejected</span>' : '<span class="pill pill-mint">'.icon('check-circle', 'sm').' Approved</span>' ?><?php endif ?><?php if ($s['running']): ?><span class="pill pill-sky" title="A timer is running in this week: its time is shown live"><span class="dotc dot-in pulse"></span> Live</span><?php endif ?></span></div>
+  <div class="ta-stat c-lav"><span class="k"><i></i>Tracked</span><span class="v"><?= e(hours($s['total'])) ?></span><?php if ($s['expected']): ?><span class="ta-meter" aria-hidden="true"><i class="<?= $diff > 0 ? 'over' : '' ?>" style="width:<?= min(100, (int) round(100 * $s['total'] / $s['expected'])) ?>%"></i></span><?php endif ?><span class="s">of <?= e(hours($s['expected'])) ?> expected</span></div>
+  <div class="ta-stat c-mint"><span class="k"><i></i>Billable</span><span class="v"><?= $pct ?>%</span><span class="s"><?= e(hours($s['billable'])) ?> billable</span></div>
+  <div class="ta-stat <?= $diff > 0 ? 'c-peach' : 'c-lemon' ?><?= $diff < 0 && $ws < $thisWeek ? ' is-alert' : '' ?>"><span class="k"><i></i><?= $diff > 0 ? 'Overtime' : ($diff < 0 ? 'Below target' : 'On target') ?></span><span class="v"><?= $diff > 0 ? '+' : ($diff < 0 ? '-' : '') ?><?= e(hours(abs($diff))) ?></span><span class="s">against expected</span></div>
+  <div class="ta-stat c-sky"><span class="k"><i></i>Days worked</span><span class="v"><?= (int) $s['days_worked'] ?><small>of <?= e(rtrim(rtrim(number_format($s['workdays'], 1), '0'), '.')) ?></small></span><span class="s">working days</span></div>
+</section>
 
 <?php if ($rejected): ?>
 <div class="ts-banner bad">
@@ -45,16 +42,8 @@ $range = fdate($ws, 'd M').' - '.fdate($we, 'd M Y');
 <div class="ts-banner info"><span class="ic-wrap"><?= icon('clock', 'sm') ?></span><div class="grow"><b>Nothing tracked yet</b><p><?= $own ? 'Track your time with the Niyanta Tracker desktop app, or add time manually.' : $first.' has not logged time in this week.' ?></p></div></div>
 <?php endif ?>
 <?php if ($locked): ?><div class="ts-banner warn"><span class="ic-wrap"><?= icon('lock', 'sm') ?></span><div class="grow"><b>Payroll is finalized for this period</b><p>This week is read-only. Ask HR if something must change.</p></div></div><?php endif ?>
-<?php if ($s['running']): ?><div class="ts-banner info"><span class="ic-wrap"><?= icon('timer', 'sm') ?></span><div class="grow"><b>A timer is running in this week</b><p>Its time is shown live and counted when tracking pauses.</p></div></div><?php endif ?>
 
-<div class="grid g4 mb">
-  <div class="tile bg-lav"><span class="tile-ic"><?= icon('clock') ?></span><div><div class="num"><?= e($h1($s['total'])) ?><small class="tile-unit">h</small></div><div class="lbl">Total tracked · <?= e(hours($s['total'])) ?></div></div></div>
-  <div class="tile bg-mint"><span class="tile-ic"><?= icon('trend-up') ?></span><div><div class="num"><?= $pct ?><small class="tile-unit">%</small></div><div class="lbl">Billable · <?= e(hours($s['billable'])) ?></div></div></div>
-  <div class="tile <?= $diff > 0 ? 'bg-peach' : 'bg-lemon' ?>"><span class="tile-ic"><?= icon($diff > 0 ? 'zap' : 'target') ?></span><div><div class="num"><?= $diff > 0 ? '+' : ($diff < 0 ? '-' : '') ?><?= e($h1(abs($diff))) ?><small class="tile-unit">h</small></div><div class="lbl"><?= $diff > 0 ? 'Overtime' : ($diff < 0 ? 'Below' : 'On target') ?> · <?= e($h1($s['expected'])) ?>h expected</div></div></div>
-  <div class="tile bg-sky"><span class="tile-ic"><?= icon('calendar') ?></span><div><div class="num"><?= (int) $s['days_worked'] ?></div><div class="lbl">Days worked · of <?= e(rtrim(rtrim(number_format($s['workdays'], 1), '0'), '.')) ?> working</div></div></div>
-</div>
-
-<div class="card mb">
+<section class="card ta-section">
   <div class="card-head"><h3>Week grid</h3><div class="legend"><span><i class="lg-bill"></i>Billable</span><span><i class="lg-non"></i>Non-billable</span></div></div>
   <?php if (!$s['rows']): ?><?= empty_state('Nothing tracked this week', $own ? 'Time you log appears here'.(feature_on('projects') ? ' grouped by project and task' : ' day by day').'.' : 'No time entries in this week.', 'calendar-person') ?><?php else: ?>
   <div class="ts-scroll"><table class="ts-grid">
@@ -73,4 +62,4 @@ $range = fdate($ws, 'd M').' - '.fdate($we, 'd M Y');
     </tfoot>
   </table></div>
   <?php endif ?>
-</div>
+</section>

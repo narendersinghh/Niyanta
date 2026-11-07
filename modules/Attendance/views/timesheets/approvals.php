@@ -4,15 +4,15 @@ $q = static fn (array $m): string => e(url('/timesheets/approvals?'.http_build_q
 $tot = (int) $stats['total']; $pct = $tot ? (int) round(100 * $stats['billable'] / $tot) : 0;
 ?>
 <?= partial('attendance::partials/hub', ['tab' => 'review', 'title' => 'Time & Attendance', 'subtitle' => 'Team weeks are approved automatically. Reject a week to send it back with a note.']) ?>
-<div class="grid g4 mb">
-  <div class="tile bg-lav"><span class="tile-ic"><?= icon('clock') ?></span><div><div class="num"><?= e(rtrim(rtrim(number_format($tot / 3600, 1), '0'), '.')) ?><small class="tile-unit">h</small></div><div class="lbl">Hours logged</div></div></div>
-  <div class="tile bg-mint"><span class="tile-ic"><?= icon('trend-up') ?></span><div><div class="num"><?= $pct ?><small class="tile-unit">%</small></div><div class="lbl">Billable</div></div></div>
-  <div class="tile bg-peach"><span class="tile-ic"><?= icon('alert') ?></span><div><div class="num"><?= (int) $stats['rejected'] ?></div><div class="lbl">Rejected, awaiting fixes</div></div></div>
-  <div class="tile bg-sky"><span class="tile-ic"><?= icon('users') ?></span><div><div class="num"><?= (int) $stats['people'] ?></div><div class="lbl"><?= (int) $stats['n'] ?> team week<?= (int) $stats['n'] === 1 ? '' : 's' ?></div></div></div>
-</div>
-<div class="card">
+<section class="ta-stats" aria-label="Team weeks">
+  <a class="ta-stat c-red<?= (int) $stats['rejected'] ? ' is-alert' : ' is-zero' ?>" href="<?= $q(['status' => 'rejected']) ?>"><span class="k"><i></i>Awaiting fixes</span><span class="v"><?= (int) $stats['rejected'] ?></span><span class="s"><?= (int) $stats['rejected'] ? 'rejected weeks, view them' : 'nothing to follow up' ?></span></a>
+  <div class="ta-stat c-sky"><span class="k"><i></i>Team weeks</span><span class="v"><?= (int) $stats['n'] ?></span><span class="s"><?= (int) $stats['people'] ?> people</span></div>
+  <div class="ta-stat c-lav"><span class="k"><i></i>Hours logged</span><span class="v"><?= e(hours($tot)) ?></span><span class="s">in this view</span></div>
+  <div class="ta-stat c-mint"><span class="k"><i></i>Billable</span><span class="v"><?= $pct ?>%</span><span class="s"><?= e(hours((int) $stats['billable'])) ?></span></div>
+</section>
+<section class="card">
   <div class="ap-filters">
-    <nav class="tabs"><?php foreach ($tabs as $k => $l): ?><a href="<?= $q(['status' => $k]) ?>" class="<?= $status === $k ? 'active' : '' ?>"><?= e($l) ?><?= $k === 'rejected' && (int) $stats['rejected'] ? ' ('.(int) $stats['rejected'].')' : '' ?></a><?php endforeach ?></nav>
+    <nav class="tabs" aria-label="Week status"><?php foreach ($tabs as $k => $l): ?><a href="<?= $q(['status' => $k]) ?>" class="<?= $status === $k ? 'active' : '' ?>"<?= $status === $k ? ' aria-current="page"' : '' ?>><?= e($l) ?><?= $k === 'rejected' && (int) $stats['rejected'] ? ' ('.(int) $stats['rejected'].')' : '' ?></a><?php endforeach ?></nav>
     <form method="get" action="<?= e(url('/timesheets/approvals')) ?>"><?php if ($status !== 'all'): ?><input type="hidden" name="status" value="<?= e($status) ?>"><?php endif ?>
       <select name="week" data-autosubmit aria-label="Week"><option value="">All weeks</option><?php foreach ($weeks as $k => $l): ?><option value="<?= e($k) ?>"<?= selected($k, $week) ?>><?= e($l) ?></option><?php endforeach ?></select>
       <select name="user" data-autosubmit aria-label="Person"><option value="">Everyone</option><?php foreach ($people as $id => $n): ?><option value="<?= (int) $id ?>"<?= selected($id, $person) ?>><?= e($n) ?></option><?php endforeach ?></select>
@@ -28,12 +28,12 @@ $tot = (int) $stats['total']; $pct = $tot ? (int) round(100 * $stats['billable']
       <td class="right ap-t"><b><?= e(hours($t['total_seconds'])) ?></b></td>
       <td class="ap-b"><div class="ap-bill"><span class="ts-split"><i style="width:<?= $bp ?>%"></i><i style="width:<?= 100 - $bp ?>%"></i></span><span class="xs muted"><?= (int) $bp ?>%</span></div></td>
       <td class="ap-s"><?= $t['status'] === 'rejected' ? badge('rejected', 'Rejected') : badge('approved', $t['reviewed_by'] ? 'Approved' : 'Auto-approved') ?><?php if ($t['reviewer']): ?><div class="xs muted">by <?= e($t['reviewer']) ?></div><?php endif ?></td>
-      <td class="actions"><a class="btn icon sm ghost" href="<?= e($view) ?>" aria-label="View week" title="View week"><?= icon('eye', 'sm') ?></a>
+      <td class="actions"><a class="btn icon sm ghost" href="<?= e($view) ?>" aria-label="View <?= e($t['name']) ?>, <?= e($range) ?>" title="View week"><?= icon('eye', 'sm') ?></a>
         <?php if ($t['status'] === 'rejected'): ?><form method="post" action="<?= e(url('/timesheets/'.$t['id'].'/approve')) ?>"><?= csrf_field() ?><button class="btn sm mint"><?= icon('check', 'sm') ?> Approve</button></form>
         <?php else: ?><button type="button" class="btn sm danger" data-modal="reject-dialog" data-reject-url="<?= e(url('/timesheets/'.$t['id'].'/reject')) ?>" data-reject-name="<?= e($t['name'].', '.$range) ?>"><?= icon('x', 'sm') ?> Reject</button><?php endif ?></td>
     </tr><?php endforeach ?></tbody>
   </table></div>
   <?= pager($p) ?>
   <?php endif ?>
-</div>
+</section>
 <?= partial('attendance::partials/reject_dialog') ?>

@@ -1,6 +1,6 @@
 <?php
 /* Time & Attendance header, shared by every page of the hub, in this order:
-   1. Me | Organization switch: first and large, for people who may see others' time. Team pages, someone else's page and ?scope=org count as Organization.
+   1. Me | Organization switch: first, a compact segmented control, for people who may see others' time. Team pages, someone else's page and ?scope=org count as Organization.
    2. Title row with the page actions.
    3. Tabs, most used first. Me: Today (live tracker), Timesheet, Screenshots, Attendance. Organization: Team today, Timesheets, Screenshots, Approvals.
       Badges: own rejected weeks (Me > Timesheet), teammates tracking now (Team today), team weeks rejected and awaiting fixes (Approvals).
@@ -44,10 +44,10 @@ $fields = static function (array $skip) use ($hidden): string { $h = ''; foreach
 $today = date('Y-m-d');
 ?>
 <?php if ($scopes): ?>
-<nav class="hub-scope" aria-label="Whose time"><?php foreach ($scopes as $k => [$l, $sub, $ic, $href]): $on = ($k === 'org') === $org; ?><a href="<?= e(url($href)) ?>" class="<?= $on ? 'on' : '' ?>"<?= $on ? ' aria-current="page"' : '' ?>><span class="hs-ic"><?= icon($ic) ?></span><span class="hs-t"><b><?= e($l) ?></b><small><?= e($sub) ?></small></span></a><?php endforeach ?></nav>
+<nav class="hub-scope" aria-label="Whose time"><?php foreach ($scopes as $k => [$l, $sub, $ic, $href]): $on = ($k === 'org') === $org; ?><a href="<?= e(url($href)) ?>" title="<?= e($sub) ?>" class="<?= $on ? 'on' : '' ?>"<?= $on ? ' aria-current="page"' : '' ?>><span class="hs-ic"><?= icon($ic, 'sm') ?></span><span class="hs-t"><b><?= e($l) ?></b></span></a><?php endforeach ?></nav>
 <?php endif ?>
 <div class="hub-head">
-  <div class="grow"><h1><?= e($title) ?></h1><?php if (!empty($subtitle)): ?><p class="muted mb0"><?= e($subtitle) ?></p><?php endif ?></div>
+  <div class="grow"><h1><?= e($title) ?></h1><?php if (!empty($subtitle)): ?><p class="hub-sub"><?= e($subtitle) ?></p><?php endif ?></div>
   <?php if (!empty($actions)): ?><div class="hub-actions"><?= $actions ?></div><?php endif ?>
 </div>
 <nav class="tabs hub-tabs" aria-label="<?= $org ? 'Organization time and attendance' : 'My time and attendance' ?>"><?php foreach ($tabs as $k => $t): [$l, $ic, $href] = $t; $n = (int) ($t[3] ?? 0); ?><a href="<?= e(url($href)) ?>" class="<?= $k === $group ? 'active' : '' ?>"<?= $k === $group ? ' aria-current="page"' : '' ?>><?= icon($ic, 'sm') ?> <?= e($l) ?><?php if ($n): ?> <span class="hub-badge <?= e($t[4]) ?>" title="<?= $n ?> <?= e($t[5]) ?>"><?= $n ?><span class="sr"> <?= e($t[5]) ?></span></span><?php endif ?></a><?php endforeach ?></nav>
@@ -75,6 +75,6 @@ $today = date('Y-m-d');
     <?php if ($month < $cur): ?><a class="btn icon ghost" href="<?= e(url($navBase.$keep(['month' => $next]))) ?>" aria-label="Next month" title="Next month"><?= icon('chevron-right', 'sm') ?></a><?php else: ?><span class="btn icon ghost is-disabled" aria-hidden="true"><?= icon('chevron-right', 'sm') ?></span><?php endif ?>
     <?php if ($month !== $cur): ?><a class="btn ghost hub-now" href="<?= e(url($navBase.$keep(['month' => null]))) ?>">This month</a><?php else: ?><span class="hub-now is-on">This month</span><?php endif ?></div>
   <?php endif ?>
-  <?= $extra ?? '' ?>
+  <?php if (!empty($extra)): ?><div class="hub-extra"><?= $extra ?></div><?php endif ?>
 </div>
 <?php endif ?>
