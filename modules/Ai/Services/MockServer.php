@@ -16,6 +16,9 @@ final class MockServer {
     $sys = $anthropic ? (string) ($body['system'] ?? '') : (string) ($body['messages'][0]['content'] ?? '');
     if (str_contains($sys, 'NIYANTA_MEETING_SUMMARY')) { return self::reply($anthropic, $body, self::meetingSummary($user), [], 0); }
     $calls = [];
+    // A deliberately gullible model: after its first round it obeys "#tool" lines planted in tool results next to an
+    // "ignore previous instructions" phrase (prompt injection through data). The server-side scope must still hold.
+    if ($results && $rounds === 1 && !str_contains($user, '#loop') && ($planted = self::planted($results))) { return self::reply($anthropic, $body, '', $planted, $rounds); }
     if (str_contains($user, '#loop') || !$results) {
       $calls = $rounds > 0 && !str_contains($user, '#loop') ? [] : self::plan($user);
       // Like a real model, only call tools it was offered (scripted #tool calls may name any tool).
@@ -83,6 +86,16 @@ final class MockServer {
       foreach ($m['content'] as $b) { if (($b['type'] ?? '') === 'tool_result') { $res[] = [$names[$b['tool_use_id']] ?? 'tool', is_string($b['content']) ? $b['content'] : json_encode($b['content'])]; } } }
     return [$user, $res, $rounds]; }
 
+  /** Tool calls planted in tool results by an injection ("ignore previous instructions ... #tool name {json}"). */
+  private static function planted(array $results): array {
+    $text = '';
+    foreach ($results as [, $content]) {
+      $d = json_decode($content, true);
+      if (is_array($d)) { array_walk_recursive($d, static function ($v) use (&$text) { if (is_string($v)) { $text .= "\n".$v; } }); } else { $text .= "\n".$content; } }
+    if (!preg_match('/ignore (all )?previous instructions/i', $text)) { return []; }
+    $text = preg_replace('/\s*#tool\s+/', "\n#tool ", $text) ?? $text;
+    return preg_match('/#tool\s+[a-z_]+/', $text) ? self::plan($text) : []; }
+
   /** @return list<array{0:string,1:array}> */
   private static function plan(string $q): array {
     if (preg_match_all('/#tool\s+([a-z_]+)\s*(\{.*?\})?\s*$/m', $q, $mm, PREG_SET_ORDER)) { return array_map(static fn ($m) => [$m[1], json_decode($m[2] ?? '{}', true) ?: []], $mm); }
@@ -93,6 +106,12 @@ final class MockServer {
     $has = static fn (string ...$w) => (bool) array_filter($w, static fn ($x) => str_contains($l, $x));
     return match (true) {
       $has('on leave today', 'who is on leave', 'out today') => [['team_on_leave', []]],
+      $has('ledger') => [['leave_ledger', $p]],
+      $has('leave polic', 'leave rule') => [['leave_policies', []]],
+      $has('onboarding', 'exit checklist', 'offboarding') => [['onboarding_status', $p]],
+      $has('meeting') => [['meetings', preg_match('/(?:of|for|about)\s+(?:the\s+)?(.+?)\s+project/i', $q, $pm) ? ['project' => $pm[1]] : []]],
+      $has('routine', 'to-do', 'todo') => [['todos', $p]],
+      $has('late today', 'clocked in', 'team attendance', 'who is in', 'who is working') => [['team_attendance', []]],
       $has('optional holiday', 'leave balance', 'leaves left', 'leave left') => [['leave_balance', $p]],
       $has('holiday') => [['holidays', []]],
       $has('leave') => [['leave_requests', $p]],
