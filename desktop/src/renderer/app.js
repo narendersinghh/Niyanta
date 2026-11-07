@@ -129,7 +129,7 @@
     $('meet').classList.toggle('on', on);
     $('meet-left').classList.toggle('hide', !on);
     const mins = Math.round(S.MEETING_MS / 60000);
-    $('meet-hint').textContent = on ? `Turn it off when your meeting is done. It turns off by itself after ${mins} minutes.` : (st.state === 'tracking' ? `Activity is not counted. Turn it off when your meeting is done (after ${mins} minutes it turns off by itself).` : `Starts tracking. Activity is not counted. Turn it off when your meeting is done.`); }
+    $('meet-hint').textContent = on ? `Turn it off when your meeting is done. Auto off in ${mins} min.` : (st.state === 'tracking' ? `Activity is not counted. Turn it off when your meeting is done. Auto off in ${mins} min.` : `Starts tracking. Activity is not counted. Auto off in ${mins} min.`); }
 
   function banner(kind, html, actions = '') { return `<div class="alert ${kind}" role="status"><div class="grow">${html}</div>${actions}</div>`; }
   /** Banner with its buttons on a row below the text (pomodoro). */
