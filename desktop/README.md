@@ -81,7 +81,8 @@ Running the workflow by hand (Actions › Desktop tracker › Run workflow) make
 
 ### Updates (in the app)
 
-The app checks on start, every 30 minutes and 15 s after waking from sleep or unlocking: `GET /api/agent/version` (device
+The app checks shortly after it starts, then every 5 hours, and 15 s after waking from sleep or unlocking (at most once per
+15 minutes, so locking and unlocking often never adds checks; **Check for updates** in Settings is immediate): `GET /api/agent/version` (device
 token). When the workspace has a newer version, the window pops up (without taking the focus) once per version with a prompt
 **Niyanta Tracker 1.2.0 is available** (Later / **Update now**), and a prominent card stays at the top of the window (with up
 to 4 lines of *what's new* when the `latest*.yml` has `releaseNotes`); the tray menu has the same item, and one OS
@@ -159,9 +160,10 @@ reported, submit it as a false positive (docs/RELEASING.md); code signing is the
 ## The window
 
 384 x 700, resizable between 360 x 600 and 460 x 900, never maximized or full screen. From the top: header (workspace, person,
-settings), the update card when there is one, notices, the **status card** (state chip, a big counter with the time of the
-current status: the session since the last Start, Resume or project switch while tracking, how long it has been paused when
-paused; below it the day total in medium size and the project / task), project and task pickers, the main button (Start,
+settings), the update card when there is one, notices, the **status card** (state chip, a big counter: the session since the
+last Start, Resume or project switch while tracking, with the day total in medium size below; while the tracker is off
+(paused, on a break, not tracking, not started) the counter shows today's tracked time, frozen and dimmed, and never ticks;
+the project / task), project and task pickers, the main button (Start,
 Pause or Resume), **Meeting mode**, today's summary (Total, Active, Activity %, Idle) and the sync line. Light and dark follow
 the OS; only the Niyanta brand colours are used. Everything is reachable with the keyboard (dialogs keep the focus inside,
 Escape closes them).
@@ -169,7 +171,8 @@ Escape closes them).
 - **Meeting mode**: a switch under the main button. Time is tracked as usual (screenshots as configured; switching it on
   while not tracking starts or resumes tracking), idle detection and the automatic pause are off, and the slots it covers
   are sent with `meeting: 1`: kept and visible to managers, never counted in the activity average. It shows a countdown and
-  turns off by itself after 1 hour, on Pause, or when switched off.
+  turns off by itself after 30 minutes (the notice *Meeting mode turned off after 30 minutes* offers **Turn back on**), on
+  Pause, or when switched off; the hint under the switch asks people to turn it off when the meeting is done.
 - **Tracking dot**: while tracking (not paused, idle or stopped) a small mint dot sits on the taskbar / dock icon and pulses
   very slowly (two opacity frames every 4 s): Windows taskbar overlay, macOS dock icon, Linux window icon (most taskbars
   other than GNOME show it; the tray icon shows the state everywhere).
@@ -237,6 +240,32 @@ Escape closes them).
 - **Errors**: uncaught exceptions, unhandled rejections, failed syncs and capture failures are written to
   `userData/logs/tracker.log` and sent to the workspace error log (Audit log › Error logs, source *desktop*, with the version).
 - **Updates**: see *Updates (in the app)* above.
+
+## Tracker off: no time accrues
+
+- **Pause, quit, shutdown, sleep, sign-out**: the pause carries the time it happened. On quit, system shutdown, sleep (auto
+  pause on lock) and sign-out it is written to the offline queue on disk first and then sent, so a request cut off by the
+  process ending or the system suspending is replayed with its real time on the next start. Tracking jobs (actions,
+  heartbeats) are always sent before screenshots and activity, so a Pause never waits behind a failing upload.
+- **Sleep without any power event** (lid closed, some Linux desktops): a tick gap of more than 30 s closes the entry where
+  the sleep began (pause with that time) and tracking continues on waking, unless the screen is still locked (then it
+  continues on unlock). After waking, idle counts from the wake-up.
+- **Locked screen**: counts as no input even where the system idle time stays 0, so the idle auto-pause still happens.
+- **Server**: an entry without heartbeats for 10 minutes is stopped at its last heartbeat on every read and never counted
+  further (see `modules/Attendance/AGENT_API.md`, *Tracker off*), which also protects older apps.
+- `scripts/tracker-check.js` (part of `npm run check`) replays each scenario with a fake clock.
+
+## Uninstall
+
+Settings › **Uninstall Niyanta Tracker** (after a confirmation): tracking is paused and the offline queue is synced (at most
+75 s), this device is signed out (token revoked on the server; token, keys and queue removed), the login item / autostart
+entry and the `niyanta-tracker://` handler are removed, then a small helper (written to a `ny-uninstall-*` temp folder,
+every path checked by `guard.uninstallPath`) waits for the app to quit and removes it: Windows runs the installed
+`Uninstall Niyanta Tracker.exe /S` and deletes the data folder; macOS removes the `.app` (only from /Applications or
+~/Applications), data, logs, caches and saved state; an AppImage is deleted with its `.desktop` entries and data; a `.deb`
+install has its data removed and the app shows `sudo apt remove niyanta-tracker`. The helper logs each step and deletes its
+folder at the end; if something is left it keeps the log and says so (dialog on macOS, notification on Linux, Notepad on
+Windows). Not available in a development run.
 
 ## Sign in with your browser
 

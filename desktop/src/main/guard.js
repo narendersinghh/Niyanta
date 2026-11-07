@@ -6,6 +6,7 @@
  * with your browser" (niyanta-tracker:// deep links, PKCE, state).
  */
 const crypto = require('crypto');
+const path = require('path');
 
 /** A short string argument: anything else becomes '' and it is cut at `max` characters. */
 function str(v, max = 200) { return typeof v === 'string' ? v.slice(0, max) : ''; }
@@ -61,6 +62,46 @@ function safeFileName(name, exts) {
   const ext = s.slice(s.lastIndexOf('.') + 1).toLowerCase();
   if (exts && !exts.map(x => String(x).toLowerCase()).includes(ext)) return null;
   return s; }
+
+/**
+ * Uninstall: may the path `p` be removed as `kind`? Only absolute, normalised paths with the expected name in the expected
+ * place, never the root, the home folder or one of its parents, never a path with a control character (and on Windows none
+ * of the characters cmd.exe treats specially, since the helper is a .cmd script). ctx: {platform, home, execPath}.
+ *   userData      the app's data folder (…/Niyanta Tracker or …/niyanta-tracker) inside the home folder
+ *   cache         an app cache or log folder inside the home folder (updater cache, ~/Library/Logs|Caches/Niyanta Tracker)
+ *   macState      ~/Library/Saved Application State/app.niyanta.tracker.savedState, ~/Library/Preferences/app.niyanta.tracker.plist
+ *   macApp        /Applications/Niyanta Tracker.app or ~/Applications/Niyanta Tracker.app
+ *   appImage      a niyanta-tracker*.AppImage file inside the home folder
+ *   desktopEntry  ~/.local/share/applications or ~/.config/autostart niyanta-tracker*.desktop
+ *   uninstaller   "Uninstall Niyanta Tracker.exe" next to the running exe (Windows)
+ *   helperDir     the uninstall helper's own temporary folder (ny-uninstall-*)
+ * Returns the path, or null when it may not be removed.
+ */
+const UNINSTALL_KINDS = ['userData', 'cache', 'macState', 'macApp', 'appImage', 'desktopEntry', 'uninstaller', 'helperDir'];
+function uninstallPath(p, kind, ctx = {}) {
+  const win = ctx.platform === 'win32';
+  const P = win ? path.win32 : path.posix;
+  const s = typeof p === 'string' ? p : '';
+  const home = typeof ctx.home === 'string' ? ctx.home : '';
+  if (!s || !home || !UNINSTALL_KINDS.includes(kind) || !P.isAbsolute(s) || !P.isAbsolute(home) || s.length > 400 || /[\x00-\x1f\x7f]/.test(s)) return null;
+  if (win && /["%!^&|<>]/.test(s)) return null;
+  if (P.normalize(s) !== s || s.endsWith(P.sep) || s.split(/[\\/]/).includes('..')) return null;
+  const low = x => (win ? x.toLowerCase() : x);
+  const S = low(s), H = low(P.normalize(home).replace(/[\\/]+$/, ''));
+  const root = P.parse(s).root;
+  if (S === low(root) || S === H || H.startsWith(S + P.sep)) return null;
+  const inside = (dir, x = S) => x.startsWith(low(dir) + P.sep);
+  const base = P.basename(s), dir = P.dirname(s);
+  const ok = {
+    userData: () => inside(H) && ['Niyanta Tracker', 'niyanta-tracker'].includes(base),
+    cache: () => inside(H) && ['niyanta-tracker-updater', 'Niyanta Tracker', 'niyanta-tracker'].includes(base),
+    macState: () => !win && ((dir === P.join(home, 'Library', 'Saved Application State') && base === 'app.niyanta.tracker.savedState') || (dir === P.join(home, 'Library', 'Preferences') && base === 'app.niyanta.tracker.plist')),
+    macApp: () => !win && base === 'Niyanta Tracker.app' && (dir === '/Applications' || dir === P.join(home, 'Applications')),
+    appImage: () => !win && inside(H) && /^niyanta[-_ ]?tracker[^/]*\.appimage$/i.test(base),
+    desktopEntry: () => !win && (dir === P.join(home, '.local', 'share', 'applications') || dir === P.join(home, '.config', 'autostart')) && /^niyanta-tracker[A-Za-z0-9._-]*\.desktop$/.test(base),
+    uninstaller: () => win && base === 'Uninstall Niyanta Tracker.exe' && typeof ctx.execPath === 'string' && low(dir) === low(P.dirname(ctx.execPath)),
+    helperDir: () => /^ny-uninstall-[A-Za-z0-9]{4,}$/.test(base) && (inside(H) || (typeof ctx.tmp === 'string' && low(dir) === low(P.normalize(ctx.tmp).replace(/[\\/]+$/, '')))) }[kind];
+  return ok() ? s : null; }
 
 /** Argument of the Exec= line of a .desktop file: double-quoted, with the characters the spec reserves escaped. */
 function desktopExecArg(s) { return '"' + String(s).replace(/[\\"`$]/g, '\\$&') + '"'; }
@@ -171,5 +212,5 @@ function decrypt(key, blob) {
 
 function isEncrypted(blob) { return Buffer.isBuffer(blob) && blob.length >= 4 && blob.subarray(0, 4).equals(ENC_MAGIC); }
 
-module.exports = { str, id, selection, allowedLink, sameOrigin, safeFileName, desktopExecArg, RateLimiter, newKey, encrypt, decrypt, isEncrypted, OPEN_TARGETS, PREF_KEYS, POMODORO_OPS, CONNECT_OPS, LINK_HOSTS,
+module.exports = { uninstallPath, UNINSTALL_KINDS, str, id, selection, allowedLink, sameOrigin, safeFileName, desktopExecArg, RateLimiter, newKey, encrypt, decrypt, isEncrypted, OPEN_TARGETS, PREF_KEYS, POMODORO_OPS, CONNECT_OPS, LINK_HOSTS,
   SCHEME, CONNECT_TTL_MS, workspaceBase, sameWorkspace, parseDeepLink, pkceVerifier, pkceChallenge, newState, checkState, deviceName, osCode, connectPageUrl };

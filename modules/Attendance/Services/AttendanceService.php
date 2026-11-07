@@ -40,7 +40,7 @@ final class AttendanceService {
    * when the day has no entries. The tracker's day is the attendance day: only tracked time counts as worked time.
    */
   public static function trackedSeconds(int $uid, string $date): ?int {
-    $r = DB::first('SELECT COUNT(*) AS n, COALESCE(SUM(CASE WHEN is_running=1 THEN GREATEST(0, TIMESTAMPDIFF(SECOND, started_at, NOW()) - discarded_seconds) ELSE duration_seconds END),0) AS s FROM time_entries WHERE user_id=? AND started_at>=? AND started_at<?', [$uid, $date.' 00:00:00', date('Y-m-d', strtotime($date.' +1 day')).' 00:00:00']);
+    $r = DB::first('SELECT COUNT(*) AS n, COALESCE(SUM('.TimeService::secondsSql().'),0) AS s FROM time_entries WHERE user_id=? AND started_at>=? AND started_at<?', [$uid, $date.' 00:00:00', date('Y-m-d', strtotime($date.' +1 day')).' 00:00:00']);
     return (int) $r['n'] ? (int) $r['s'] : null; }
 
   /** Live worked & break seconds (open days computed up to now). Worked time is the tracked time when the day has entries. */

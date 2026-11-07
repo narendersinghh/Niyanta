@@ -14,6 +14,7 @@ const guard = require('./guard');
 const { Tracker } = require('./tracker');
 const { Connect } = require('./connect');
 const { normaliseUrl } = require('./api');
+const uninstall = require('./uninstall');
 
 /* ---------- process hardening (before anything else runs) ---------- */
 /* Every renderer runs in the Chromium sandbox (also set per window; the fuses of the packaged app turn off runAsNode,
@@ -332,7 +333,7 @@ function openConnectPage(url, ws) {
  * validates its arguments (types, ranges, lengths: guard.js) and is rate limited per channel. Errors never leak stacks to
  * the page, only the message.
  */
-const limiter = new guard.RateLimiter({ state: 240, select: 120, action: 60, error: 10, signIn: 10, connect: 20, copy: 30, updates: 10, refresh: 10 }, 60000, 60);
+const limiter = new guard.RateLimiter({ state: 240, select: 120, action: 60, error: 10, signIn: 10, connect: 20, copy: 30, updates: 10, refresh: 10, uninstall: 3 }, 60000, 60);
 function validSender(e) {
   if (!win || win.isDestroyed() || e.sender !== win.webContents) return false;
   const f = e.senderFrame;
@@ -375,6 +376,8 @@ function registerIpc() {
   h('downloadInstaller', () => tracker.downloadInstaller());
   h('openInstaller', () => ({ ok: tracker.updater.open() }));
   h('restartApp', () => { restartToUpdate(false); return { ok: true }; });
+  h('uninstall', () => uninstallApp());
+  h('uninstallDismiss', () => { if (!removing) { tracker.uninstall = null; tracker.changed(); } return { ok: true }; });
   h('copy', text => { clipboard.writeText(guard.str(text, 2000)); return { ok: true }; });
   h('refresh', async () => { await tracker.refreshBoot(); await tracker.refreshState(); return { ok: true }; });
   h('error', info => { info = obj(info); const e = new Error(guard.str(info.message, 900) || 'Unknown renderer error'); e.stack = guard.str(info.stack, 6000) || e.stack; errors.report('renderer', e); return { ok: true }; }); }
@@ -410,6 +413,62 @@ app.on('before-quit', async e => {
   e.preventDefault();
   await prepareQuit(undefined, true);
   app.quit(); });
+
+/* ---------- uninstall (Settings › Uninstall Niyanta Tracker, src/main/uninstall.js) ---------- */
+
+let removing = false;
+/**
+ * Stop and sync tracking (bounded by QUIT_CEILING_MS), sign this device out (token revoked on the server, token, keys and
+ * queue removed here), remove the login item and the niyanta-tracker:// handler, then start the helper (detached) that
+ * removes the program and the data once this process has ended, and quit. Progress and anything that could not be done
+ * are shown in the window (tracker.uninstall); nothing is left half-removed silently.
+ */
+async function uninstallApp() {
+  if (removing || !tracker) return { ok: false };
+  const ctx = { platform: process.platform, packaged: app.isPackaged, execPath: process.execPath, appImage: process.env.APPIMAGE || null, home: os.homedir(), userData: app.getPath('userData'), tmp: os.tmpdir(), exists: p => fs.existsSync(p) };
+  const p = uninstall.plan(ctx);
+  if (!p.ok) { tracker.uninstall = { step: null, error: p.error }; tracker.changed(); return { ok: false, error: p.error }; }
+  removing = true;
+  let dir = null, log = null;
+  const note = m => { errors.log('uninstall: ' + m); if (log) { try { fs.appendFileSync(log, `${new Date().toISOString()} ${m}\n`, { mode: 0o600 }); } catch (e) { /* the log is best effort */ } } };
+  const step = m => { tracker.uninstall = { step: m, error: null }; tracker.changed(); note(m); };
+  try {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ny-uninstall-'));
+    if (!guard.uninstallPath(dir, 'helperDir', ctx)) throw new Error('The temporary folder for the uninstall helper is not usable.');
+    log = path.join(dir, 'uninstall.log');
+    step('Stopping tracking and syncing your data...');
+    await Promise.race([(async () => { await tracker.beforeQuit(4000); await tracker.syncBeforeQuit(); })(), new Promise(r => setTimeout(r, QUIT_CEILING_MS))]);
+    try { tracker.quitAnyway(); } catch (e) { /* nothing to abort */ }
+    step('Signing out of this device...');
+    await Promise.race([tracker.signedIn ? tracker.signOut() : Promise.resolve(), new Promise(r => setTimeout(r, 15000))]);
+    if (tracker.signedIn) tracker.signOutLocal(null);
+    step('Removing the start-up entry and the sign-in link handler...');
+    setLaunchAtLogin(false);
+    try { if (process.defaultApp && process.argv.length >= 2) app.removeAsDefaultProtocolClient(guard.SCHEME, process.execPath, [path.resolve(process.argv[1])]); else app.removeAsDefaultProtocolClient(guard.SCHEME); } catch (e) { note('protocol: ' + e.message); }
+    step('Removing Niyanta Tracker...');
+    const win32 = process.platform === 'win32';
+    const file = path.join(dir, win32 ? 'uninstall.cmd' : 'uninstall.sh');
+    const body = win32 ? uninstall.cmdScript({ pid: process.pid, uninstaller: p.uninstaller, remove: p.remove, dir, log, exe: process.execPath }) : uninstall.shScript({ pid: process.pid, remove: p.remove, dir, log, platform: process.platform });
+    fs.writeFileSync(file, body, { mode: 0o700 });
+    note('plan: ' + p.kind + ' ' + p.remove.map(r => r.path).join(' | '));
+    const { spawn } = require('child_process');
+    const child = win32 ? spawn(process.env.ComSpec || 'cmd.exe', ['/d', '/c', file], { detached: true, stdio: 'ignore', windowsHide: true, cwd: dir })
+      : spawn('/bin/sh', [file], { detached: true, stdio: 'ignore', cwd: dir });
+    child.unref();
+    if (p.manual) await dialog.showMessageBox({ type: 'info', message: 'Niyanta Tracker is almost removed', detail: p.manual + '\n\nThe app closes now.', buttons: ['Copy the command and close', 'Close'] }).then(r => { if (r.response === 0) clipboard.writeText(uninstall.DEB_COMMAND); });
+    toast.destroy();
+    quitting = true;
+    app.exit(0);
+    return { ok: true }; }
+  catch (e) {
+    removing = false;
+    const left = p.remove.map(r => r.path);
+    const how = process.platform === 'win32' ? 'Remove Niyanta Tracker in Windows Settings › Apps › Installed apps.' : process.platform === 'darwin' ? 'Quit the app, move Niyanta Tracker from Applications to the Trash and delete the folders listed.' : (p.kind === 'deb' ? `Run: ${uninstall.DEB_COMMAND}` : 'Delete the AppImage and the folders listed.');
+    tracker.uninstall = { step: null, error: `Niyanta Tracker could not finish removing itself (${String(e && e.message || e).slice(0, 200)}). ${how}`, left };
+    note('failed: ' + (e && e.message));
+    errors.report('uninstall', e);
+    tracker.changed();
+    return { ok: false, error: tracker.uninstall.error }; } }
 
 /**
  * The update is downloaded and verified (or the person restarts after installing a .deb): remember whether tracking was on,

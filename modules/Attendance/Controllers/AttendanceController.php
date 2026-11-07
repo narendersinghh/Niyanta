@@ -26,7 +26,7 @@ final class AttendanceController extends BaseController {
     $base = " FROM users u LEFT JOIN attendance a ON a.user_id=u.id AND a.work_date=? WHERE u.status='active' AND $w";
     $sql = 'SELECT u.id, u.name, u.avatar, u.designation, u.department, a.id AS att_id, a.clock_in, a.clock_out, a.break_seconds, a.worked_seconds, a.status, a.note, a.edited_by,'
       .' (SELECT ab.start_at FROM attendance_breaks ab WHERE ab.attendance_id=a.id AND ab.end_at IS NULL ORDER BY ab.id DESC LIMIT 1) AS break_start,'
-      .' (SELECT CONCAT(te.started_at, \'|\', COALESCE(p.name, \'\')) FROM time_entries te LEFT JOIN projects p ON p.id=te.project_id WHERE te.user_id=u.id AND te.is_running=1 LIMIT 1) AS timer'.$base;
+      .' (SELECT CONCAT(te.started_at, \'|\', COALESCE(p.name, \'\')) FROM time_entries te LEFT JOIN projects p ON p.id=te.project_id WHERE te.user_id=u.id AND te.is_running=1 AND COALESCE(te.last_heartbeat_at, te.started_at)>=NOW() - INTERVAL '.TimeService::STALE_SECONDS.' SECOND LIMIT 1) AS timer'.$base;
     $params = [$date, ...$p];
     if ($q !== '') { $sql .= ' AND (u.name LIKE ? OR u.email LIKE ?)'; array_push($params, DB::like($q), DB::like($q)); }
     $page = DB::paginate($sql.' ORDER BY (a.clock_in IS NOT NULL AND a.clock_out IS NULL) DESC, u.name', $params, 25);

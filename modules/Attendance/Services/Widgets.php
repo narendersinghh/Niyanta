@@ -22,7 +22,7 @@ final class Widgets {
 
   public static function team(array $u): string {
     [$w, $p] = Team::where($u, 'u.id');
-    $rows = DB::all("SELECT u.id, u.name, u.avatar, u.designation, a.clock_in, (SELECT 1 FROM attendance_breaks ab WHERE ab.attendance_id=a.id AND ab.end_at IS NULL LIMIT 1) AS on_break, te.started_at AS timer_start, te.discarded_seconds, pr.name AS project_name FROM users u LEFT JOIN attendance a ON a.user_id=u.id AND a.work_date=? AND a.clock_out IS NULL AND a.clock_in IS NOT NULL LEFT JOIN time_entries te ON te.user_id=u.id AND te.is_running=1 LEFT JOIN projects pr ON pr.id=te.project_id WHERE u.status='active' AND u.id<>? AND $w AND (a.id IS NOT NULL OR te.id IS NOT NULL) ORDER BY te.started_at IS NULL, u.name LIMIT 9", [date('Y-m-d'), $u['id'], ...$p]);
+    $rows = DB::all("SELECT u.id, u.name, u.avatar, u.designation, a.clock_in, (SELECT 1 FROM attendance_breaks ab WHERE ab.attendance_id=a.id AND ab.end_at IS NULL LIMIT 1) AS on_break, te.started_at AS timer_start, te.discarded_seconds, pr.name AS project_name FROM users u LEFT JOIN attendance a ON a.user_id=u.id AND a.work_date=? AND a.clock_out IS NULL AND a.clock_in IS NOT NULL LEFT JOIN time_entries te ON te.user_id=u.id AND te.is_running=1 AND COALESCE(te.last_heartbeat_at, te.started_at)>=NOW() - INTERVAL ".TimeService::STALE_SECONDS." SECOND LEFT JOIN projects pr ON pr.id=te.project_id WHERE u.status='active' AND u.id<>? AND $w AND (a.id IS NOT NULL OR te.id IS NOT NULL) ORDER BY te.started_at IS NULL, u.name LIMIT 9", [date('Y-m-d'), $u['id'], ...$p]);
     $ids = Team::memberIds($u);
     if ($ids === []) { return ''; }
     return self::assets().View::partial('attendance::widgets/team', ['rows' => $rows]); } }

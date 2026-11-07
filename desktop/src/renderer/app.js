@@ -24,6 +24,7 @@
   let meetBusy = false;
   let wsOpen = false;
   let pwOpen = false;
+  let uninstallAsk = false;
   const hostOf = u => { try { return u ? new URL(/^https?:\/\//i.test(u) ? u : 'https://' + u).host : ''; } catch (e) { return ''; } };
 
   window.addEventListener('error', e => T.reportError({ message: e.message, stack: e.error && e.error.stack }));
@@ -127,7 +128,8 @@
     $('meet-on').disabled = meetBusy;
     $('meet').classList.toggle('on', on);
     $('meet-left').classList.toggle('hide', !on);
-    $('meet-hint').textContent = on ? 'Activity is not counted. Time and screenshots continue.' : (st.state === 'tracking' ? 'Activity is not counted. Turns off after 1 hour.' : 'Starts tracking. Activity is not counted for up to 1 hour.'); }
+    const mins = Math.round(S.MEETING_MS / 60000);
+    $('meet-hint').textContent = on ? `Turn it off when your meeting is done. It turns off by itself after ${mins} minutes.` : (st.state === 'tracking' ? `Activity is not counted. Turn it off when your meeting is done (after ${mins} minutes it turns off by itself).` : `Starts tracking. Activity is not counted. Turn it off when your meeting is done.`); }
 
   function banner(kind, html, actions = '') { return `<div class="alert ${kind}" role="status"><div class="grow">${html}</div>${actions}</div>`; }
   /** Banner with its buttons on a row below the text (pomodoro). */
@@ -143,7 +145,7 @@
 
   function renderBanners(st) {
     const b = [];
-    if (ui.notice && ui.notice.id !== noticeShown) b.push(banner(ui.notice.kind === 'error' ? 'error' : 'info', esc(ui.notice.text), `<button class="btn" data-dismiss="${ui.notice.id}">OK</button>`));
+    if (ui.notice && ui.notice.id !== noticeShown) b.push(banner(ui.notice.kind === 'error' ? 'error' : 'info', esc(ui.notice.text), (ui.notice.action === 'meeting-on' ? `<button class="btn" data-meeting-on="${ui.notice.id}">Turn back on</button>` : '') + `<button class="btn" data-dismiss="${ui.notice.id}">OK</button>`));
     b.push(...pomodoroBanners(st));
     if (ui.idlePause && ui.idlePause.back && st.state === 'paused') b.push(banner('info', `${icon('coffee', 'sm')} Tracking paused after ${+ui.idlePause.minutes} min idle. Resume when you are back.`, '<button class="btn" data-resume>Resume</button>'));
     if (ui.offline) b.push(banner('warn', `${icon('cloud-off', 'sm')} <span><b>Offline.</b> Your actions are saved and sync automatically. Without a connection for 10 minutes, time is not counted.</span>`));
@@ -234,7 +236,9 @@
   /* ---------- modals: sync before quitting > consent notice > update prompt (once per version) ---------- */
 
   function wantedModal() {
+    if (ui.uninstall && (ui.uninstall.step || ui.uninstall.error)) return 'uninstall';
     if (ui.quitSync) return 'sync';
+    if (uninstallAsk) return 'uninstall-ask';
     if (ui.connect && ui.connect.phase === 'confirm') return 'connect';
     if (ui.screen !== 'tracker') return null;
     if (ui.consent && ui.consent.needed && (modalKind === 'consent' || (ui.state && ui.state.state === 'tracking' && !consentLater))) return 'consent';
@@ -248,11 +252,28 @@
     $('modal').classList.toggle('hide', !kind);
     if (!kind) { modalKey = ''; if (was && modalReturn && document.contains(modalReturn)) modalReturn.focus(); modalReturn = null; return; }
     if (!was) modalReturn = document.activeElement;
-    const key = kind + '|' + (kind === 'update' ? ui.update.latest : kind === 'connect' ? ui.connect.host + '|' + ui.connect.switching : '');
+    const key = kind + '|' + (kind === 'update' ? ui.update.latest : kind === 'connect' ? ui.connect.host + '|' + ui.connect.switching : kind === 'uninstall' ? (ui.uninstall.step || '') + '|' + (ui.uninstall.error || '') : '');
     const fresh = key !== modalKey;
     modalKey = key;
     if (kind === 'sync') { renderSync(fresh); return; }
     if (!fresh) return;
+    if (kind === 'uninstall-ask') {
+      $('m-art').innerHTML = `<div class="bubble danger">${icon('x')}</div>`;
+      $('m-title').textContent = 'Uninstall Niyanta Tracker?';
+      $('m-body').className = 'm-body';
+      $('m-body').innerHTML = '<p>This is what happens:</p><ul><li>Tracking stops and your data is synced to the server first.</li><li>You are signed out on this device.</li><li>The app and all its data on this computer are removed.</li></ul><p class="note">Your tracked time, timesheets and screenshots stay in your workspace.</p>';
+      $('m-actions').innerHTML = '<button class="btn ghost" data-uninstall="cancel">Cancel</button><button class="btn danger" data-uninstall="confirm">Uninstall</button>';
+      setTimeout(() => { const b = $('m-actions').querySelector('.ghost'); if (b) b.focus(); }, 0);
+      return; }
+    if (kind === 'uninstall') {
+      const u = ui.uninstall;
+      $('m-art').innerHTML = u.error ? `<div class="bubble danger">${icon('x')}</div>` : `<div class="bubble spin">${icon('sync')}</div>`;
+      $('m-title').textContent = u.error ? 'Niyanta Tracker was not fully removed' : 'Removing Niyanta Tracker...';
+      $('m-body').className = 'm-body' + (u.error ? '' : ' center');
+      $('m-body').innerHTML = u.error ? `<p>${esc(u.error)}</p>${u.left && u.left.length ? `<p>Still on this computer:</p><ul>${u.left.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}` : `<p role="status" aria-live="polite">${esc(u.step)}</p><p class="note">The app closes by itself when it is done.</p>`;
+      $('m-actions').innerHTML = u.error ? '<button class="btn primary" data-uninstall="ok">OK</button>' : '';
+      setTimeout(() => { const b = $('m-actions').querySelector('button'); if (b) b.focus(); }, 0);
+      return; }
     if (kind === 'consent') {
       const p = ui.consent.policy || { points: [] };
       $('m-art').innerHTML = `<div class="bubble">${icon('shield')}</div>`;
@@ -314,9 +335,12 @@
     const live = st.state === 'tracking' ? Math.max(0, (Date.now() - ui.at) / 1000) : 0;
     const kind = ui.offline && st.state === 'tracking' ? 'offline' : cur.kind;
     if ($('hero').dataset.kind !== kind) $('hero').dataset.kind = kind;
+    /* tracker off: the counter shows today's tracked time, frozen and dimmed; the "Today" line would only repeat it */
+    const frozen = cur.ticking ? '0' : '1';
+    if ($('hero').dataset.frozen !== frozen) { $('hero').dataset.frozen = frozen; $('day-line').classList.toggle('hide', !cur.ticking); }
     setText('chip-label', cur.label);
     setText('clock', hms(cur.seconds));
-    const aria = `${cur.label}: ${hm(cur.seconds)}`;
+    const aria = cur.ticking ? `${cur.label}: ${hm(cur.seconds)}` : `${cur.label}. Tracked today: ${hm(cur.seconds)}`;
     if (shown.get('clock-aria') !== aria) { shown.set('clock-aria', aria); $('clock').setAttribute('aria-label', aria); }
     setText('day-total', hms(cur.total));
     const r = st.running;
@@ -327,8 +351,8 @@
       tracking: since ? `Current session since ${since}` : 'Current session',
       idle: ui.idleSince ? `Idle since <b>${esc(time(ui.idleSince))}</b>. The timer keeps running.` : 'Idle. The timer keeps running.',
       meeting: `Meeting mode, ends in <b>${mmss(cur.meetingLeft || 0)}</b>`,
-      paused: pomo ? `On a break, <b>${mmss(pomo.breakUntil - Date.now())}</b> left` : (since ? `Paused since ${since}` : 'Paused. Resume when you are back.'),
-      stopped: 'Not tracking right now. Press Resume to continue.',
+      paused: pomo ? `On a break, <b>${mmss(pomo.breakUntil - Date.now())}</b> left. Not counting.` : (since ? `Paused since ${since}. Not counting.` : 'Paused. Not counting.'),
+      stopped: 'Not tracking, not counting. Press Resume.',
       ended: 'Not tracking. Press Start to track again.',
       not_started: 'Press Start when you begin working.' }[cur.kind] || '');
     if (ui.meeting) setText('meet-left', mmss(cur.meetingLeft || 0));
@@ -413,11 +437,13 @@
   $('p-shots').addEventListener('click', () => T.open('screenshots'));
   $('p-logs').addEventListener('click', () => T.open('logs'));
   $('p-signout').addEventListener('click', () => { closeSheet(); T.signOut(); });
+  $('p-uninstall').addEventListener('click', () => { closeSheet(); uninstallAsk = true; renderModal(); });
   $('open-web').addEventListener('click', () => T.open('time'));
   document.addEventListener('keydown', e => {
     if (e.key !== 'Escape') return;
     if (modalKind === 'update') { laterPrompt(); return; }
     if (modalKind === 'connect') { T.connect('decline'); return; }
+    if (modalKind === 'uninstall-ask') { uninstallAsk = false; renderModal(); return; }
     closeSheet(); });
 
   function laterPrompt() { const v = ui.update && ui.update.latest; promptLater = v || ''; T.updatePrompted(v); renderModal(); }
@@ -426,6 +452,7 @@
     const t = e.target.closest('button');
     if (!t) return;
     if (t.dataset.dismiss) { noticeShown = +t.dataset.dismiss; renderBanners(ui.state || {}); }
+    if (t.dataset.meetingOn) { noticeShown = +t.dataset.meetingOn; t.disabled = true; T.setMeeting(true); renderBanners(ui.state || {}); }
     if (t.dataset.open) T.open(t.dataset.open);
     if ('installUpdate' in t.dataset) { t.disabled = true; T.installUpdate(); }
     if ('downloadInstaller' in t.dataset) { t.disabled = true; T.downloadInstaller(); }
@@ -442,6 +469,9 @@
     if ('promptLater' in t.dataset) laterPrompt();
     if ('promptUpdate' in t.dataset) { const up = ui.update; promptLater = up.latest; T.updatePrompted(up.latest); if (up.auto) T.installUpdate(); else T.downloadInstaller(); renderModal(); }
     if (t.dataset.cn) { t.disabled = true; T.connect(t.dataset.cn); }
+    if (t.dataset.uninstall === 'cancel') { uninstallAsk = false; renderModal(); }
+    if (t.dataset.uninstall === 'confirm') { uninstallAsk = false; t.disabled = true; T.uninstall().then(r => { if (r && !r.ok) render(Object.assign({}, ui, { uninstall: { step: null, error: r.error || 'Uninstall did not start.' } })); }); }
+    if (t.dataset.uninstall === 'ok') { ui.uninstall = null; T.uninstallDismiss().then(() => T.getState()).then(render); renderModal(); }
     if ('quitAnyway' in t.dataset) { t.disabled = true; t.textContent = 'Closing...'; T.quitAnyway(); } });
 
   /* "Message alert tone": a short two-note chime (Web Audio, no sound file) */

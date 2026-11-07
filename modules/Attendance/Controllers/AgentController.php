@@ -129,7 +129,7 @@ final class AgentController extends Controller {
     catch (\Throwable $e) { return $this->fail($e); } }
 
   public function logout(): Response {
-    return $this->run(function (int $uid): array { Monitoring::revokeToken($uid, (int) $this->agent['token_id']); Audit::log('agent.logout', 'agent_token', (int) $this->agent['token_id'], [], $uid); return []; }); }
+    return $this->run(function (int $uid): array { Monitoring::revokeToken($uid, (int) $this->agent['token_id'], $this->at()); Audit::log('agent.logout', 'agent_token', (int) $this->agent['token_id'], [], $uid); return []; }); }
 
   public function bootstrap(): Response { return $this->run(fn (int $uid): array => $this->payload($this->agent)); }
 

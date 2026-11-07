@@ -15,12 +15,13 @@ final class Tracker {
 
   /** Snapshot of today's tracker state for the desktop app and the web status card. */
   public static function state(int $uid): array {
+    self::settle($uid);
     $att = AttendanceService::today($uid);
     $st = AttendanceService::state($att);
-    $run = TimeService::running($uid);
+    $run = TimeService::running($uid, false);
     $state = $run ? 'tracking' : match ($st) { 'break' => 'paused', 'in' => 'stopped', 'done' => 'ended', default => 'not_started' };
     $today = date('Y-m-d');
-    $tot = DB::first('SELECT COALESCE(SUM(CASE WHEN is_running=1 THEN GREATEST(0, TIMESTAMPDIFF(SECOND, started_at, NOW()) - discarded_seconds) ELSE duration_seconds END),0) AS tracked, COALESCE(SUM(GREATEST(0, CAST(idle_seconds AS SIGNED) - CAST(discarded_seconds AS SIGNED))),0) AS idle, COUNT(*) AS n FROM time_entries WHERE user_id=? AND started_at>=? AND started_at<?', [$uid, $today.' 00:00:00', date('Y-m-d', strtotime('+1 day')).' 00:00:00']);
+    $tot = DB::first('SELECT COALESCE(SUM('.TimeService::secondsSql().'),0) AS tracked, COALESCE(SUM(GREATEST(0, CAST(idle_seconds AS SIGNED) - CAST(discarded_seconds AS SIGNED))),0) AS idle, COUNT(*) AS n FROM time_entries WHERE user_id=? AND started_at>=? AND started_at<?', [$uid, $today.' 00:00:00', date('Y-m-d', strtotime('+1 day')).' 00:00:00']);
     $tracked = (int) $tot['tracked']; $idle = min($tracked, (int) $tot['idle']);
     $last = DB::first('SELECT te.project_id, te.task_id, te.description, p.name AS project_name, t.title AS task_title FROM time_entries te LEFT JOIN projects p ON p.id=te.project_id LEFT JOIN tasks t ON t.id=te.task_id WHERE te.user_id=? ORDER BY te.started_at DESC, te.id DESC LIMIT 1', [$uid]);
     $device = $run && $run['agent_token_id'] ? DB::first('SELECT name, device_os FROM agent_tokens WHERE id=?', [$run['agent_token_id']]) : null;
@@ -48,21 +49,23 @@ final class Tracker {
     return date('Y-m-d H:i:s', min(time(), max($t, $floor))); }
 
   /**
-   * Bring the person's tracking in line with the clock (runs inside every action, heartbeat and state read, user lock held):
-   * a running entry that started before today is split at every midnight when the app was alive across it (its last heartbeat
-   * or $alive, the time of this action/heartbeat, is at or after midnight and no more than STALE_SECONDS after the last
-   * heartbeat); otherwise it is stopped at its last heartbeat once stale. Open days before today with nothing running are closed.
+   * Bring the person's tracking in line with the clock (runs inside every action, heartbeat and state read, user lock held).
+   * A running entry whose app went quiet is stopped at its last heartbeat (TimeService::stale): judged at $from (a heartbeat:
+   * the start of the seconds it covers), else at $alive (an action: its own time, so a Pause sent after waking from a long
+   * sleep or replayed from the offline queue never stretches the entry over the gap), else at now (a read: the web pages,
+   * the app's state poll). A healthy entry that started before today is split at every midnight up to the last moment the
+   * app was seen ($alive or its last heartbeat). Open days before today with nothing running are closed.
    */
-  public static function settle(int $uid, ?string $alive = null): void {
-    DB::transaction(static function () use ($uid, $alive): void {
+  public static function settle(int $uid, ?string $alive = null, ?int $from = null): void {
+    DB::transaction(static function () use ($uid, $alive, $from): void {
       AttendanceService::lock($uid);
       $now = time(); $today = date('Y-m-d', $now); $mid = strtotime($today.' 00:00:00');
       $run = DB::first('SELECT * FROM time_entries WHERE user_id=? AND is_running=1 ORDER BY id DESC LIMIT 1', [$uid]);
-      if ($run && strtotime($run['started_at']) < $mid) {
+      if ($run) {
         $hb = strtotime($run['last_heartbeat_at'] ?: $run['started_at']);
         $seen = max($hb, $alive ? min($now, (int) strtotime($alive)) : 0);
-        if ($seen >= $mid && $seen - $hb <= TimeService::STALE_SECONDS) { self::split($uid, $run, $seen); }
-        elseif ($now - $hb > TimeService::STALE_SECONDS) { TimeService::stop($uid, null, 'stale', true); } }
+        if (TimeService::stale($run, $from ?? ($alive ? $seen : $now))) { TimeService::stop($uid, null, 'stale', true); }
+        elseif (strtotime($run['started_at']) < $mid && $seen >= $mid) { self::split($uid, $run, $seen); } }
       foreach (DB::all('SELECT * FROM attendance WHERE user_id=? AND clock_out IS NULL AND clock_in IS NOT NULL AND work_date<?', [$uid, $today]) as $r) {
         if (DB::value('SELECT 1 FROM time_entries WHERE user_id=? AND is_running=1 AND started_at<? LIMIT 1', [$uid, date('Y-m-d', strtotime($r['work_date'].' +1 day')).' 00:00:00'])) { continue; }
         AttendanceService::autoCloseRow($r);
@@ -91,7 +94,7 @@ final class Tracker {
       AttendanceService::lock($uid);
       $at = self::at($uid, $at);
       self::settle($uid, $at ?? date('Y-m-d H:i:s'));
-      if (TimeService::running($uid)) { return; }
+      if (TimeService::running($uid, false)) { return; }
       $st = AttendanceService::state(AttendanceService::today($uid));
       if ($st === 'out' || $st === 'done') { AttendanceService::clockIn($uid, $ip, $at); }
       elseif ($st === 'break') { AttendanceService::endBreak($uid, $at); }
@@ -132,7 +135,7 @@ final class Tracker {
       AttendanceService::lock($uid);
       $at = self::at($uid, $at);
       self::settle($uid, $at ?? date('Y-m-d H:i:s'));
-      if (TimeService::running($uid)) { return; }
+      if (TimeService::running($uid, false)) { return; }
       $st = AttendanceService::state(AttendanceService::today($uid));
       if ($st === 'out' || $st === 'done') { AttendanceService::clockIn($uid, $ip, $at); }
       elseif ($st === 'break') { AttendanceService::endBreak($uid, $at); }

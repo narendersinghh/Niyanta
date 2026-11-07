@@ -15,7 +15,7 @@
  * pauses tracking at last input + that maximum; on return a short message offers Resume. Nothing is ever asked.
  * Meeting mode (setMeeting): time is tracked as usual (screenshots as configured) but idle detection is off and the slots it
  * mostly covers are sent with meeting: 1, so the server keeps their activity without counting it in any average. It turns
- * off by itself after an hour (MEETING_MS), on Pause, or when switched off.
+ * off by itself after 30 minutes (MEETING_MS; the notice offers Turn back on), on Pause, or when switched off.
  * Pomodoro (pomodoro.js, optional, local only): after N minutes tracked without a break a reminder offers a break (pause +
  * countdown, "Break over" offers Resume) or a 10-minute snooze.
  * Heartbeats (at most every 60 s) keep the running entry alive on the server; the local session (tracking or not, last alive
@@ -40,7 +40,10 @@ const { MEETING_MS } = require('../shared/status');
 
 const ACTIONS = { start: 'day/start', pause: 'pause', resume: 'resume', switch: 'switch' };
 const SAVE_MS = 15000;
-const UPDATE_EVERY_MS = 30 * 60000;
+/* update checks: shortly after start, then every 5 hours; after waking or unlocking at most once per 15 minutes */
+const UPDATE_EVERY_MS = 5 * 60 * 60000;
+const UPDATE_FIRST_MS = 8000;
+const UPDATE_WAKE_GAP_MS = 15 * 60000;
 const STATE_EVERY_MS = 60000;
 const STATE_FULL_MS = 5 * 60000;
 const STATE_OFFLINE_MAX_MS = 5 * 60000;
@@ -72,7 +75,7 @@ class Tracker extends EventEmitter {
     this.error = null;
     this.notice = null;
     this.idleFrom = 0;         /* ms of the last input while an idle span is open, else 0 */
-    this.idleArmed = true;     /* false after a wake-up until input is seen again */
+    this.lockedSince = 0;      /* ms the screen was locked (counts as no input) */
     this.spans = [];           /* closed idle spans [{from, to}] (ISO) for the next heartbeat */
     this.idlePause = null;     /* {at, minutes, back}: tracking was paused automatically after the maximum idle time */
     this.activity = new Activity(errors.log);
@@ -186,9 +189,14 @@ class Tracker extends EventEmitter {
       return { ok: false, error: e.message, code: (e.body && typeof e.body.code === 'string' && e.body.code.slice(0, 40)) || null, status: e.status }; }
     finally { this.busy = false; this.changed(); } }
 
+  /**
+   * Sign out: tracking is paused first and the pause is sent before anything is cleared (signOutLocal empties the queue, so a
+   * queued pause would be lost); the logout carries its time too, so the server stops this device's entry even when the
+   * pause could not be sent. Offline: the server stops the entry at its last heartbeat (the app is gone).
+   */
   async signOut() {
-    if (this.state === 'tracking') await this.action('pause', {}, { quiet: true });
-    try { await this.api.post('logout', {}, { timeout: 5000 }); } catch (e) { /* token is dropped locally anyway */ }
+    if (this.state === 'tracking') await this.action('pause', {}, { quiet: true, durable: 8000 });
+    try { await this.api.post('logout', { at: new Date().toISOString() }, { timeout: 5000 }); } catch (e) { /* token is dropped locally anyway */ }
     this.signOutLocal(null); }
 
   signOutLocal(message) {
@@ -269,12 +277,15 @@ class Tracker extends EventEmitter {
 
   get state() { return this.snap ? this.snap.state : 'not_started'; }
 
-  /** The snapshot rolled forward to now (tracking time keeps counting locally, also while idle). */
-  view() {
+  /**
+   * The snapshot rolled forward to `until` (default now; tracking time keeps counting locally, also while idle). A pause with
+   * an earlier time (idle auto-pause, after a sleep or a crash) is projected from that time, so the seconds after it never count.
+   */
+  view(until = Date.now()) {
     const s = this.snap ? JSON.parse(JSON.stringify(this.snap)) : null;
-    const dt = Math.max(0, Math.round((Date.now() - this.snapAt) / 1000));
+    const dt = Math.max(0, Math.round((until - this.snapAt) / 1000));
     if (s && s.state === 'tracking') {
-      const idle = this.idleFrom ? Math.min(dt, Math.max(0, Math.round((Date.now() - Math.max(this.snapAt, this.idleFrom)) / 1000))) : 0;
+      const idle = this.idleFrom ? Math.min(dt, Math.max(0, Math.round((until - Math.max(this.snapAt, this.idleFrom)) / 1000))) : 0;
       s.totals.tracked += dt; s.totals.active += dt - idle; s.totals.idle += idle;
       if (s.running) s.running.elapsed += dt; }
     else if (s && s.state === 'paused' && s.day && s.day.paused_since) s.totals.paused += dt;
@@ -282,8 +293,8 @@ class Tracker extends EventEmitter {
 
   /** Optimistic local transition, so the UI is instant and offline actions still make sense. */
   project(name, body) {
-    const s = this.view() || { state: 'not_started', day: {}, totals: { tracked: 0, active: 0, idle: 0, paused: 0, entries: 0 }, running: null, last: null };
     const now = body.at || new Date().toISOString();
+    const s = this.view(Math.min(Date.now(), Date.parse(now) || Date.now())) || { state: 'not_started', day: {}, totals: { tracked: 0, active: 0, idle: 0, paused: 0, entries: 0 }, running: null, last: null };
     const pj = this.projectById(body.project_id);
     const task = pj && body.task_id ? (pj.tasks || []).find(t => t.id === body.task_id) : null;
     const entry = src => ({ id: null, started_at: now, elapsed: 0, idle_seconds: 0, project_id: src.project_id || null, project: src.project_id ? (src.project || (this.projectById(src.project_id) || {}).name || null) : null, task_id: src.task_id || null, task: src.task || (task && task.title) || null, description: src.description || null, device: os.hostname() });
@@ -299,18 +310,24 @@ class Tracker extends EventEmitter {
 
   projectById(id) { return id && this.boot ? this.boot.projects.find(p => p.id === id) || null : null; }
 
-  /** Run a tracking action: optimistic update, then send now (or queue with its client time when offline). */
-  async action(name, body = {}, { quiet = false, at = null } = {}) {
+  /**
+   * Run a tracking action: optimistic update, then send now (or queue with its client time when offline). durable (ms): the
+   * job is written to the queue on disk first and then sent, waiting up to that long (quit, shutdown, sleep, sign-out: a
+   * request cut off by the process ending or the system suspending is not lost, it is replayed with its real time).
+   */
+  async action(name, body = {}, { quiet = false, at = null, durable = 0 } = {}) {
     if (!ACTIONS[name] || !this.signedIn) return { ok: false };
-    if (name === 'pause' && this.idleFrom) this.closeIdle(Date.now());
-    if (name === 'pause') this.endMeeting('pause');
     body = Object.assign({}, body, { at: at || new Date().toISOString() });
-    if (name === 'pause') this.flushHeartbeat();
+    const atMs = Math.min(Date.now(), Date.parse(body.at) || Date.now());
+    if (name === 'pause' && this.idleFrom) this.closeIdle(Math.max(this.idleFrom, atMs));
+    if (name === 'pause') this.endMeeting('pause');
+    if (name === 'pause') this.flushHeartbeat(atMs, !!durable);
     const before = this.snap;
     this.project(name, body);
     if (name !== 'pause') { this.autoPaused = false; this.idlePause = null; }
     if ((name === 'start' || name === 'resume') && this.consentNeeded()) this.emit('consent-needed');
     const job = { type: 'action', path: ACTIONS[name], json: body };
+    if (durable) { const j = this.queue.add(job); const sent = await this.queue.sent(j.id, durable); return { ok: true, queued: !sent }; }
     if (this.queue.size) { this.queue.add(job); return { ok: true, queued: true }; }
     try {
       const res = await this.api.post(job.path, body);
@@ -413,8 +430,16 @@ class Tracker extends EventEmitter {
     this.flash(`Niyanta Tracker was not running since ${clock(s.aliveAt)} (the computer was switched off or the app was closed). Tracking stopped at that time. Press ${this.dayKey() === s.day ? 'Resume' : 'Start'} to continue.`, 'info');
     this.saveSession(true); }
 
-  /** The system is shutting down or logging out: save the session (recover() closes the entry at this moment next time). */
-  onShutdown() { this.flushHeartbeat(); this.saveSession(true); this.queue.persist(); }
+  /**
+   * The system is shutting down or logging out (Windows may end the process right after this): the pause is written to the
+   * queue on disk at once (synchronously) and sent if there is still time; otherwise it is replayed with this time on the
+   * next start. The session is saved as not tracking.
+   */
+  onShutdown() {
+    if (!this.signedIn) return;
+    this.closeSlot(false);
+    if (this.state === 'tracking') this.action('pause', {}, { quiet: true, durable: 3000 }); else this.flushHeartbeat(Date.now(), true);
+    this.saveSession(true); this.queue.persist(); }
 
   /* ---------- loops: activity, heartbeat, screenshots, polling ---------- */
 
@@ -426,7 +451,9 @@ class Tracker extends EventEmitter {
     this.localTracking = this.state === 'tracking';
     this.activity.start();
     /* one timer drives everything: the activity sample every second; state, bootstrap and update refreshes when due */
-    this.nextState = Date.now() + STATE_EVERY_MS; this.nextBoot = Date.now() + BOOT_EVERY_MS; this.nextUpdate = Date.now() + 8000;
+    this.nextState = Date.now() + STATE_EVERY_MS; this.nextBoot = Date.now() + BOOT_EVERY_MS;
+    /* start() runs again on sign-in and after a reconnect: the update schedule is kept, only the first start checks soon */
+    if (!this.nextUpdate) this.nextUpdate = Date.now() + UPDATE_FIRST_MS;
     this.lastBeatAt = 0; this.lastFullState = Date.now(); this.stateWait = STATE_EVERY_MS;
     this.loops.push(setInterval(() => this.tick(), 1000));
     this.queue.resume();
@@ -444,7 +471,7 @@ class Tracker extends EventEmitter {
     if (gap > 30) this.onWake(prev);
     if (this.stateDue(now)) this.refreshState();
     if (now >= this.nextBoot) { this.nextBoot = now + BOOT_EVERY_MS; if (!this.offline) this.refreshBoot(); }
-    if (now >= this.nextUpdate) { this.nextUpdate = now + UPDATE_EVERY_MS; if (!this.offline) this.checkUpdates(); }
+    if (now >= this.nextUpdate) { this.nextUpdate = now + UPDATE_EVERY_MS; if (!this.offline) this.checkUpdates(); }  /* checkUpdates() moves nextUpdate too */
     const day = this.dayKey(now);
     if (this.day && day !== this.day) { this.day = day; this.newDay(day); }
     this.day = day;
@@ -453,17 +480,19 @@ class Tracker extends EventEmitter {
     const thr = this.idleThreshold();
     const input = this.activity.sample(now);
     this.locked = !!input.locked;
+    /* a locked screen means nobody is at the computer, even where the system idle time stays 0 (some Linux desktops) */
+    if (this.locked && !this.lockedSince) this.lockedSince = now; else if (!this.locked) this.lockedSince = 0;
+    if (this.lockedSince) input.idle = Math.max(input.idle, Math.floor((now - this.lockedSince) / 1000));
     if (this.meeting && (this.state !== 'tracking' || now >= this.meeting.until)) this.endMeeting(now >= this.meeting.until ? 'timeout' : 'stopped');
     /* meeting mode: nobody types in a meeting, so idle detection (and the automatic pause) is off; afterwards idle counts from its end */
     const idleSec = this.meeting ? 0 : Math.min(input.idle, Math.max(0, Math.floor((now - this.idleFloor) / 1000)));
-    if (idleSec < thr) this.idleArmed = true;
     /* back at the computer after the automatic pause: the message (and a notification) offers Resume, nothing is asked */
     if (this.idlePause && !this.idlePause.back && idleSec < 3) { this.idlePause.back = true; this.changed(); this.emit('idle-return', this.idlePause); }
     const tracking = this.state === 'tracking';
     this.slotTick(now, tracking && gap <= 30 ? dt : 0, input);
     if (!tracking) { this.pomo.tick(now, 0); return; }
     if (this.pomo.brk) this.pomo.resumed();
-    if (!this.idleFrom && this.idleArmed && idleSec >= thr) {
+    if (!this.idleFrom && idleSec >= thr) {
       /* no input for the threshold: idle since the last input (not before tracking started); those seconds move to idle */
       this.idleFrom = Math.max(now - idleSec * 1000, this.trackingSince || 0, this.idleFloor);
       const back = Math.round((now - this.idleFrom) / 1000);
@@ -477,25 +506,39 @@ class Tracker extends EventEmitter {
     this.pomo.tick(now, this.idleFrom || gap > 30 ? 0 : dt);
     if (now >= this.nextHeartbeat) this.flushHeartbeat(); }
 
-  /** The event loop did not run (sleep, hibernate): an open idle span ends where the sleep began; wait for input again. */
+  /**
+   * The event loop did not run (sleep, hibernate; the suspend event is not reliable on every system): an open idle span ends
+   * where the sleep began and idle counts again from the wake-up (input from before the sleep is not idle time). Tracking
+   * across it: the entry is closed where the sleep began (pause with that time, before the heartbeat) and tracking continues
+   * now, so the sleep is never counted, here or on the server, however short or long it was.
+   */
   onWake(sleptAt) {
-    this.wokeAt = Date.now(); meter.wake(this.slot, this.wokeAt);
+    const now = Date.now();
+    this.wokeAt = now; meter.wake(this.slot, this.wokeAt);
     if (this.idleFrom) this.closeIdle(sleptAt);
-    if (Date.now() - sleptAt >= this.pomo.prefs.brk * 60000) this.pomo.rest();
-    this.idleArmed = false;
+    if (now - sleptAt >= this.pomo.prefs.brk * 60000) this.pomo.rest();
+    this.idleFloor = Math.max(this.idleFloor, now);
+    if (this.state === 'tracking' && this.signedIn) {
+      const meeting = this.meeting;
+      errors.log(`asleep from ${iso(sleptAt)} to ${iso(now)}: not counted`);
+      const p = this.action('pause', {}, { quiet: true, at: iso(sleptAt), durable: 5000 });
+      /* woke up behind the lock screen: stay paused, the unlock resumes (autoResume) */
+      if (this.activity.sample().locked) { this.autoPaused = true; p.then(() => { this.autoPaused = true; }); this.flash(`Paused while this computer was asleep (since ${clock(sleptAt)}). Tracking continues when you unlock it.`, 'info'); }
+      else { p.then(() => this.action('resume', {}, { quiet: true })).then(() => this.restoreMeeting(meeting)); this.flash(`This computer was asleep from ${clock(sleptAt)} to ${clock(now)}. That time is not counted; tracking continues.`, 'info'); } }
     this.nextHeartbeat = 0; }
 
-  flushHeartbeat() {
+  /** Send the activity since the last beat, stamped `at` (ms, default now); queued: through the queue on disk (quit, shutdown). */
+  flushHeartbeat(at = Date.now(), queued = false) {
     this.nextHeartbeat = Date.now() + this.beatMs;
     if (!this.signedIn || (this.state !== 'tracking' && !this.hb.a && !this.hb.i && !this.spans.length)) return;
-    const json = { active_seconds: Math.round(this.hb.a), idle_seconds: Math.round(this.hb.i), at: iso(Date.now()) };
+    const json = { active_seconds: Math.round(this.hb.a), idle_seconds: Math.round(this.hb.i), at: iso(at) };
     if (this.spans.length) json.idle_spans = this.spans;
     this.hb = { a: 0, i: 0 }; this.spans = [];
     this.saveSession(true);
-    this.sendHeartbeat(json); }
+    this.sendHeartbeat(json, queued); }
 
-  sendHeartbeat(json) {
-    if (this.queue.size) { this.queue.add({ type: 'heartbeat', path: 'heartbeat', json }); return; }
+  sendHeartbeat(json, queued = false) {
+    if (this.queue.size || queued) { this.queue.add({ type: 'heartbeat', path: 'heartbeat', json }); return; }
     this.api.post('heartbeat', json, { timeout: 15000 }).then(r => {
       this.offline = false; this.lastBeatAt = Date.now();
       if (r.state && !this.queue.jobs.some(j => j.type === 'action')) { this.setSnap(r.state); this.reconcile(); } }).catch(e => {
@@ -629,7 +672,7 @@ class Tracker extends EventEmitter {
     this.meeting = null;
     this.idleFloor = Date.now();
     errors.log(`meeting mode off (${why})`);
-    if (why === 'timeout') this.flash('Meeting mode turned off after 1 hour. Activity counts again.', 'info');
+    if (why === 'timeout') this.flash(`Meeting mode turned off after ${Math.round(MEETING_MS / 60000)} minutes. Activity counts again.`, 'info', 'meeting-on');
     this.saveSession(true); this.changed(); }
 
   /** After a crash or an update restart: meeting mode continues until its original end. */
@@ -659,19 +702,34 @@ class Tracker extends EventEmitter {
     /* locked or asleep: activity blocks are inactive at once; after waking the first block is left out (meter.js) */
     if (kind === 'suspend' || kind === 'lock-screen') this.away = true;
     if (kind === 'unlock-screen') this.away = false;
-    if (kind === 'resume') { this.away = false; this.wokeAt = Date.now(); meter.wake(this.slot, this.wokeAt); }
+    if (kind === 'resume') { this.away = false; }
     if ((kind === 'suspend' || kind === 'lock-screen') && this.idleFrom) this.closeIdle(Math.min(Date.now(), this.idleFrom + this.maxIdle() * 1000));
     if ((kind === 'suspend' || kind === 'lock-screen') && this.settings.auto_pause_on_lock && this.state === 'tracking') {
       this.autoPaused = true;
-      this.action('pause', {}, { quiet: true }).then(() => { this.autoPaused = true; });
+      /* durable: written to disk before the system suspends, replayed with this time if the request did not get out */
+      this.action('pause', {}, { quiet: true, durable: 4000 }).then(() => { this.autoPaused = true; });
       this.flash(kind === 'suspend' ? 'Paused while the computer was asleep.' : 'Paused while the screen was locked.', 'info'); }
-    else if ((kind === 'resume' || kind === 'unlock-screen') && this.autoPaused) {
-      this.autoPaused = false;
-      setTimeout(() => this.action('resume', {}, { quiet: true }), kind === 'resume' ? 4000 : 500); }
+    else if ((kind === 'resume' || kind === 'unlock-screen') && this.autoPaused) this.autoResume(kind === 'resume' ? 4000 : 500);
     if (kind === 'suspend') this.saveSession(true);
-    if (kind === 'resume') { this.idleArmed = false; this.tick(); setTimeout(() => this.refreshState(), 6000); }
+    if (kind === 'resume') { this.tick(); setTimeout(() => this.refreshState(), 6000); }
     /* back from sleep or the lock screen: look for an update (the loop timer may have been asleep for hours) */
-    if (kind === 'resume' || kind === 'unlock-screen') { clearTimeout(this._wakeCheck); this._wakeCheck = setTimeout(() => this.checkUpdates(), 15000); } }
+    if (kind === 'resume' || kind === 'unlock-screen') { clearTimeout(this._wakeCheck); this._wakeCheck = setTimeout(() => { if (this.updateCheckDue(Date.now())) this.checkUpdates(); }, 15000); } }
+
+  /** After waking or unlocking: only when the last check is at least UPDATE_WAKE_GAP_MS old (frequent lock / unlock never spams the server). */
+  updateCheckDue(now) { return now - (this.lastUpdateCheck || 0) >= UPDATE_WAKE_GAP_MS; }
+
+  /**
+   * Resume after the automatic pause on lock or sleep, once the person is back: not while the screen is still locked (a
+   * computer that wakes up by itself, or the lid opened behind the lock screen); then the unlock resumes it. Pressing Start,
+   * Resume or Pause meanwhile (any action clears autoPaused) cancels it.
+   */
+  autoResume(ms) {
+    clearTimeout(this._autoResume);
+    this._autoResume = setTimeout(() => {
+      if (!this.autoPaused || this.state !== 'paused' || !this.signedIn) return;
+      if (this.activity.sample().locked) return;
+      this.autoPaused = false;
+      this.action('resume', {}, { quiet: true }); }, ms); }
 
   /**
    * Quitting with data still in the offline queue (actions, heartbeats, activity, screenshots): send it first. The window
@@ -695,11 +753,15 @@ class Tracker extends EventEmitter {
   /** "Quit anyway": stop waiting; what is left stays in the queue for the next start. */
   quitAnyway() { if (this.queue.abortFlush) this.queue.abortFlush(); return { ok: true }; }
 
-  /** Best-effort pause before the app quits, so the server does not count the minutes until the entry goes stale. */
+  /**
+   * Pause before the app quits, so the server never counts the time the app is not running: the heartbeat and the pause go
+   * through the queue on disk (durable), so a pause that cannot be sent in `wait` ms is replayed with the quit time on the
+   * next start (the server also stops an entry without heartbeats at its last one).
+   */
   async beforeQuit(wait = 4000) {
     if (this.signedIn) this.closeSlot(false);
-    if (this.signedIn) this.flushHeartbeat();
-    if (this.signedIn && this.state === 'tracking') await Promise.race([this.action('pause', {}, { quiet: true }), new Promise(r => setTimeout(r, wait))]);
+    if (this.signedIn && this.state === 'tracking') await this.action('pause', {}, { quiet: true, durable: wait });
+    else if (this.signedIn) this.flushHeartbeat(Date.now(), true);
     this.activity.stop();
     this.saveSession(true);
     this.queue.persist(); }
@@ -707,11 +769,13 @@ class Tracker extends EventEmitter {
   /* ---------- updates ---------- */
 
   /**
-   * On start, every 30 minutes and after waking up or unlocking: GET /api/agent/version (what the workspace offers); when it is newer, the updater finds out
+   * Shortly after start, every 5 hours and 15 s after waking up or unlocking (at most once per 15 minutes; a manual check in
+   * Settings is immediate and every check moves the next periodic one 5 hours out): GET /api/agent/version (what the workspace offers); when it is newer, the updater finds out
    * what one click installs (updater.js). The window shows the update card and main.js one notification per version.
    */
   async checkUpdates(manual = false) {
     if (!this.signedIn) return;
+    this.lastUpdateCheck = Date.now(); this.nextUpdate = this.lastUpdateCheck + UPDATE_EVERY_MS;
     try {
       const r = await this.api.get('version', { timeout: 15000 });
       this.update = { available: !!r.update_available, latest: r.latest, url: r.download_page, checkedAt: new Date().toISOString() };
@@ -757,7 +821,8 @@ class Tracker extends EventEmitter {
 
   /* ---------- UI ---------- */
 
-  flash(text, kind = 'info') { this.notice = { text, kind, id: Date.now() }; this.emit('alert', kind); this.changed(); }
+  /** A message for the window; action: one extra button on it ('meeting-on': Turn back on). */
+  flash(text, kind = 'info', action = null) { this.notice = { text, kind, id: Date.now(), action }; this.emit('alert', kind); this.changed(); }
 
   changed() {
     if (this._t) return;
@@ -805,6 +870,7 @@ class Tracker extends EventEmitter {
       tracking: st === 'tracking' && !idle, idleSince: idle ? this.idleFrom : null,
       prefs: { launchAtLogin: store.get('launchAtLogin', true), notify: this.notifyOn(), notifyAllowed: !!this.settings.screenshot_notify_user_can_disable, tone: store.get('alertTone', true), tokenProtected: store.tokenProtected() },
       pomodoro: this.pomo.view(),
+      uninstall: this.uninstall || null,
       at: Date.now() }; } }
 
 function osName() { return { win32: 'Windows', darwin: 'macOS', linux: 'Linux' }[process.platform] || process.platform; }
@@ -812,4 +878,4 @@ function osName() { return { win32: 'Windows', darwin: 'macOS', linux: 'Linux' }
 function validLogin(res) { return !!res && typeof res.token === 'string' && /^[\x21-\x7e]{16,200}$/.test(res.token) && !!res.user && typeof res.user === 'object' && !!res.workspace && typeof res.workspace === 'object'; }
 function osLabel() { return `${osName()} ${os.release()}`.slice(0, 40); }
 
-module.exports = { Tracker, ApiError, osName };
+module.exports = { Tracker, ApiError, osName, UPDATE_EVERY_MS, UPDATE_WAKE_GAP_MS };

@@ -121,7 +121,7 @@ screenshots 240/min, error reports 60/min, version 30/min, update files 60/min p
 |---|---|---|
 | `POST /api/agent/login` | `email, password, device_name, os, app_version` | `token` + bootstrap payload |
 | `POST /api/agent/connect` | `code, verifier?, device_name, device_os, app_version` | `token` + bootstrap payload (see Sign in with your browser) |
-| `POST /api/agent/logout` | | revokes the token |
+| `POST /api/agent/logout` | `at`? | stops the entry this device is tracking (at `at`, clamped like actions), then revokes the token |
 | `GET /api/agent/bootstrap` | | `user, workspace, permissions, settings, consent, policy, projects[{id,name,tasks[]}], state` |
 | `GET /api/agent/state` | | `state, settings, consent` (cheap refresh) |
 | `GET /api/agent/tasks?project_id=` | | open tasks of a visible project |
@@ -180,7 +180,7 @@ columns of `activity_slots` and `screenshots` stay (nullable) for older data onl
 1.2.x still send and the web app no longer shows counts.
 
 **Meeting mode.** A switch in the app: time is tracked as usual (screenshots as configured), idle detection and the automatic
-pause are off, and it turns off by itself after 1 hour (or on Pause, or when switched off). A slot counts as a meeting slot
+pause are off, and it turns off by itself after 30 minutes (or on Pause, or when switched off; apps before 1.4.2: 1 hour). A slot counts as a meeting slot
 when meeting mode covered at least half of its tracked seconds; it is sent with `meeting: 1` (booleans and `"1"` accepted)
 and stored in `activity_slots.meeting` (screenshots: `screenshots.meeting`). Meeting slots keep their activity and are visible
 to managers (the flag is on the slot and the screenshot), but every activity average leaves them out:
@@ -210,6 +210,20 @@ If no heartbeat arrives for 10 minutes the `stale_timers` job (every 5 min) stop
 time the job runs) and closes days that are over; the day stays open (`stopped`) and the app resumes with `resume` when it comes
 back. The daily `auto_close` job (23:55) only does the same (it no longer closes today or stops a healthy entry: the day ends at
 midnight). Heartbeat `running: false` tells the app to refresh `state`.
+
+**Tracker off means no time accrues (server side, also protects apps 1.3.x / 1.4.x).** A running entry is *stale* when it has
+had no heartbeat for 10 minutes (`TimeService::stale`). Then:
+- every read settles it: `GET /api/agent/state` and `bootstrap`, the web `time/status` (time page, dashboard card, top bar
+  chip poll) and `TimeService::running()` (top bar chip) stop it at its last heartbeat, so it is never shown as running;
+- totals that are not settled per person (team pages, timesheets, payroll `secondsForUser`) count a stale running entry only
+  up to its last heartbeat (`TimeService::secondsSql()`), never up to now;
+- an action (`pause`, `resume`, `switch`, `day/start`) is judged at its own time (`at`): a Pause sent right after waking from a
+  long sleep, or replayed from the offline queue hours later (clamped to 6 h back), stops the entry at its last heartbeat, not
+  at the pause time; a heartbeat is judged at the start of the seconds it covers, so a merged offline beat (also across
+  midnight) continues the entry;
+- exception: an entry the server created in the last 10 minutes from a queued, older start that has had no heartbeat yet is
+  not stale (the app is replaying its queue; its heartbeats follow);
+- signing out (`POST /api/agent/logout`) or Disconnect on the web stops the entry of that device at once.
 
 **Crash or power cut.** The app saves locally every 15 s whether it is tracking and when it was last alive. On the next start,
 if it was tracking: back within 10 minutes it sends `pause` at that time (`at`) and `resume` (tracking continues, the minutes

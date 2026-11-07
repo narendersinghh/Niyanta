@@ -2,8 +2,10 @@
 /* Offline queue: everything that must reach the server (tracking actions, heartbeats with idle spans, activity slots,
    screenshots, error reports) goes through here. Jobs are persisted to userData/queue.json (mode 600); screenshots are
    files in userData/pending (mode 600, AES-256-GCM with a key kept in the OS keychain, see store.js), deleted as soon as
-   they are uploaded, at most MAX_SHOTS / MAX_SHOT_BYTES / 24 h (oldest first). Jobs are sent in order and retried with
-   exponential backoff and jitter while the network or the server is unavailable. */
+   they are uploaded, at most MAX_SHOTS / MAX_SHOT_BYTES / 24 h (oldest first). Tracking jobs (actions, heartbeats, idle)
+   are sent first, in their own order, so a Pause never waits behind a screenshot or activity upload the server keeps
+   failing; everything else follows in order. Retried with exponential backoff and jitter while the network or the server
+   is unavailable. */
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -17,6 +19,8 @@ const MAX_SHOTS = 400;
 const MAX_SHOT_BYTES = 120 * 1048576;
 const GAP_MS = 120000;
 const MAX_SLOTS = 200;
+/** Job types that change or extend the tracked time: sent before everything else. */
+const TRACKING = new Set(['action', 'heartbeat', 'idle']);
 
 /** Does heartbeat b follow on from heartbeat a (the seconds b covers start no later than 2 minutes after a was sent)? */
 function contiguous(a, b) {
@@ -102,7 +106,8 @@ class Queue extends EventEmitter {
     const shots = this.jobs.filter(j => j.type === 'screenshot');
     let bytes = shots.reduce((n, j) => n + (+j.bytes || 0), 0);
     while (shots.length > MAX_SHOTS || (bytes > MAX_SHOT_BYTES && shots.length > 1)) { const j = shots.shift(); bytes -= +j.bytes || 0; drop(j, 'over-limit'); this.jobs.splice(this.jobs.indexOf(j), 1); }
-    while (this.jobs.length > MAX_JOBS) { const j = this.jobs.shift(); drop(j, 'over-limit'); } }
+    /* over the limit: the oldest job that is not a tracking action goes first (a queued Pause is kept to the end) */
+    while (this.jobs.length > MAX_JOBS) { const i = this.jobs.findIndex(j => j.type !== 'action'); drop(this.jobs.splice(i >= 0 ? i : 0, 1)[0], 'over-limit'); } }
 
   clear() {
     for (const j of this.jobs) rmQuiet(j.filePath);
@@ -137,6 +142,18 @@ class Queue extends EventEmitter {
       this.paused = false; this.failures = 0;
       this.kick(0); }); }
 
+  /** Resolves true once the job with this id has left the queue (sent, or refused for good), false after `ms`. */
+  sent(id, ms = 5000) {
+    if (!this.jobs.some(j => j.id === id)) return Promise.resolve(true);
+    return new Promise(resolve => {
+      const done = v => { clearTimeout(timer); this.off('change', check); resolve(v); };
+      const check = () => { if (!this.jobs.some(j => j.id === id)) done(true); };
+      const timer = setTimeout(() => done(false), ms);
+      this.on('change', check); }); }
+
+  /** The job to send next: the oldest tracking job, else the oldest job. */
+  next() { return this.jobs.find(j => TRACKING.has(j.type)) || this.jobs[0]; }
+
   pause() { this.paused = true; }
   resume() { this.paused = false; this.kick(); }
 
@@ -154,10 +171,11 @@ class Queue extends EventEmitter {
     this.running = true;
     try {
       while (this.jobs.length && !this.paused) {
-        const job = this.jobs[0];
+        const job = this.next();
+        const drop = () => { const i = this.jobs.indexOf(job); if (i >= 0) this.jobs.splice(i, 1); };
         try {
           const res = await this.send(job);
-          this.jobs.shift();
+          drop();
           rmQuiet(job.filePath);
           this.failures = 0;
           this.setOnline(true);
@@ -175,7 +193,7 @@ class Queue extends EventEmitter {
             this.kick(this.backoff());
             break; }
           /* 4xx rule violation: the server refused this job for good (e.g. consent revoked); drop it and tell the app */
-          this.jobs.shift();
+          drop();
           rmQuiet(job.filePath);
           this.persist();
           this.emit('rejected', job, err);
@@ -193,4 +211,4 @@ class Queue extends EventEmitter {
       return this.api.request('POST', job.path, { form: job.form, file: { field: 'screenshot', name: path.basename(job.filePath, path.extname(job.filePath)) + '.jpg', type: 'image/jpeg', data }, timeout: 60000 }); }
     return this.api.request(job.method || 'POST', job.path, { json: job.json, auth: job.auth !== false }); } }
 
-module.exports = { Queue, MAX_SHOTS, MAX_SHOT_BYTES, MAX_JOBS, MAX_AGE_MS };
+module.exports = { Queue, MAX_SHOTS, MAX_SHOT_BYTES, MAX_JOBS, MAX_AGE_MS, TRACKING };

@@ -102,7 +102,9 @@ final class Monitoring {
       Audit::log('agent.token_create', 'agent_token', $id, ['name' => $name, 'kind' => $kind, 'os' => $os, 'version' => $version], $uid);
       return [$plain, $id]; }); }
 
-  public static function revokeToken(int $uid, int $id): bool {
+  public static function revokeToken(int $uid, int $id, ?string $at = null): bool {
+    /* signed out (in the app or from the web): the entry this device is tracking stops now ($at: the app's sign-out time), so it never keeps running for an app that can no longer pause it */
+    if ((int) DB::value('SELECT agent_token_id FROM time_entries WHERE user_id=? AND is_running=1 ORDER BY id DESC LIMIT 1', [$uid]) === $id && DB::value('SELECT 1 FROM agent_tokens WHERE id=? AND user_id=? AND revoked_at IS NULL', [$id, $uid])) { Tracker::pause($uid, $at); }
     $n = DB::query('UPDATE agent_tokens SET revoked_at=NOW() WHERE id=? AND user_id=? AND revoked_at IS NULL', [$id, $uid])->rowCount();
     if ($n) { Audit::log('agent.token_revoke', 'agent_token', $id, [], $uid); }
     return $n > 0; }

@@ -480,4 +480,111 @@ return [
     TimeService::staleTimers();
     $e = DB::first('SELECT * FROM time_entries WHERE user_id=? ORDER BY id DESC LIMIT 1', [$emp]);
     assert_true(!$e['is_running'] && abs(strtotime($e['ended_at']) - (time() - 900)) <= 2, 'stale entry stopped at its last heartbeat'); },
+
+  /* ---------- tracker off = no time accrues (regressions for apps 1.3.x / 1.4.x already installed, fixed times) ---------- */
+
+  'tracker off: an entry whose app went quiet (quit, crash, sleep, no network) counts only to its last heartbeat everywhere and is stopped there on any read' => function () {
+    ['a' => $a, 'emp' => $emp] = trk_fixture();
+    $tok = trk_login();
+    DB::query('DELETE FROM attendance WHERE user_id=?', [$emp]); DB::query('DELETE FROM time_entries WHERE user_id=?', [$emp]);
+    trk_api('POST', '/api/agent/day/start', ['project_id' => $a], $tok);
+    $now = time(); $start = $now - 3600; $hb = $now - 1800;
+    if (date('Y-m-d', $start) !== date('Y-m-d')) { return; } /* just after midnight */
+    DB::query('UPDATE time_entries SET started_at=?, last_heartbeat_at=?, created_at=? WHERE user_id=?', [date('Y-m-d H:i:s', $start), date('Y-m-d H:i:s', $hb), date('Y-m-d H:i:s', $start), $emp]);
+    DB::query('UPDATE attendance SET clock_in=? WHERE user_id=?', [date('Y-m-d H:i:s', $start), $emp]);
+    /* totals that are not settled (team pages, payroll) stop at the last heartbeat too */
+    assert_true(abs(AttendanceService::trackedSeconds($emp, date('Y-m-d')) - 1800) <= 2, 'day total of a stale entry: '.AttendanceService::trackedSeconds($emp, date('Y-m-d')));
+    assert_true(abs(TimeService::secondsForUser($emp, date('Y-m-d'), date('Y-m-d')) - 1800) <= 2, 'secondsForUser stops at the last heartbeat');
+    assert_true(abs((int) \Modules\Attendance\Services\Timesheets::summary($emp, TimeService::weekStart())['total'] - 1800) <= 2, 'timesheet stops at the last heartbeat');
+    /* the web status (time page, dashboard card, top bar chip poll) settles it: stopped at the last heartbeat, not counted to now */
+    act_as($emp);
+    $j = json_decode((string) http('GET', '/time/status')->body(), true);
+    assert_true($j['state'] === 'stopped' && abs($j['totals']['tracked'] - 1800) <= 2, 'web status: '.json_encode([$j['state'], $j['totals']]));
+    $e = DB::first('SELECT * FROM time_entries WHERE user_id=?', [$emp]);
+    assert_true(!$e['is_running'] && abs(strtotime($e['ended_at']) - $hb) <= 1 && abs((int) $e['duration_seconds'] - 1800) <= 2, 'stopped at the last heartbeat: '.json_encode($e));
+    sleep(1);
+    assert_eq($j['totals']['tracked'], json_decode((string) http('GET', '/time/status')->body(), true)['totals']['tracked'], 'the day total does not grow any more');
+    /* the top bar chip (TimeService::running) never shows a stale entry */
+    trk_api('POST', '/api/agent/resume', [], $tok);
+    DB::query('UPDATE time_entries SET last_heartbeat_at=DATE_SUB(NOW(), INTERVAL 900 SECOND), started_at=DATE_SUB(NOW(), INTERVAL 1000 SECOND), created_at=DATE_SUB(NOW(), INTERVAL 1000 SECOND) WHERE user_id=? AND is_running=1', [$emp]);
+    assert_eq(null, TimeService::running($emp), 'top bar: no running entry');
+    assert_eq(0, (int) DB::value('SELECT COUNT(*) FROM time_entries WHERE user_id=? AND is_running=1', [$emp]), 'stopped'); },
+
+  'tracker off: a Pause sent right after waking from a long sleep (or replayed from the offline queue hours later) never counts the gap' => function () {
+    ['a' => $a, 'emp' => $emp] = trk_fixture();
+    $tok = trk_login();
+    $reset = static function (int $start, int $hb) use ($emp, $a, $tok): void {
+      DB::query('DELETE FROM attendance WHERE user_id=?', [$emp]); DB::query('DELETE FROM attendance_breaks'); DB::query('DELETE FROM time_entries WHERE user_id=?', [$emp]);
+      trk_api('POST', '/api/agent/day/start', ['project_id' => $a], $tok);
+      DB::query('UPDATE time_entries SET started_at=?, last_heartbeat_at=?, created_at=? WHERE user_id=?', [date('Y-m-d H:i:s', $start), date('Y-m-d H:i:s', $hb), date('Y-m-d H:i:s', $start), $emp]);
+      DB::query('UPDATE attendance SET clock_in=? WHERE user_id=?', [date('Y-m-d H:i:s', $start), $emp]); };
+    $now = time();
+    if (date('Y-m-d', $now - 9 * 3600) !== date('Y-m-d')) { return; } /* the fixed times below must be today */
+    /* asleep 40 minutes (no auto pause): the app sends Pause with the time it was pressed, after waking */
+    $reset($now - 3600, $now - 2400);
+    [$code, $j] = trk_api('POST', '/api/agent/pause', ['at' => date('c', $now)], $tok);
+    $e = DB::first('SELECT * FROM time_entries WHERE user_id=?', [$emp]);
+    assert_true($code === 200 && abs(strtotime($e['ended_at']) - ($now - 2400)) <= 1, 'pause after a sleep: ended at the last heartbeat, not at the pause: '.json_encode([$code, $e['ended_at']]));
+    assert_eq('paused', $j['state']['state']);
+    /* quit offline, the pause stayed queued and is replayed 8 hours later: clamped to 6 h back, still ends at the heartbeat */
+    $reset($now - 9 * 3600, $now - 8 * 3600 - 30);
+    trk_api('POST', '/api/agent/pause', ['at' => date('c', $now - 8 * 3600)], $tok);
+    $e = DB::first('SELECT * FROM time_entries WHERE user_id=?', [$emp]);
+    assert_true(abs(strtotime($e['ended_at']) - ($now - 8 * 3600 - 30)) <= 1, 'replayed pause beyond the 6-hour window: ended at the last heartbeat: '.$e['ended_at']);
+    /* replayed 2 hours later: ends at the real pause time */
+    $reset($now - 3 * 3600, $now - 2 * 3600 - 30);
+    trk_api('POST', '/api/agent/pause', ['at' => date('c', $now - 2 * 3600)], $tok);
+    $e = DB::first('SELECT * FROM time_entries WHERE user_id=?', [$emp]);
+    assert_true(abs(strtotime($e['ended_at']) - ($now - 2 * 3600)) <= 1, 'replayed pause: its real time: '.$e['ended_at']);
+    assert_eq(date('Y-m-d H:i:s', $now - 2 * 3600), DB::value('SELECT ab.start_at FROM attendance_breaks ab JOIN attendance a ON a.id=ab.attendance_id WHERE a.user_id=?', [$emp]), 'the break starts at the real pause time'); },
+
+  'tracker off: replaying an offline queue (resume with its old time, then the heartbeats) is not cut short by reads in between' => function () {
+    ['a' => $a, 'emp' => $emp] = trk_fixture();
+    $tok = trk_login();
+    DB::query('DELETE FROM attendance WHERE user_id=?', [$emp]); DB::query('DELETE FROM attendance_breaks'); DB::query('DELETE FROM time_entries WHERE user_id=?', [$emp]);
+    $now = time();
+    if (date('Y-m-d', $now - 3600) !== date('Y-m-d')) { return; }
+    trk_api('POST', '/api/agent/day/start', ['project_id' => $a], $tok);
+    trk_api('POST', '/api/agent/pause', [], $tok);
+    DB::query('UPDATE time_entries SET started_at=?, ended_at=?, duration_seconds=0, created_at=? WHERE user_id=?', [date('Y-m-d H:i:s', $now - 3600), date('Y-m-d H:i:s', $now - 3600), date('Y-m-d H:i:s', $now - 3600), $emp]);
+    DB::query('UPDATE attendance SET clock_in=? WHERE user_id=?', [date('Y-m-d H:i:s', $now - 3600), $emp]);
+    DB::query('UPDATE attendance_breaks SET start_at=?', [date('Y-m-d H:i:s', $now - 3600)]);
+    [, $j] = trk_api('POST', '/api/agent/resume', ['at' => date('c', $now - 1800)], $tok);
+    assert_eq('tracking', $j['state']['state'], 'replayed resume: tracking from its own time');
+    assert_eq('tracking', trk_api('GET', '/api/agent/state', [], $tok)[1]['state']['state'], 'a state poll in between does not stop it');
+    TimeService::staleTimers();
+    assert_eq(1, (int) DB::value('SELECT COUNT(*) FROM time_entries WHERE user_id=? AND is_running=1', [$emp]), 'nor does the cron');
+    [, $j] = trk_api('POST', '/api/agent/heartbeat', ['active_seconds' => 1790, 'idle_seconds' => 0, 'at' => date('c', $now - 5)], $tok);
+    assert_true($j['running'] === true && abs($j['state']['running']['elapsed'] - 1800) <= 3, 'the queued heartbeat continues it: '.json_encode($j['state']['running'])); },
+
+  'tracker off: a merged offline heartbeat across midnight continues in the new day instead of stopping the entry' => function () {
+    ['a' => $a, 'emp' => $emp] = trk_fixture();
+    DB::query('DELETE FROM attendance WHERE user_id=?', [$emp]); DB::query('DELETE FROM time_entries WHERE user_id=?', [$emp]);
+    $y = date('Y-m-d', strtotime('-1 day')); $now = time(); $hb = strtotime($y.' 23:50:00');
+    DB::insert('attendance', ['user_id' => $emp, 'work_date' => $y, 'clock_in' => $y.' 22:00:00', 'status' => 'present']);
+    DB::insert('time_entries', ['user_id' => $emp, 'project_id' => $a, 'started_at' => $y.' 22:00:00', 'last_heartbeat_at' => $y.' 23:50:00', 'source' => 'desktop', 'is_running' => 1, 'status' => 'draft', 'created_at' => $y.' 22:00:00']);
+    $r = TimeService::heartbeat($emp, $now - $hb - 30, 0, date('Y-m-d H:i:s', $now));
+    assert_true($r !== null, 'still running');
+    $rows = DB::all('SELECT started_at, ended_at, is_running FROM time_entries WHERE user_id=? ORDER BY started_at', [$emp]);
+    assert_true(count($rows) === 2 && $rows[0]['ended_at'] === date('Y-m-d 00:00:00') && $rows[1]['is_running'] == 1, 'split at midnight: '.json_encode($rows)); },
+
+  'tracker off: signing out (app or web) stops the entry of that device at the sign-out time' => function () {
+    ['a' => $a, 'emp' => $emp] = trk_fixture();
+    $tok = trk_login();
+    DB::query('DELETE FROM attendance WHERE user_id=?', [$emp]); DB::query('DELETE FROM attendance_breaks'); DB::query('DELETE FROM time_entries WHERE user_id=?', [$emp]);
+    $now = time();
+    if (date('Y-m-d', $now - 600) !== date('Y-m-d')) { return; }
+    trk_api('POST', '/api/agent/day/start', ['project_id' => $a], $tok);
+    DB::query('UPDATE time_entries SET started_at=?, last_heartbeat_at=?, created_at=? WHERE user_id=?', [date('Y-m-d H:i:s', $now - 600), date('Y-m-d H:i:s', $now - 30), date('Y-m-d H:i:s', $now - 600), $emp]);
+    DB::query('UPDATE attendance SET clock_in=? WHERE user_id=?', [date('Y-m-d H:i:s', $now - 600), $emp]);
+    assert_eq(200, trk_api('POST', '/api/agent/logout', ['at' => date('c', $now - 20)], $tok)[0]);
+    $e = DB::first('SELECT * FROM time_entries WHERE user_id=?', [$emp]);
+    assert_true(!$e['is_running'] && abs(strtotime($e['ended_at']) - ($now - 20)) <= 1, 'app sign-out: stopped at its time: '.json_encode($e));
+    $tok = trk_login();
+    trk_api('POST', '/api/agent/resume', [], $tok);
+    $tid = (int) DB::value('SELECT agent_token_id FROM time_entries WHERE user_id=? AND is_running=1', [$emp]);
+    act_as($emp);
+    http('POST', '/time/tokens/'.$tid.'/revoke');
+    assert_eq(0, (int) DB::value('SELECT COUNT(*) FROM time_entries WHERE user_id=? AND is_running=1', [$emp]), 'disconnected from the web: stopped');
+    assert_eq(401, trk_api('GET', '/api/agent/state', [], $tok)[0], 'token revoked'); },
 ];

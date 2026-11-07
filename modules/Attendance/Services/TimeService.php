@@ -7,9 +7,29 @@ final class TimeService {
   public const STALE_SECONDS = 600;
   private static array $vis = [];
 
+  /**
+   * Is this running entry stale at $ref (default now): no heartbeat for more than STALE_SECONDS, so its app is gone (quit,
+   * crashed, asleep, offline, signed out)? A stale entry counts only up to its last heartbeat and is stopped there. Exception:
+   * an entry the server created in the last STALE_SECONDS from a queued, older start that has had no heartbeat yet (the app
+   * is replaying its offline queue; the heartbeats that cover the gap follow right after it).
+   */
+  public static function stale(array $e, ?int $ref = null): bool {
+    if (empty($e['is_running'])) { return false; }
+    $now = time(); $hb = strtotime((string) ($e['last_heartbeat_at'] ?: $e['started_at']));
+    if (($ref ?? $now) - $hb <= self::STALE_SECONDS) { return false; }
+    return !($e['last_heartbeat_at'] === $e['started_at'] && !empty($e['created_at']) && strtotime((string) $e['created_at']) >= $now - self::STALE_SECONDS); }
+
+  /**
+   * SQL for the seconds an entry counts (column prefix $t, e.g. 'te.'): finished entries their duration, running entries up to
+   * now, or only up to their last heartbeat once stale (see stale()), so no total keeps growing for an app that is gone.
+   */
+  public static function secondsSql(string $t = ''): string {
+    $hb = "COALESCE({$t}last_heartbeat_at, {$t}started_at)"; $s = self::STALE_SECONDS;
+    return "CASE WHEN {$t}is_running=1 THEN GREATEST(0, TIMESTAMPDIFF(SECOND, {$t}started_at, IF($hb < NOW() - INTERVAL $s SECOND AND NOT ({$t}last_heartbeat_at <=> {$t}started_at AND {$t}created_at >= NOW() - INTERVAL $s SECOND), $hb, NOW())) - {$t}discarded_seconds) ELSE {$t}duration_seconds END"; }
+
   /** Seconds tracked by a user between two dates (inclusive), optionally by entry status. Running entries count up to now. */
   public static function secondsForUser(int $userId, string $from, string $to, ?string $status = null): int {
-    $sql = 'SELECT COALESCE(SUM(CASE WHEN is_running=1 THEN GREATEST(0, TIMESTAMPDIFF(SECOND, started_at, NOW()) - discarded_seconds) ELSE duration_seconds END),0) FROM time_entries WHERE user_id=? AND started_at>=? AND started_at<?';
+    $sql = 'SELECT COALESCE(SUM('.self::secondsSql().'),0) FROM time_entries WHERE user_id=? AND started_at>=? AND started_at<?';
     $p = [$userId, $from.' 00:00:00', date('Y-m-d', strtotime($to.' +1 day')).' 00:00:00'];
     if ($status !== null) { $sql .= ' AND status=?'; $p[] = $status; }
     return (int) DB::value($sql, $p); }
@@ -22,7 +42,7 @@ final class TimeService {
     $userIds = array_values(array_unique(array_map('intval', $userIds)));
     if (!$userIds) { return []; }
     $out = array_fill_keys($userIds, 0.0);
-    $sec = DB::pairs("SELECT user_id, COALESCE(SUM(CASE WHEN is_running=1 THEN GREATEST(0, TIMESTAMPDIFF(SECOND, started_at, NOW()) - discarded_seconds) ELSE duration_seconds END),0) FROM time_entries WHERE status='approved' AND started_at>=? AND started_at<? AND user_id IN ".DB::in($userIds).' GROUP BY user_id', [$from.' 00:00:00', date('Y-m-d', strtotime($to.' +1 day')).' 00:00:00', ...$userIds]);
+    $sec = DB::pairs('SELECT user_id, COALESCE(SUM('.self::secondsSql().'),0) FROM time_entries WHERE status=\'approved\' AND started_at>=? AND started_at<? AND user_id IN '.DB::in($userIds).' GROUP BY user_id', [$from.' 00:00:00', date('Y-m-d', strtotime($to.' +1 day')).' 00:00:00', ...$userIds]);
     foreach ($sec as $u => $s) { $out[(int) $u] = round((float) $s / 3600, 2); }
     return $out; }
 
@@ -41,13 +61,21 @@ final class TimeService {
 
   public static function weekStart(?string $date = null): string { $t = strtotime($date ?: 'today') ?: time(); return date('Y-m-d', strtotime('-'.(date('N', $t) - 1).' days', $t)); }
 
-  public static function running(int $uid): ?array {
-    return DB::first('SELECT te.*, p.name AS project_name, p.color AS project_color, t.title AS task_title FROM time_entries te LEFT JOIN projects p ON p.id=te.project_id LEFT JOIN tasks t ON t.id=te.task_id WHERE te.user_id=? AND te.is_running=1 ORDER BY te.id DESC LIMIT 1', [$uid]); }
+  /**
+   * The user's running entry. A stale one (its app is gone) is stopped at its last heartbeat first (Tracker::settle), so the
+   * web pages and the top bar never show it as running; $settle = false inside the tracker's own actions (settled already).
+   */
+  public static function running(int $uid, bool $settle = true): ?array {
+    $sql = 'SELECT te.*, p.name AS project_name, p.color AS project_color, t.title AS task_title FROM time_entries te LEFT JOIN projects p ON p.id=te.project_id LEFT JOIN tasks t ON t.id=te.task_id WHERE te.user_id=? AND te.is_running=1 ORDER BY te.id DESC LIMIT 1';
+    $r = DB::first($sql, [$uid]);
+    if ($r && $settle && self::stale($r)) { Tracker::settle($uid); $r = DB::first($sql, [$uid]); }
+    return $r; }
 
-  /** Elapsed seconds of an entry (running: up to now) minus discarded idle time. */
+  /** Elapsed seconds of an entry (running: up to now, a stale one up to its last heartbeat) minus discarded idle time. */
   public static function elapsed(array $e, ?int $now = null): int {
     if (!$e['is_running']) { return (int) $e['duration_seconds']; }
-    return max(0, ($now ?? time()) - strtotime($e['started_at']) - (int) $e['discarded_seconds']); }
+    $end = self::stale($e, $now) ? strtotime((string) ($e['last_heartbeat_at'] ?: $e['started_at'])) : ($now ?? time());
+    return max(0, $end - strtotime($e['started_at']) - (int) $e['discarded_seconds']); }
 
   /** Projects visible to the user: null means all. */
   public static function visibleProjectIds(array $user): ?array {
@@ -149,7 +177,7 @@ final class TimeService {
       $hb = strtotime($e['last_heartbeat_at'] ?: $e['started_at']);
       $end = max($hb, $at ? (int) strtotime($at) : time());
       if ($end - max(0, $active) - max(0, $idle) - $hb > self::STALE_SECONDS) { self::stop($uid, null, 'stale', true); Tracker::settle($uid); return null; }
-      Tracker::settle($uid, date('Y-m-d H:i:s', $end));
+      Tracker::settle($uid, date('Y-m-d H:i:s', $end), $end - max(0, $active) - max(0, $idle));
       $e = DB::first('SELECT * FROM time_entries WHERE user_id=? AND is_running=1 ORDER BY id DESC LIMIT 1', [$uid]);
       if (!$e) { return null; }
       $last = strtotime($e['last_heartbeat_at'] ?: $e['started_at']);
@@ -233,8 +261,8 @@ final class TimeService {
    */
   public static function staleTimers(): string {
     $n = 0;
-    foreach (DB::column('SELECT user_id FROM time_entries WHERE is_running=1 AND COALESCE(last_heartbeat_at, started_at) < ?', [date('Y-m-d H:i:s', time() - self::STALE_SECONDS)]) as $uid) {
-      if (self::stop((int) $uid, null, 'stale', true)) { $n++; } }
+    foreach (DB::all('SELECT * FROM time_entries WHERE is_running=1 AND COALESCE(last_heartbeat_at, started_at) < ?', [date('Y-m-d H:i:s', time() - self::STALE_SECONDS)]) as $e) {
+      if (self::stale($e) && self::stop((int) $e['user_id'], null, 'stale', true)) { $n++; } }
     $today = date('Y-m-d');
     $users = DB::column('SELECT user_id FROM attendance WHERE clock_out IS NULL AND clock_in IS NOT NULL AND work_date<? UNION SELECT user_id FROM time_entries WHERE is_running=1 AND started_at<?', [$today, $today.' 00:00:00']);
     foreach ($users as $uid) { Tracker::settle((int) $uid); }

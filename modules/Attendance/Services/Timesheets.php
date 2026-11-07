@@ -120,7 +120,7 @@ final class Timesheets {
 
   /** Week grid: rows per project, task and billable flag with per-day seconds; daily totals; attendance; expected hours. */
   public static function summary(int $uid, string $ws): array {
-    $rows = DB::all('SELECT DATE(te.started_at) AS d, te.project_id, p.name AS project_name, p.color, te.task_id, t.title AS task_title, te.billable, SUM(CASE WHEN te.is_running=1 THEN GREATEST(0, TIMESTAMPDIFF(SECOND, te.started_at, NOW()) - te.discarded_seconds) ELSE te.duration_seconds END) AS secs, MAX(te.is_running) AS running FROM time_entries te LEFT JOIN projects p ON p.id=te.project_id LEFT JOIN tasks t ON t.id=te.task_id WHERE te.user_id=? AND te.started_at>=? AND te.started_at<? GROUP BY d, te.project_id, p.name, p.color, te.task_id, t.title, te.billable', self::range($uid, $ws));
+    $rows = DB::all('SELECT DATE(te.started_at) AS d, te.project_id, p.name AS project_name, p.color, te.task_id, t.title AS task_title, te.billable, SUM('.TimeService::secondsSql('te.').') AS secs, MAX(te.is_running) AS running FROM time_entries te LEFT JOIN projects p ON p.id=te.project_id LEFT JOIN tasks t ON t.id=te.task_id WHERE te.user_id=? AND te.started_at>=? AND te.started_at<? GROUP BY d, te.project_id, p.name, p.color, te.task_id, t.title, te.billable', self::range($uid, $ws));
     $dates = array_map(static fn ($i) => date('Y-m-d', strtotime($ws." +$i days")), range(0, 6));
     $pj = feature_on('projects'); /* projects switched off: one row per billable flag, no project/task names */
     $s = ['days' => array_fill_keys($dates, 0), 'billable_days' => array_fill_keys($dates, 0), 'rows' => [], 'total' => 0, 'billable' => 0, 'running' => false];

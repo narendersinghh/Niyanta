@@ -19,7 +19,7 @@ const Module = require('module');
 const root = path.join(__dirname, '..');
 const read = f => fs.readFileSync(path.join(root, f), 'utf8').replace(/\r\n/g, '\n'); /* Windows checkouts may use CRLF */
 const src = {};
-for (const f of ['src/main/main.js', 'src/main/toast.js', 'src/main/api.js', 'src/main/connect.js', 'src/main/guard.js', 'build/installer.nsh', 'src/main/store.js', 'src/main/queue.js', 'src/main/updater.js', 'src/main/tracker.js', 'src/main/capture.js', 'src/main/errors.js',
+for (const f of ['src/main/main.js', 'src/main/toast.js', 'src/main/api.js', 'src/main/connect.js', 'src/main/guard.js', 'build/installer.nsh', 'src/main/store.js', 'src/main/queue.js', 'src/main/updater.js', 'src/main/tracker.js', 'src/main/capture.js', 'src/main/errors.js', 'src/main/uninstall.js',
   'src/preload/preload.js', 'src/preload/toast-preload.js', 'src/renderer/index.html', 'src/renderer/toast.html', 'src/renderer/app.js', 'src/renderer/toast.js', 'src/shared/status.js', 'package.json']) src[f] = read(f);
 const code = Object.entries(src).filter(([f]) => f.endsWith('.js') && f !== 'src/main/guard.js').map(([, s]) => s).join('\n');
 /* source without comments and strings, for "this must not appear" checks */
@@ -398,7 +398,77 @@ async function distChecks() {
     if (process.env.NIYANTA_CHECK_DIST) ok(!diff.length, `dist/${d}: fuses differ from scripts/after-pack.js (${diff.join(',')})`);
     else console.log(`  dist/${d}: fuses ${diff.length ? 'NOT yet flipped (build again with npm run dist)' : 'flipped as configured'}`); } }
 
-queueChecks().then(connectChecks).then(distChecks).catch(e => { bad++; console.error('FAIL ' + (e && e.stack || e)); }).then(() => {
+/* ---------- uninstall: path validation, the removal plan per OS, the helper scripts ---------- */
+function uninstallChecks() {
+  const guard = require(path.join(root, 'src', 'main', 'guard.js'));
+  const un = require(path.join(root, 'src', 'main', 'uninstall.js'));
+  const lx = { platform: 'linux', home: '/home/ana' }, mc = { platform: 'darwin', home: '/Users/ana' }, wn = { platform: 'win32', home: 'C:\\Users\\ana', execPath: 'C:\\Users\\ana\\AppData\\Local\\Programs\\niyanta-tracker\\Niyanta Tracker.exe' };
+  const yes = [['/home/ana/.config/Niyanta Tracker', 'userData', lx], ['/Users/ana/Library/Application Support/Niyanta Tracker', 'userData', mc], ['C:\\Users\\ana\\AppData\\Roaming\\Niyanta Tracker', 'userData', wn],
+    ['/Applications/Niyanta Tracker.app', 'macApp', mc], ['/Users/ana/Applications/Niyanta Tracker.app', 'macApp', mc], ['/home/ana/Apps/niyanta-tracker-1.4.1-linux-x86_64.AppImage', 'appImage', lx],
+    ['/home/ana/.config/autostart/niyanta-tracker.desktop', 'desktopEntry', lx], ['/home/ana/.local/share/applications/niyanta-tracker-url.desktop', 'desktopEntry', lx],
+    ['/Users/ana/Library/Saved Application State/app.niyanta.tracker.savedState', 'macState', mc], ['/home/ana/.cache/niyanta-tracker-updater', 'cache', lx],
+    ['C:\\Users\\ana\\AppData\\Local\\Programs\\niyanta-tracker\\Uninstall Niyanta Tracker.exe', 'uninstaller', wn], ['/tmp/ny-uninstall-AbC123', 'helperDir', Object.assign({ tmp: '/tmp' }, lx)]];
+  for (const [p, k, c] of yes) eq(guard.uninstallPath(p, k, c), p, `uninstall path allowed: ${k} ${p}`);
+  const no = [['/', 'userData', lx], ['/home/ana', 'userData', lx], ['/home', 'userData', lx], ['/home/ana/.config', 'userData', lx], ['/home/ana/../ana/.config/Niyanta Tracker', 'userData', lx], ['.config/Niyanta Tracker', 'userData', lx],
+    ['/home/ana/.config/Niyanta Tracker/', 'userData', lx], ['/etc/Niyanta Tracker', 'userData', lx], ['/home/bob/.config/Niyanta Tracker', 'userData', lx], ['/home/ana/.config/Other', 'userData', lx],
+    ['/Volumes/Niyanta/Niyanta Tracker.app', 'macApp', mc], ['/Applications/Safari.app', 'macApp', mc], ['/Users/ana/Downloads/Niyanta Tracker.app', 'macApp', mc], ['/Applications', 'macApp', mc],
+    ['/usr/bin/niyanta-tracker.AppImage', 'appImage', lx], ['/home/ana/Apps/other.AppImage', 'appImage', lx], ['/home/ana/.config/autostart/other.desktop', 'desktopEntry', lx], ['/home/ana/.bashrc', 'desktopEntry', lx],
+    ['/home/ana/.config/Niyanta Tracker\nrm -rf ~', 'userData', lx], ["C:\\Users\\ana\\AppData\\Roaming\\Niyanta Tracker\" & del C:\\x", 'userData', wn], ['C:\\Users\\ana\\%APPDATA%\\Niyanta Tracker', 'userData', wn],
+    ['C:\\Users\\ana', 'userData', wn], ['C:\\', 'userData', wn], ['C:\\Windows\\Uninstall Niyanta Tracker.exe', 'uninstaller', wn], ['/home/ana/.config/Niyanta Tracker', 'nonsense', lx], [null, 'userData', lx], ['/tmp/other', 'helperDir', Object.assign({ tmp: '/tmp' }, lx)]];
+  for (const [p, k, c] of no) eq(guard.uninstallPath(p, k, c), null, `uninstall path refused: ${k} ${JSON.stringify(p)}`);
+  /* plans */
+  const pl = c => un.plan(Object.assign({ packaged: true, tmp: '/tmp' }, c));
+  eq(pl({ platform: 'linux', home: '/home/ana', packaged: false, userData: '/home/ana/.config/Niyanta Tracker', execPath: '/x' }).ok, false, 'no uninstall in a development run');
+  let r = pl({ platform: 'linux', home: '/home/ana', userData: '/home/ana/.config/Niyanta Tracker', execPath: '/tmp/.mount_x/niyanta-tracker', appImage: '/home/ana/Apps/niyanta-tracker-1.4.1.AppImage' });
+  eq([r.ok, r.kind, r.remove.map(x => x.kind)], [true, 'appimage', ['userData', 'cache', 'desktopEntry', 'desktopEntry', 'appImage']], 'AppImage plan: data, cache, entries, the AppImage');
+  r = pl({ platform: 'linux', home: '/home/ana', userData: '/home/ana/.config/Niyanta Tracker', execPath: '/opt/Niyanta Tracker/niyanta-tracker' });
+  ok(r.ok && r.kind === 'deb' && !r.remove.some(x => x.path.startsWith('/opt')) && /sudo apt remove niyanta-tracker/.test(r.manual), '.deb plan: data only, the program needs sudo apt remove');
+  eq(pl({ platform: 'linux', home: '/home/ana', userData: '/home/ana/.config/Niyanta Tracker', appImage: '/usr/local/bin/evil.AppImage' }).ok, false, 'an AppImage outside the home folder is refused');
+  eq(pl({ platform: 'linux', home: '/home/ana', userData: '/home/ana' }).ok, false, 'a data folder that is the home folder is refused');
+  r = pl({ platform: 'darwin', home: '/Users/ana', userData: '/Users/ana/Library/Application Support/Niyanta Tracker', execPath: '/Applications/Niyanta Tracker.app/Contents/MacOS/Niyanta Tracker' });
+  ok(r.ok && r.kind === 'mac' && r.remove.some(x => x.path === '/Applications/Niyanta Tracker.app') && r.remove.some(x => x.path === '/Users/ana/Library/Logs/Niyanta Tracker'), 'macOS plan: the bundle in Applications, data, logs, caches, state');
+  eq(pl({ platform: 'darwin', home: '/Users/ana', userData: '/Users/ana/Library/Application Support/Niyanta Tracker', execPath: '/Volumes/Niyanta Tracker/Niyanta Tracker.app/Contents/MacOS/Niyanta Tracker' }).ok, false, 'macOS: running from the disk image is refused');
+  const wctx = { platform: 'win32', home: 'C:\\Users\\ana', userData: 'C:\\Users\\ana\\AppData\\Roaming\\Niyanta Tracker', execPath: wn.execPath };
+  r = pl(Object.assign({ exists: () => true }, wctx));
+  ok(r.ok && r.kind === 'nsis' && r.uninstaller === 'C:\\Users\\ana\\AppData\\Local\\Programs\\niyanta-tracker\\Uninstall Niyanta Tracker.exe', 'Windows plan: the NSIS uninstaller next to the exe');
+  eq(pl(Object.assign({ exists: () => false }, wctx)).ok, false, 'Windows: no uninstaller found, refused');
+  /* scripts */
+  const sh = un.shScript({ pid: 4242, remove: [{ path: "/home/ana/it's/Niyanta Tracker" }], dir: '/tmp/ny-uninstall-AbC123', log: '/tmp/ny-uninstall-AbC123/uninstall.log', platform: 'linux' });
+  ok(sh.includes("gone '/home/ana/it'\\''s/Niyanta Tracker'") && /kill -0 "\$PID"/.test(sh) && /rm -rf -- "\$DIR"/.test(sh) && !/\beval\b|`/.test(sh), 'sh helper: single-quoted paths, waits for the app, removes its folder, no eval');
+  let threw = 0;
+  for (const bad of [{ pid: 0 }, { dir: '/tmp' }, { log: '/etc/x' }]) { try { un.shScript(Object.assign({ pid: 1, remove: [], dir: '/tmp/ny-uninstall-AbC1', log: '/tmp/ny-uninstall-AbC1/l', platform: 'linux' }, bad)); } catch (e) { threw++; } }
+  eq(threw, 3, 'sh helper refuses a bad pid or helper folder');
+  const cmd = un.cmdScript({ pid: 4242, uninstaller: r.uninstaller, remove: [{ path: wctx.userData }], dir: 'C:\\Users\\ana\\AppData\\Local\\Temp\\ny-uninstall-AbC123', log: 'C:\\Users\\ana\\AppData\\Local\\Temp\\ny-uninstall-AbC123\\uninstall.log', exe: wn.execPath });
+  ok(cmd.includes(`"${r.uninstaller}" /S`) && cmd.includes(`rmdir /s /q "${wctx.userData}"`) && /tasklist \/FI "PID eq 4242"/.test(cmd), 'cmd helper: waits for the app, runs the uninstaller silently, removes the data');
+  threw = 0;
+  try { un.cmdScript({ pid: 1, uninstaller: 'C:\\a\\Uninstall Niyanta Tracker.exe', remove: [{ path: 'C:\\x" & del C:\\y' }], dir: 'C:\\t\\ny-uninstall-AbC1', log: 'C:\\t\\ny-uninstall-AbC1\\l', exe: 'C:\\a\\n.exe' }); } catch (e) { threw++; }
+  eq(threw, 1, 'cmd helper refuses a path with cmd.exe metacharacters');
+  /* the sh helper for real (Linux/macOS): removes what it lists, and its own folder */
+  if (process.platform !== 'win32') {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ny-home-'));
+    const data = path.join(home, '.config', 'Niyanta Tracker'); fs.mkdirSync(path.join(data, 'logs'), { recursive: true }); fs.writeFileSync(path.join(data, 'config.json'), '{}');
+    const img = path.join(home, 'niyanta-tracker-1.0.0.AppImage'); fs.writeFileSync(img, 'x');
+    const keep = path.join(home, 'keep.txt'); fs.writeFileSync(keep, 'x');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ny-uninstall-')); const log = path.join(dir, 'uninstall.log');
+    const p2 = un.plan({ platform: process.platform === 'darwin' ? 'linux' : process.platform, packaged: true, home, userData: data, appImage: img, tmp: os.tmpdir() });
+    fs.writeFileSync(path.join(dir, 'u.sh'), un.shScript({ pid: 999999, remove: p2.remove, dir, log, platform: 'linux' }));
+    require('child_process').execFileSync('/bin/sh', [path.join(dir, 'u.sh')], { stdio: 'ignore' });
+    eq([fs.existsSync(data), fs.existsSync(img), fs.existsSync(keep), fs.existsSync(dir)], [false, false, true, false], 'sh helper run: data and AppImage gone, other files kept, helper folder and log deleted');
+    fs.rmSync(home, { recursive: true, force: true }); }
+  /* wiring */
+  has('src/main/main.js', /guard\.uninstallPath\(dir, 'helperDir'/, 'the helper folder is validated');
+  has('src/main/main.js', /spawn\('\/bin\/sh', \[file\], \{ detached: true/, 'sh helper spawned detached, no shell string');
+  not('src/main/main.js', /shell:\s*true/, 'no spawn with shell: true');
+  not('src/main/uninstall.js', /require\('electron'\)/, 'uninstall.js is pure (no Electron)');
+  has('src/main/uninstall.js', /guard\.uninstallPath\(p, kind, ctx\)/, 'every planned path goes through guard.uninstallPath');
+  has('src/main/main.js', /beforeQuit\(4000\); await tracker\.syncBeforeQuit\(\)/, 'tracking is paused and synced before anything is removed');
+  has('src/main/main.js', /tracker\.signOut\(\)/, 'the device is signed out (token revoked) first');
+  has('src/main/main.js', /setLaunchAtLogin\(false\)/, 'the login item / autostart entry is removed');
+  has('src/main/main.js', /removeAsDefaultProtocolClient/, 'the niyanta-tracker:// handler is removed');
+  has('src/renderer/index.html', /id="p-uninstall" class="btn danger/, 'Uninstall button in Settings (danger)');
+  has('src/renderer/app.js', /Tracking stops and your data is synced[^]*signed out on this device[^]*all its data on this computer are removed/, 'the confirmation says what happens'); }
+
+queueChecks().then(uninstallChecks).then(connectChecks).then(distChecks).catch(e => { bad++; console.error('FAIL ' + (e && e.stack || e)); }).then(() => {
   fs.rmSync(tmp, { recursive: true, force: true });
   console.log(`security: ${n - bad}/${n} checks passed`);
   process.exit(bad ? 1 : 0); });

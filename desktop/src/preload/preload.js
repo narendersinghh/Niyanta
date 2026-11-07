@@ -35,6 +35,8 @@ contextBridge.exposeInMainWorld('tracker', {
   downloadInstaller: () => call('downloadInstaller'),
   openInstaller: () => call('openInstaller'),
   restartApp: () => call('restartApp'),
+  uninstall: () => call('uninstall'),
+  uninstallDismiss: () => call('uninstallDismiss'),
   copy: (t) => call('copy', text(t, 2000)),
   refresh: () => call('refresh'),
   reportError: (info) => call('error', { message: text(info && info.message, 900), stack: text(info && info.stack, 6000), where: 'renderer' }),

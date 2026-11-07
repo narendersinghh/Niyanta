@@ -1,8 +1,8 @@
 'use strict';
 /*
  * Checks without Electron (run by npm run check):
- * - the big counter shows the time of the current status (src/shared/status.js): the session since the last start, resume or
- *   switch while tracking, how long it has been paused, meeting mode with its countdown; the day total separately
+ * - the big counter (src/shared/status.js): the session since the last start, resume or switch while tracking, meeting mode
+ *   with its countdown; while the tracker is off (paused, break, stopped, ended, not started) today's time, frozen
  * - meeting-mode slot flagging (src/main/meter.js meetingSlot, fed like tracker.slotTick)
  * - the offline queue flushes before quitting (src/main/queue.js flush: retries quickly, resolves when empty, Quit anyway)
  * - the tracking dot bitmaps (src/main/badge.js)
@@ -43,12 +43,20 @@ c = S.current(ui, NOW);
 eq([c.kind, c.label, c.seconds, c.meetingLeft], ['meeting', 'In a meeting', 600, 3000000], 'meeting: session time and the countdown to the automatic end');
 ui.meeting = { since: NOW - 3700000, until: NOW - 100000 };
 eq(S.current(ui, NOW).kind, 'tracking', 'an expired meeting shows plain tracking');
+/* tracker off: nothing ticks, whatever the clock does (regression: 1.4.1 counted the paused time up in the big counter) */
 ui = base('paused', { skew: -30000 }); ui.state.day = { paused_since: iso(NOW - 30000 - 720000) };
 c = S.current(ui, NOW);
-eq([c.kind, c.seconds, c.total], ['paused', 720, 3 * 3600], 'paused: how long it has been paused (server clock 30 s behind), the day total does not grow');
+eq([c.kind, c.seconds, c.total, c.ticking, c.since], ['paused', 3 * 3600, 3 * 3600, false, NOW - 720000], 'paused: today\'s tracked time, frozen; paused since on the local clock (server 30 s behind)');
+for (const later of [1000, 60000, 3 * 3600000]) { const x = S.current(ui, NOW + later); eq([x.seconds, x.total], [3 * 3600, 3 * 3600], `paused, ${later / 1000} s later: counter and day total do not move`); }
 ui = base('paused'); ui.state.day = {};
-eq(S.current(ui, NOW).seconds, 1200, 'paused without paused_since: the paused total');
-for (const st of ['not_started', 'stopped', 'ended']) eq(S.current(base(st), NOW).seconds, 0, st + ': counter at 0');
+eq(S.current(ui, NOW + 600000).seconds, 3 * 3600, 'paused without paused_since: frozen too');
+ui = base('paused', { meeting: { since: NOW - 60000, until: NOW + 3000000 }, idle: true }); ui.state.day = { paused_since: iso(NOW - 60000) };
+eq([S.current(ui, NOW + 60000).kind, S.current(ui, NOW + 60000).seconds, S.current(ui, NOW + 60000).meetingLeft], ['paused', 3 * 3600, null], 'paused with a stale meeting or idle flag (pomodoro break, meeting ended by Pause): frozen, no meeting countdown');
+for (const st of ['not_started', 'stopped', 'ended']) {
+  const x = S.current(base(st), NOW + 3600000);
+  eq([x.seconds, x.total, x.ticking], [3 * 3600, 3 * 3600, false], st + ': today\'s time, frozen an hour later'); }
+eq(S.current(Object.assign(base('not_started'), { state: { state: 'not_started', totals: { tracked: 0 }, day: {} } }), NOW + 5000).seconds, 0, 'a new day (closed at midnight): 0 and frozen');
+ok(S.current(ui, NOW).ticking === false && S.current(Object.assign(base('tracking'), { state: Object.assign(base('tracking').state, { running: { elapsed: 1 } }) }), NOW).ticking === true, 'ticking only while tracking');
 eq(S.current(Object.assign(base('tracking', { offline: true }), { state: Object.assign(base('tracking').state, { running: { elapsed: 1 } }) }), NOW).label, 'Offline · Tracking', 'offline label');
 eq([S.hms(3725), S.hm(3725), S.mmss(61000)], ['1:02:05', '1h 02m', '1:01'], 'formats');
 

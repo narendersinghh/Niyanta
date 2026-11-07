@@ -63,7 +63,7 @@
     <div class="hero-top"><span id="chip" class="chip"><i class="dot" aria-hidden="true"></i><span id="chip-label">Not started</span></span><span id="today" class="hero-date"></span></div>
     <div id="clock" class="clock" role="timer" aria-live="off">0:00:00</div>
     <div id="caption" class="caption">Press Start when you begin working.</div>
-    <div class="hero-foot"><span class="day"><span class="muted-w">Today</span> <b id="day-total">0:00:00</b></span><span id="hero-proj" class="hero-proj"></span></div>
+    <div class="hero-foot"><span id="day-line" class="day"><span class="muted-w">Today</span> <b id="day-total">0:00:00</b></span><span id="hero-proj" class="hero-proj"></span></div>
   </section>
 
   <section class="card pickers" id="pickers" aria-label="Project and task">
@@ -80,7 +80,7 @@
 
   <label class="card meet" id="meet" for="meet-on">
     <span class="meet-ic" aria-hidden="true"><svg class="ic"><use href="#i-users"/></svg></span>
-    <span class="meet-txt"><b>Meeting mode</b><small id="meet-hint">Activity is not counted. Turns off after 1 hour.</small></span>
+    <span class="meet-txt"><b>Meeting mode</b><small id="meet-hint">Activity is not counted. Turn it off when your meeting is done.</small></span>
     <span id="meet-left" class="meet-left hide" aria-hidden="true"></span>
     <input id="meet-on" class="sw" type="checkbox" role="switch" aria-describedby="meet-hint">
   </label>
@@ -99,7 +99,7 @@
 
 <div id="sheet" class="sheet hide" role="dialog" aria-modal="true" aria-labelledby="set-title">
   <div class="sheet-card">
-    <div class="row between"><h2 id="set-title">Settings</h2><button id="close-settings" class="icon-btn" type="button" aria-label="Close settings"><svg class="ic"><use href="#i-x"/></svg></button></div>
+    <div class="row between nowrap sheet-head"><h2 id="set-title">Settings</h2><button id="close-settings" class="icon-btn" type="button" aria-label="Close settings"><svg class="ic"><use href="#i-x"/></svg></button></div>
     <form id="pomo-form" class="set-card" aria-labelledby="pomo-title" novalidate>
       <label class="switch-row"><span><b id="pomo-title">Pomodoro break</b><small>A reminder to take a short break after working for a while. Only on this computer.</small></span><input id="pomo-on" class="sw" type="checkbox" role="switch"></label>
       <div class="pomo-fields">
@@ -119,6 +119,8 @@
       <div class="row"><button id="p-check" class="btn ghost sm" type="button"><svg class="ic sm"><use href="#i-refresh"/></svg> Check for updates</button><button id="p-download" class="btn primary sm hide" type="button"><svg class="ic sm"><use href="#i-download"/></svg> Download</button></div></div>
     <div class="set-block"><b>Account</b><p class="muted xs" id="p-account"></p>
       <div class="row"><button id="p-shots" class="btn ghost sm" type="button">My screenshots</button><button id="p-logs" class="btn ghost sm" type="button">Show logs</button><button id="p-signout" class="btn danger sm" type="button">Sign out</button></div></div>
+    <div class="set-block danger-zone"><b>Uninstall</b><p class="muted xs">Remove Niyanta Tracker and everything it keeps on this computer.</p>
+      <div class="row"><button id="p-uninstall" class="btn danger sm" type="button"><svg class="ic sm"><use href="#i-x"/></svg> Uninstall Niyanta Tracker</button></div></div>
   </div>
 </div>
 
