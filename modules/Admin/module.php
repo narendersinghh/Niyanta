@@ -46,7 +46,7 @@ return [
     $r->post('/admin/audit/errors/clear', [Modules\Admin\Controllers\ErrorLogController::class, 'clear'], '__super_admin');
     $r->get('/admin/backups', [BackupController::class, 'index'], $sa);
     $r->post('/admin/backups', [BackupController::class, 'create'], $sa);
-    $r->get('/admin/backups/{id}/download', [BackupController::class, 'download'], $sa);
+    $r->get('/admin/backups/{id}/download', [BackupController::class, 'download'], $sa + ['throttle' => [20, 600]]);
     $r->post('/admin/backups/{id}/delete', [BackupController::class, 'destroy'], $sa);
     $r->post('/admin/backups/{id}/restore', [BackupController::class, 'restore'], $sa + ['throttle' => [3, 600]]);
     $r->get('/admin/updates', [UpdateController::class, 'index'], $sa);

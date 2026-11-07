@@ -18,7 +18,7 @@ final class AccountController extends Controller {
     $p = (string) $this->request->input('password');
     if ($e = Auth::validatePassword($p)) { $this->flash($e, 'error'); return $this->back(); }
     if ($p !== $this->request->input('password_confirmation')) { $this->flash('Passwords do not match.', 'error'); return $this->back(); }
-    DB::update('users', ['password_hash' => password_hash($p, PASSWORD_DEFAULT)], 'id=?', [$this->uid()]);
+    DB::update('users', ['password_hash' => Auth::hash($p)], 'id=?', [$this->uid()]);
     Auth::bumpSessions($this->uid());
     Auth::login($this->uid(), (int) DB::value('SELECT session_version FROM users WHERE id=?', [$this->uid()]));
     Audit::log('account.password_changed', 'user', $this->uid());
@@ -34,6 +34,7 @@ final class AccountController extends Controller {
   public function avatar(): Response {
     $f = $this->request->file('avatar') ?? $this->abort(422, 'Choose an image.');
     $s = Storage::store($f, 'avatars', Storage::IMAGES, 2 * 1048576);
+    Storage::reencodeImage(Storage::path($s['path']), 512);
     $old = $this->user()['avatar'];
     DB::update('users', ['avatar' => $s['path']], 'id=?', [$this->uid()]);
     if ($old) { @unlink(Storage::path($old)); }

@@ -37,8 +37,9 @@ Accept: application/json
 Sign-in uses the same rate limits and lockout as the web sign-in (`Core\Auth::verify`: per email+IP, per IP, 10 failures lock the
 account for 30 minutes) and is audit-logged (`agent.login`). Signing in again with the same device name replaces the old token;
 at most 5 devices stay connected (the least recently used desktop token is revoked). People see and disconnect devices on
-**Time Tracking › Connected devices**. A revoked token, a deactivated user, a role without `attendance.track` or time tracking
-switched off answer `401`/`403`; the app then signs out.
+**Time Tracking › Connected devices**. A token that has not been used for `attendance.token_idle_days` (default 90, 0 = never)
+is revoked at its next use. A revoked or expired token, a deactivated user, a role without `attendance.track` or time tracking
+switched off answer `401`/`403`; the app then signs out and asks for a fresh sign-in.
 
 ## Responses and errors
 

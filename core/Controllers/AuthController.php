@@ -40,7 +40,7 @@ final class AuthController extends Controller {
     $p = (string) $this->request->input('password', '');
     if ($e = Auth::validatePassword($p)) { $this->flash($e, 'error'); return $this->back(); }
     if ($p !== $this->request->input('password_confirmation')) { $this->flash('Passwords do not match.', 'error'); return $this->back(); }
-    DB::update('users', ['password_hash' => password_hash($p, PASSWORD_DEFAULT), 'failed_logins' => 0, 'locked_until' => null], 'id=?', [$row['user_id']]);
+    DB::update('users', ['password_hash' => Auth::hash($p), 'failed_logins' => 0, 'locked_until' => null], 'id=?', [$row['user_id']]);
     Auth::bumpSessions((int) $row['user_id']);
     DB::delete('password_resets', 'user_id=?', [$row['user_id']]);
     Audit::log('auth.password_reset', 'user', (int) $row['user_id'], [], (int) $row['user_id']);

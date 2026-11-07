@@ -1,30 +1,80 @@
-# Niyanta — Apache configuration (shared hosting friendly)
+# Niyanta — Apache configuration (shared hosting friendly, Apache 2.4)
 Options -Indexes -MultiViews
 DirectoryIndex index.php
+ServerSignature Off
 
 <IfModule mod_rewrite.c>
   RewriteEngine On
   # Pass the Authorization header through on CGI/FastCGI hosts (desktop agent API)
   RewriteCond %{HTTP:Authorization} .
   RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+  # No TRACE/TRACK
+  RewriteCond %{REQUEST_METHOD} ^(TRACE|TRACK)$ [NC]
+  RewriteRule .* - [F,L]
   # Block direct access to private folders and sensitive files
   RewriteRule ^(config|core|modules|storage|views|tests|docs|desktop|\.github)(/|$) - [F,L,NC]
   RewriteRule (^|/)\.(?!well-known) - [F,L]
   # (real files only: app routes such as /time/desktop/install.sh or installer .zip downloads go to index.php)
   RewriteCond %{REQUEST_FILENAME} -f
-  RewriteRule ^(cron\.php|composer\.(json|lock)|niyanta\.json|README\.md|.*\.(sql|log|lock|gz|zip|bak|dist|example|sh|md))$ - [F,L,NC]
+  RewriteRule ^(cron\.php|composer\.(json|lock)|package(-lock)?\.json|niyanta\.json|README\.md|.*\.(sql|log|lock|gz|zip|bak|dist|example|sh|md|ini|yml|yaml|env|phps|inc|orig|swp|old|tmp))$ - [F,L,NC]
   # Front controller
   RewriteCond %{REQUEST_FILENAME} !-f
   RewriteCond %{REQUEST_FILENAME} !-d
   RewriteRule ^ index.php [L]
 </IfModule>
 
+# Only index.php runs as PHP; a PHP file anywhere else (uploads, assets) is refused
+<FilesMatch "\.(php\d?|phtml|phar|phps|pht)$">
+  Require all denied
+</FilesMatch>
+<Files "index.php">
+  Require all granted
+</Files>
+<Files "cron.php">
+  Require all denied
+</Files>
+
 <IfModule mod_headers.c>
-  <FilesMatch "\.(css|js|svg|woff2?|png|jpe?g|webp|gif|ico)$">
-    Header set Cache-Control "public, max-age=2592000"
+  Header always unset X-Powered-By
+  Header always unset Server
+  Header always set X-Content-Type-Options "nosniff"
+  # Static assets: the app links them with ?v=<mtime>, so versioned URLs are immutable; bare URLs revalidate weekly
+  <FilesMatch "\.(css|js|svg|woff2?|ttf|png|jpe?g|webp|gif|ico)$">
+    Header unset ETag
+    <If "%{QUERY_STRING} =~ /(^|&)v=/">
+      Header set Cache-Control "public, max-age=31536000, immutable"
+    </If>
+    <Else>
+      Header set Cache-Control "public, max-age=604800"
+    </Else>
   </FilesMatch>
 </IfModule>
+FileETag None
 
+<IfModule mod_brotli.c>
+  AddOutputFilterByType BROTLI_COMPRESS text/html text/css text/plain application/javascript application/json image/svg+xml application/xml font/ttf
+</IfModule>
 <IfModule mod_deflate.c>
-  AddOutputFilterByType DEFLATE text/html text/css application/javascript application/json image/svg+xml
+  AddOutputFilterByType DEFLATE text/html text/css text/plain application/javascript application/json image/svg+xml application/xml font/ttf
+</IfModule>
+<IfModule mod_mime.c>
+  AddType font/woff2 .woff2
+  AddType image/svg+xml .svg
+</IfModule>
+
+# PHP flags where the host runs mod_php (CGI/FastCGI hosts read .user.ini instead)
+<IfModule mod_php.c>
+  php_flag expose_php Off
+  php_flag display_errors Off
+  php_flag log_errors On
+  php_flag session.use_strict_mode On
+  php_flag session.cookie_httponly On
+  php_flag allow_url_include Off
+</IfModule>
+<IfModule mod_php7.c>
+  php_flag expose_php Off
+  php_flag display_errors Off
+  php_flag session.use_strict_mode On
+  php_flag session.cookie_httponly On
+  php_flag allow_url_include Off
 </IfModule>

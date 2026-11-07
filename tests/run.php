@@ -36,7 +36,7 @@ function make_user(string $role, string $email, array $extra = []): int {
   return DB::insert('users', $extra + ['role_id' => (int) DB::value('SELECT id FROM roles WHERE slug=?', [$role]), 'name' => ucfirst($role).' '.substr(md5($email), 0, 4), 'email' => $email, 'password_hash' => password_hash('Passw0rd123', PASSWORD_DEFAULT), 'status' => 'active', 'created_at' => date('Y-m-d H:i:s')]); }
 /** Act as a user for the rest of the test (no HTTP session in CLI). */
 function act_as(?int $uid): void {
-  $_SESSION = $uid ? ['uid' => $uid, 'sv' => (int) DB::value('SELECT session_version FROM users WHERE id=?', [$uid]), 'fp' => hash('sha256', $_SERVER['HTTP_USER_AGENT']), 'last_seen' => time(), '_csrf' => 'test-token'] : ['_csrf' => 'test-token'];
+  $_SESSION = $uid ? ['uid' => $uid, 'sv' => (int) DB::value('SELECT session_version FROM users WHERE id=?', [$uid]), 'fp' => hash('sha256', $_SERVER['HTTP_USER_AGENT']), 'last_seen' => time(), 'login_at' => time(), '_csrf' => 'test-token'] : ['_csrf' => 'test-token'];
   \Core\Auth::forget(); \Core\Gate::flush(); }
 /** Dispatch a fake HTTP request through the full router; returns Core\Response. */
 function http(string $method, string $path, array $post = [], bool $csrf = true): Core\Response {

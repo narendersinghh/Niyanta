@@ -130,7 +130,7 @@ final class DemoData {
   /** ~8 people across roles with reporting managers. Returns key => user id. */
   private function users(): array {
     $roles = DB::pairs('SELECT slug, id FROM roles');
-    $hash = password_hash(self::PASSWORD, PASSWORD_DEFAULT);
+    $hash = \Core\Auth::hash(self::PASSWORD);
     $people = [
       'aarav' => ['Aarav Mehta', 'manager', 'Delivery Head', 'Delivery', null, -900],
       'priya' => ['Priya Nair', 'hr', 'HR Manager', 'People & Culture', 'aarav', -760],

@@ -7,17 +7,24 @@ namespace Modules\Ai\Services;
  * Returns ['code' => int, 'json' => ?array, 'raw' => string].
  */
 final class Http {
-  /** True when the URL may be used as a base URL: https://any-host or http:// on localhost / private ranges. */
-  public static function allowedUrl(string $url): bool {
+  /**
+   * True when the URL may be used as a base URL: https://any-host, plus http:// on localhost / private ranges when
+   * $allowLocal (self-hosted models such as Ollama; AI addresses are set by a Super Admin only). With $allowLocal false the
+   * host may not be loopback, private, link-local or reserved at all (use for anything a non-admin can point the server at).
+   */
+  public static function allowedUrl(string $url, bool $allowLocal = true): bool {
     $p = parse_url($url);
     if (!$p || empty($p['host']) || !in_array($p['scheme'] ?? '', ['http', 'https'], true) || isset($p['user']) || isset($p['pass'])) { return false; }
+    if (!$allowLocal) { return $p['scheme'] === 'https' && !self::isLocal($p['host']); }
     return $p['scheme'] === 'https' || self::isLocal($p['host']); }
 
+  /** Loopback, private (10/8, 172.16/12, 192.168/16, fc00::/7), link-local (169.254/16, fe80::/10), reserved and *.local / *.localhost names. */
   public static function isLocal(string $host): bool {
     $host = trim(strtolower($host), '[]');
-    if ($host === 'localhost' || str_ends_with($host, '.localhost') || str_ends_with($host, '.local')) { return true; }
+    if ($host === 'localhost' || str_ends_with($host, '.localhost') || str_ends_with($host, '.local') || str_ends_with($host, '.internal') || $host === '0.0.0.0') { return true; }
+    if (preg_match('/^\d+$/', $host) || preg_match('/^0x[0-9a-f]+$/', $host)) { return true; }
     if (!filter_var($host, FILTER_VALIDATE_IP)) { return false; }
-    return !filter_var($host, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) || $host === '::1'; }
+    return !filter_var($host, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) || $host === '::1' || str_starts_with($host, '169.254.') || str_starts_with($host, 'fe80:') || str_starts_with($host, '::ffff:'); }
 
   public static function post(string $url, array $headers, array $body, int $timeout = 50): array {
     if (!self::allowedUrl($url)) { throw new AiException('The AI model address is not allowed. Use https:// (or http:// only for a local server).', 'Blocked URL'); }

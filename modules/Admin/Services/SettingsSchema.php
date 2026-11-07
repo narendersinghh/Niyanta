@@ -148,7 +148,8 @@ final class SettingsSchema {
       'users' => [
         $num('security.password_min_length', 'Minimum password length', 8, 64, 'Passwords must also contain letters and numbers.', ['section' => 'Passwords & sessions']),
         $num('security.login_max_attempts', 'Wrong passwords allowed per 15 min', 3, 20, 'Only wrong passwords count, successful sign-ins never block anyone. After 10 wrong passwords in a row the account locks for 30 minutes; an admin can unlock it in Users & Access.'),
-        $num('security.session_idle_minutes', 'Session idle timeout (minutes)', 5, 1440, 'Users are signed out after this much inactivity.')],
+        $num('security.session_idle_minutes', 'Session idle timeout (minutes)', 5, 1440, 'Users are signed out after this much inactivity.'),
+        $num('security.session_absolute_hours', 'Sign in again after (hours)', 1, 720, 'Every browser session ends this long after sign-in, even while in use.', ['default' => '12'])],
       'appearance' => [
         ['key' => 'appearance.primary_color', 'label' => 'Primary', 'type' => 'color', 'section' => 'Colours', 'var' => '--primary', 'hint' => 'Buttons, links, focus rings.'],
         ['key' => 'appearance.sidebar_color', 'label' => 'Sidebar', 'type' => 'color', 'var' => '--sidebar', 'hint' => 'Keep it dark for contrast.'],
@@ -185,6 +186,7 @@ final class SettingsSchema {
         $num('attendance.idle_minutes', 'Idle detection after (minutes)', 1, 60, 'No mouse or keyboard input for this long marks the person idle. The timer keeps running and the time since the last input is saved as idle time automatically.', ['section' => 'Time tracking', 'default' => '5']),
         $num('attendance.idle_auto_pause_minutes', 'Pause tracking after idle (minutes)', 2, 240, 'Still idle this long after the last input: tracking pauses at that moment (the idle minutes until then are kept as idle time) and the app offers Resume when the person is back. Must be more than the idle detection time; a lower value is raised to idle detection + 1.', ['default' => '15']),
         $num('attendance.heartbeat_seconds', 'Sync interval (seconds)', 15, 300, 'How often the app reports activity. Without a sync for 10 minutes the server stops the entry at the last sync.', ['default' => '60']),
+        $num('attendance.token_idle_days', 'Device sign-in expires after (days unused)', 0, 3650, 'A desktop app that has not connected for this long must sign in again. 0 keeps devices connected until they are disconnected by hand.', ['default' => '90']),
         ['key' => 'attendance.auto_pause_lock', 'label' => 'Pause automatically when the computer locks or sleeps', 'type' => 'toggle', 'default' => '1', 'span' => true, 'hint' => 'Tracking resumes on unlock or wake (the person can also resume by hand).'],
         ['key' => 'attendance.screenshots_enabled', 'label' => 'Screenshot monitoring', 'type' => 'toggle', 'section' => 'Screenshot monitoring', 'span' => true, 'hint' => 'Captures all screens while tracking. Each person accepts the monitoring notice in the app before the first capture.'],
         $num('attendance.screenshot_interval_seconds', 'Screenshot interval (seconds)', 10, 3600, 'Between 10 seconds and 1 hour, e.g. 180 = every 3 minutes.', ['default' => '180', 'unit' => 'sec']),

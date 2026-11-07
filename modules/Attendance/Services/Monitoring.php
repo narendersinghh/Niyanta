@@ -73,13 +73,16 @@ final class Monitoring {
   /** Cron: delete screenshots (files + rows) older than the retention period. */
   public static function cleanup(): string {
     $cut = date('Y-m-d H:i:s', strtotime('-'.self::retention().' days'));
-    $n = 0;
+    $n = 0; $end = microtime(true) + 40;
     do {
       $rows = DB::all('SELECT id, disk_path FROM screenshots WHERE taken_at<? ORDER BY id LIMIT 500', [$cut]);
       foreach ($rows as $r) { @unlink(Storage::path($r['disk_path'])); }
       if ($rows) { DB::query('DELETE FROM screenshots WHERE id IN '.DB::in(array_column($rows, 'id')), array_column($rows, 'id')); $n += count($rows); } }
-    while (count($rows) === 500);
-    return "deleted $n"; }
+    while (count($rows) === 500 && microtime(true) < $end);
+    return "deleted $n".(count($rows) === 500 ? ' (more tomorrow)' : ''); }
+
+  /** Days a device token may stay unused before it stops working (the app then asks for a fresh sign-in); 0 keeps tokens until revoked. */
+  public static function tokenIdleDays(): int { return max(0, min(3650, (int) Settings::get('attendance.token_idle_days', 90))); }
 
   /**
    * Create a personal device token; returns [plain token (shown once), id]. A desktop sign-in replaces the previous token
@@ -107,8 +110,9 @@ final class Monitoring {
   /** Resolve a bearer token to an active user (with role) or null. */
   public static function tokenUser(string $plain): ?array {
     if (!preg_match('/^nyt_[a-f0-9]{48}$/', $plain)) { return null; }
-    $t = DB::first('SELECT id, user_id, name, last_used_at, app_version FROM agent_tokens WHERE token_hash=? AND revoked_at IS NULL LIMIT 1', [hash('sha256', $plain)]);
+    $t = DB::first('SELECT id, user_id, name, last_used_at, created_at, app_version FROM agent_tokens WHERE token_hash=? AND revoked_at IS NULL LIMIT 1', [hash('sha256', $plain)]);
     if (!$t) { return null; }
+    if (($idle = self::tokenIdleDays()) && strtotime((string) ($t['last_used_at'] ?: $t['created_at'])) < time() - $idle * 86400) { DB::update('agent_tokens', ['revoked_at' => date('Y-m-d H:i:s')], 'id=?', [$t['id']]); Audit::log('agent.token_expired', 'agent_token', (int) $t['id'], ['idle_days' => $idle], (int) $t['user_id']); return null; }
     $u = DB::first("SELECT u.*, r.slug AS role_slug, r.name AS role_name FROM users u JOIN roles r ON r.id=u.role_id WHERE u.id=? AND u.status='active' LIMIT 1", [$t['user_id']]);
     if (!$u) { return null; }
     unset($u['password_hash']);

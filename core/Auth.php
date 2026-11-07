@@ -12,7 +12,8 @@ final class Auth {
     $id = (int) Session::get('uid', 0);
     if (!$id) { return null; }
     $idle = max(5, (int) Settings::get('security.session_idle_minutes', 120)) * 60;
-    if (time() - (int) Session::get('last_seen', 0) > $idle || Session::get('fp') !== self::fingerprint()) { self::logout(); return null; }
+    $absolute = max(1, (int) Settings::get('security.session_absolute_hours', 12)) * 3600;
+    if (time() - (int) Session::get('last_seen', 0) > $idle || time() - (int) Session::get('login_at', 0) > $absolute || Session::get('fp') !== self::fingerprint()) { self::logout(); return null; }
     $u = DB::first('SELECT u.*, r.slug AS role_slug, r.name AS role_name FROM users u JOIN roles r ON r.id=u.role_id WHERE u.id=? AND u.status=\'active\' LIMIT 1', [$id]);
     if (!$u || (int) $u['session_version'] !== (int) Session::get('sv', -1)) { self::logout(); return null; }
     Session::put('last_seen', time());
@@ -67,7 +68,7 @@ final class Auth {
       RateLimiter::hit($key, $max, 900); RateLimiter::hit($ipKey, 100, 900);
       return [null, 'Invalid email or password.']; }
     if ($u['status'] !== 'active') { return [null, 'Your account is not active. Contact your administrator.']; }
-    if (password_needs_rehash($u['password_hash'], PASSWORD_DEFAULT)) { DB::update('users', ['password_hash' => password_hash($password, PASSWORD_DEFAULT)], 'id=?', [$u['id']]); }
+    if (password_needs_rehash($u['password_hash'], self::algo(), self::algoOptions())) { DB::update('users', ['password_hash' => self::hash($password)], 'id=?', [$u['id']]); }
     RateLimiter::clear($key);
     if ((int) $u['failed_logins'] || $u['locked_until']) { DB::update('users', ['failed_logins' => 0, 'locked_until' => null], 'id=?', [$u['id']]); }
     unset($u['password_hash']);
@@ -79,6 +80,7 @@ final class Auth {
     Session::put('sv', $sv);
     Session::put('fp', self::fingerprint());
     Session::put('last_seen', time());
+    Session::put('login_at', time());
     unset($_SESSION['_csrf']);
     DB::update('users', ['last_login_at' => date('Y-m-d H:i:s'), 'last_login_ip' => Request::current()->ip(), 'failed_logins' => 0, 'locked_until' => null], 'id=?', [$id]);
     self::$loaded = false;
@@ -92,8 +94,15 @@ final class Auth {
   /** Invalidate all sessions of a user (password change, deactivation). */
   public static function bumpSessions(int $uid): void { DB::query('UPDATE users SET session_version=session_version+1 WHERE id=?', [$uid]); }
 
+  /** Argon2id when PHP was built with it (most hosts), otherwise bcrypt at cost 12. Old hashes are upgraded on the next successful sign-in. */
+  public static function algo(): string { return defined('PASSWORD_ARGON2ID') ? PASSWORD_ARGON2ID : PASSWORD_BCRYPT; }
+  public static function algoOptions(): array { return defined('PASSWORD_ARGON2ID') ? ['memory_cost' => 65536, 'time_cost' => 3, 'threads' => 1] : ['cost' => 12]; }
+  public static function hash(string $password): string { return password_hash($password, self::algo(), self::algoOptions()); }
+
   public static function validatePassword(string $p): ?string {
     $min = max(8, (int) Settings::get('security.password_min_length', 10));
     if (strlen($p) < $min) { return "Password must be at least $min characters."; }
+    if (strlen($p) > 1024) { return 'Password is too long.'; }
     if (!preg_match('/[A-Za-z]/', $p) || !preg_match('/\d/', $p)) { return 'Password must contain letters and numbers.'; }
+    if (in_array(strtolower($p), ['password1', 'password123', 'admin12345', 'qwerty123', '12345678a', 'welcome123', 'letmein123', 'niyanta123'], true)) { return 'That password is too common. Choose something harder to guess.'; }
     return null; } }

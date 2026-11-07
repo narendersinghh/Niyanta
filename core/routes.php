@@ -4,7 +4,7 @@ use Core\Controllers\{AuthController, DashboardController, AccountController, Fi
 
 $r = Core\App::router();
 $r->get('/login', [AuthController::class, 'showLogin'], ['auth' => false]);
-$r->post('/login', [AuthController::class, 'login'], ['auth' => false]);
+$r->post('/login', [AuthController::class, 'login'], ['auth' => false, 'throttle' => [60, 60]]);
 $r->post('/logout', [AuthController::class, 'logout']);
 $r->get('/forgot-password', [AuthController::class, 'showForgot'], ['auth' => false]);
 $r->post('/forgot-password', [AuthController::class, 'forgot'], ['auth' => false, 'throttle' => [5, 900]]);

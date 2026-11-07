@@ -7,7 +7,12 @@ function absolute_url(string $path = '/'): string {
   $base = rtrim((string) Core\App::config('app_url', ''), '/');
   if ($base === '') { $r = Request::current(); $base = ($r->isSecure() ? 'https' : 'http').'://'.($_SERVER['HTTP_HOST'] ?? 'localhost').Request::base(); }
   return str_starts_with($path, 'http') ? $path : $base.'/'.ltrim(preg_replace('#^'.preg_quote(Request::base(), '#').'#', '', $path), '/'); }
-function asset(string $path): string { $f = NY_ROOT.'/assets/'.ltrim($path, '/'); return url('assets/'.ltrim($path, '/')).(is_file($f) ? '?v='.filemtime($f) : ''); }
+/** Versioned asset URL (?v=mtime, so .htaccess may cache it for a year); the stat is done once per asset per request (icon() calls this for every icon). */
+function asset(string $path): string {
+  static $cache = [];
+  $path = ltrim($path, '/');
+  if (!isset($cache[$path])) { $f = NY_ROOT.'/assets/'.$path; $cache[$path] = url('assets/'.$path).(is_file($f) ? '?v='.filemtime($f) : ''); }
+  return $cache[$path]; }
 function csrf_token(): string { return Csrf::token(); }
 function csrf_field(): string { return '<input type="hidden" name="_token" value="'.e(Csrf::token()).'">'; }
 function nonce(): string { return View::nonce(); }

@@ -50,7 +50,7 @@ final class UserController extends Controller {
     $invite = $pass === '';
     if (!$invite && ($e = Auth::validatePassword($pass))) { throw new \Core\ValidationException(['password' => $e]); }
     $now = date('Y-m-d H:i:s');
-    $id = DB::insert('users', $d + ['password_hash' => password_hash($invite ? bin2hex(random_bytes(24)) : $pass, PASSWORD_DEFAULT), 'created_at' => $now, 'updated_at' => $now]);
+    $id = DB::insert('users', $d + ['password_hash' => Auth::hash($invite ? bin2hex(random_bytes(24)) : $pass), 'created_at' => $now, 'updated_at' => $now]);
     if ($invite) { $this->sendInvite($id); }
     Audit::log('user.create', 'user', $id, ['role_id' => $d['role_id'], 'invited' => $invite]);
     $this->flash($invite ? 'User created and invitation email queued.' : 'User created.');
@@ -65,7 +65,7 @@ final class UserController extends Controller {
     $pass = (string) $this->request->input('password', '');
     if ($pass !== '') {
       if ($e = Auth::validatePassword($pass)) { throw new \Core\ValidationException(['password' => $e]); }
-      $d['password_hash'] = password_hash($pass, PASSWORD_DEFAULT); }
+      $d['password_hash'] = Auth::hash($pass); }
     DB::update('users', $d + ['updated_at' => date('Y-m-d H:i:s')], 'id=?', [$id]);
     if ($pass !== '' || $d['status'] !== 'active' || (int) $d['role_id'] !== (int) $u['role_id']) { Auth::bumpSessions($id); }
     Audit::log('user.update', 'user', $id, ['changed' => array_keys(array_diff_assoc(array_map('strval', array_intersect_key($d, $u)), array_map('strval', array_intersect_key($u, $d))))]);

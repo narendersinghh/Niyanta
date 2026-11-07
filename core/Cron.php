@@ -53,18 +53,27 @@ final class Cron {
     $parts = array_map(static fn ($k, $v) => "$k $v", array_keys(array_filter($c)), array_filter($c));
     return "removed $total".($parts ? ' ('.implode(', ', $parts).')' : ''); }
 
-  /** Delete expired rows per category; returns [category => rows removed]. */
+  /** Delete rows matching $where in batches so a large backlog never holds a lock or a shared host's time limit for long; stops at the time budget. */
+  public static function chunkedDelete(string $table, string $where, array $p, float $deadline, int $batch = 2000): int {
+    $n = 0;
+    do { $r = DB::delete($table, $where.' LIMIT '.$batch, $p); $n += $r; }
+    while ($r === $batch && microtime(true) < $deadline);
+    return $n; }
+
+  /** Delete expired rows per category; returns [category => rows removed]. Bounded to about 20 seconds per run (the rest goes next night). */
   public static function prune(): array {
     $days = static function (string $key, int $def, ?string $legacy = null): int { $v = Settings::get($key); if (($v === null || $v === '') && $legacy) { $v = Settings::get($legacy); } return max(0, (int) ($v ?? $def)); };
     $cut = static fn (int $d) => date('Y-m-d H:i:s', strtotime("-$d days"));
     $has = static function (string $t): bool { try { return (bool) DB::value('SELECT 1 FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name=?', [$t]); } catch (\Throwable) { return false; } };
-    $c = ['rate_limits' => RateLimiter::prune(), 'password_resets' => DB::delete('password_resets', 'expires_at < ?', [date('Y-m-d H:i:s')])];
-    if ($d = $days('retention.audit_days', 365, 'security.audit_retention_days')) { $c['audit'] = DB::delete('audit_logs', 'created_at < ?', [$cut($d)]); }
-    if ($d = $days('retention.notifications_days', 90)) { $c['notifications'] = DB::delete('notifications', 'read_at IS NOT NULL AND read_at < ?', [$cut($d)]); }
-    if ($d = $days('retention.mail_queue_days', 30)) { $c['mail_queue'] = DB::delete('mail_queue', "status IN ('sent','failed') AND COALESCE(sent_at, created_at) < ?", [$cut($d)]); }
-    if ($d = $days('retention.cron_logs_days', 30)) { $c['cron_logs'] = DB::delete('cron_logs', 'ran_at < ?', [$cut($d)]); }
-    if ($d = $days('retention.error_logs_days', 60)) { $c['error_logs'] = DB::delete('error_logs', 'last_seen < ?', [$cut($d)]); }
-    if (($d = $days('retention.ai_usage_days', 180)) && $has('ai_usage')) { $c['ai_usage'] = DB::delete('ai_usage', 'created_at < ?', [$cut($d)]); }
+    $end = microtime(true) + 20;
+    $del = static fn (string $t, string $w, array $p): int => self::chunkedDelete($t, $w, $p, $end);
+    $c = ['rate_limits' => RateLimiter::prune(), 'password_resets' => $del('password_resets', 'expires_at < ?', [date('Y-m-d H:i:s')])];
+    if ($d = $days('retention.audit_days', 365, 'security.audit_retention_days')) { $c['audit'] = $del('audit_logs', 'created_at < ?', [$cut($d)]); }
+    if ($d = $days('retention.notifications_days', 90)) { $c['notifications'] = $del('notifications', 'read_at IS NOT NULL AND read_at < ?', [$cut($d)]); }
+    if ($d = $days('retention.mail_queue_days', 30)) { $c['mail_queue'] = $del('mail_queue', "status IN ('sent','failed') AND COALESCE(sent_at, created_at) < ?", [$cut($d)]); }
+    if ($d = $days('retention.cron_logs_days', 30)) { $c['cron_logs'] = $del('cron_logs', 'ran_at < ?', [$cut($d)]); }
+    if ($d = $days('retention.error_logs_days', 60)) { $c['error_logs'] = $del('error_logs', 'last_seen < ?', [$cut($d)]); }
+    if (($d = $days('retention.ai_usage_days', 180)) && $has('ai_usage')) { $c['ai_usage'] = $del('ai_usage', 'created_at < ?', [$cut($d)]); }
     if ($d = $days('retention.sessions_days', 2)) {
       $c['sessions'] = 0;
       foreach (glob(NY_ROOT.'/storage/sessions/sess_*') ?: [] as $f) { if (filemtime($f) < time() - 86400 * $d && @unlink($f)) { $c['sessions']++; } } }
