@@ -1,5 +1,5 @@
 <?php /* Day summary strip: $sum (BaseController::day), $targetName; optional $chart (HubController::chart) with $targets (slot index => true: bars scroll to the
-   screenshot card #slot-H-K) or $shots (slot index => gallery list: bars open the viewer). With a chart: summary on the left, activity bars on the right. */
+   screenshot card #slot-H-K) or $shots (slot index => gallery index: bars open the day gallery there). With a chart: summary on the left, activity bars on the right. */
 $chart = $chart ?? null;
 $a = (int) ($chart['avg'] ?? $sum['activity']);
 $lv = $a >= 60 ? 'hi' : ($a >= 30 ? 'mid' : 'lo');

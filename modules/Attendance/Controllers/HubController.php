@@ -11,13 +11,33 @@ final class HubController extends BaseController {
     $date = min(date('Y-m-d'), $this->dateParam('date', date('Y-m-d')));
     $own = $target === $this->uid();
     $day = self::day($target, $date);
-    /* the chart's bars open that slot's screenshots in the gallery when the viewer may see them */
-    $shots = [];
+    /* the chart's bars open the day gallery at that slot's first screenshot when the viewer may see them */
+    $gallery = []; $first = [];
     if (Monitoring::canView($this->user(), $target)) {
-      foreach (DB::all('SELECT id, taken_at, activity_pct, display_index, keystrokes, mouse_events, '.(self::meetingFlag('screenshots') ? 'meeting' : '0 AS meeting').' FROM screenshots WHERE user_id=? AND taken_at>=? AND taken_at<? ORDER BY taken_at, display_index LIMIT 3000', [$target, $date.' 00:00:00', date('Y-m-d', strtotime($date.' +1 day')).' 00:00:00']) as $r) { $shots[(int) substr($r['taken_at'], 11, 2) * 6 + intdiv((int) substr($r['taken_at'], 14, 2), 10)][] = self::shot($r); }
-      if ($shots && $target !== $this->uid()) { \Core\Audit::log('monitoring.view', 'user', $target, ['date' => $date, 'area' => 'daily']); } }
+      [$gallery, $first] = self::gallery(self::dayShots($target, $date));
+      if ($gallery && !$own) { \Core\Audit::log('monitoring.view', 'user', $target, ['date' => $date, 'area' => 'daily']); } }
     return $this->view('attendance::hub/daily', ['title' => 'Daily timesheet', 'date' => $date, 'target' => $target, 'targetName' => $name, 'people' => $people, 'own' => $own,
-      'projects' => $own && $this->can('attendance.track') ? T::projects($this->user()) : [], 'chart' => self::chart($target, $date, $day['entries']), 'shots' => $shots] + $day + ['styles' => ['css/attendance.css'], 'scripts' => ['js/attendance.js']]); }
+      'projects' => $own && $this->can('attendance.track') ? T::projects($this->user()) : [], 'chart' => self::chart($target, $date, $day['entries']), 'gallery' => $gallery, 'shots' => $first] + $day + ['styles' => ['css/attendance.css'], 'scripts' => ['js/attendance.js']]); }
+
+  /** One person's screenshots of a day, oldest first, with the tracked entry's project, task and description. Callers check Monitoring::canView first. */
+  public static function dayShots(int $uid, string $date): array {
+    return DB::all('SELECT s.id, s.taken_at, s.activity_pct, s.display_index, '.(self::meetingFlag('screenshots') ? 's.meeting' : '0 AS meeting').', p.name AS project_name, t.title AS task_title, te.description FROM screenshots s LEFT JOIN time_entries te ON te.id=s.time_entry_id LEFT JOIN projects p ON p.id=te.project_id LEFT JOIN tasks t ON t.id=te.task_id WHERE s.user_id=? AND s.taken_at>=? AND s.taken_at<? ORDER BY s.taken_at, s.display_index LIMIT 3000', [$uid, $date.' 00:00:00', date('Y-m-d', strtotime($date.' +1 day')).' 00:00:00']); }
+
+  /**
+   * The whole-day gallery (partials/shot_viewer): one item per screenshot (self::shot plus id, hour label h, 10-minute slot range r, work label p)
+   * and the first item of every slot (slot index hour*6+tens of minutes => item index) so cards and chart bars open it at the right image.
+   */
+  public static function gallery(array $rows): array {
+    $pj = feature_on('projects'); $tf = (string) setting('general.time_format', 'h:i A'); $h24 = str_contains($tf, 'H');
+    $hm = static fn (int $m): string => date($tf, mktime(intdiv($m, 60) % 24, $m % 60, 0));
+    $items = []; $first = [];
+    foreach ($rows as $n => $r) {
+      $h = (int) substr($r['taken_at'], 11, 2); $k = intdiv((int) substr($r['taken_at'], 14, 2), 10);
+      $first[$h * 6 + $k] ??= $n;
+      $sub = ($pj ? $r['task_title'] : null) ?: $r['description'];
+      $items[] = ['id' => (int) $r['id']] + self::shot($r) + ['h' => $h24 ? sprintf('%02d:00', $h) : ($h % 12 ?: 12).' '.($h < 12 ? 'AM' : 'PM'), 'r' => $hm($h * 60 + $k * 10).' - '.$hm($h * 60 + $k * 10 + 10),
+        'p' => ($pj ? ($r['project_name'] ?? 'No project') : 'Tracked time').($sub ? ' · '.str_limit($sub, 80) : '')]; }
+    return [$items, $first]; }
 
   /** One screenshot for the gallery viewer: image URL, time, activity %, screen number, meeting mode (keystroke and mouse counts are not shown). */
   public static function shot(array $r): array {

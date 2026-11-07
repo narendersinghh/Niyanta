@@ -19,6 +19,12 @@ final class Timesheets {
 
   public static function weekRejected(int $uid, string $ws): bool { return DB::value('SELECT status FROM timesheets WHERE user_id=? AND week_start=?', [$uid, $ws]) === 'rejected'; }
 
+  /** Rejected weeks waiting for a fix: the person's own ($team false) or their team's, without their own (approvers' "Approvals" badge). */
+  public static function rejectedCount(array $u, bool $team = false): int {
+    if (!$team) { return (int) DB::value("SELECT COUNT(*) FROM timesheets WHERE user_id=? AND status='rejected'", [$u['id']]); }
+    [$w, $p] = Team::where($u, 't.user_id');
+    return (int) DB::value("SELECT COUNT(*) FROM timesheets t WHERE t.status='rejected' AND t.user_id<>? AND $w", [$u['id'], ...$p]); }
+
   /** Status a stopped or saved entry takes: rejected while its week is rejected, otherwise approved. */
   public static function entryStatus(int $uid, string $startedAt): string { return self::weekRejected($uid, TimeService::weekStart(substr($startedAt, 0, 10))) ? 'rejected' : 'approved'; }
 

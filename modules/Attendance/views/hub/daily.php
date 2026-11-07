@@ -1,5 +1,5 @@
 <?php
-/* Daily timesheet: summary strip with the activity chart (bars open the slot's screenshots), and an hour timeline with one block per entry. $entries, $sum, $chart, $shots, $date, $target, $targetName, $people, $own, $projects */
+/* Daily timesheet: summary strip with the activity chart (bars open the slot's screenshots), and an hour timeline with one block per entry. $entries, $sum, $chart, $gallery (whole-day screenshots), $shots (slot index => gallery index), $date, $target, $targetName, $people, $own, $projects */
 use Modules\Attendance\Services\TimeService;
 $pj = feature_on('projects');
 $canAdd = $own && can('attendance.track') && \Modules\Attendance\Services\Timesheets::canEditDate($date, \Modules\Attendance\Services\Timesheets::weekRejected($target, TimeService::weekStart($date)));
@@ -37,4 +37,4 @@ $ph = 72; /* px per hour */
   <?php endif ?>
 </div>
 <?php if ($canAdd || ($own && $entries)): ?><?= partial('attendance::partials/entry_dialog', ['projects' => $projects, 'date' => $date]) ?><?php endif ?>
-<?php if (!empty($shots)): ?><?= partial('attendance::partials/shot_viewer') ?><?php endif ?>
+<?= partial('attendance::partials/shot_viewer', ['gallery' => $gallery ?? [], 'who' => $targetName, 'date' => $date]) ?>

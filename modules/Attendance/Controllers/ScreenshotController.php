@@ -5,16 +5,17 @@ use Modules\Attendance\Services\Monitoring;
 
 /** Screenshot gallery and private image serving (owner, or permitted team lead). Captures arrive from the desktop tracker API. */
 final class ScreenshotController extends BaseController {
-  /** One day of screenshots grouped by hour and 10-minute slot, with the day summary and activity chart (its bars scroll to the slot cards). */
+  /** One day of screenshots grouped by hour and 10-minute slot, with the day summary, the activity chart (its bars scroll to the slot cards) and the whole-day gallery. */
   public function index(): Response {
     [$target, $name, $people] = $this->member('attendance.screenshots.view', 'screenshots');
     $date = min(date('Y-m-d'), $this->dateParam('date', date('Y-m-d')));
-    $rows = DB::all('SELECT s.id, s.taken_at, s.source, s.activity_pct, s.keystrokes, s.mouse_events, s.display_index, '.(HubController::meetingFlag('screenshots') ? 's.meeting' : '0 AS meeting').', p.name AS project_name, t.title AS task_title, te.description FROM screenshots s LEFT JOIN time_entries te ON te.id=s.time_entry_id LEFT JOIN projects p ON p.id=te.project_id LEFT JOIN tasks t ON t.id=te.task_id WHERE s.user_id=? AND s.taken_at>=? AND s.taken_at<? ORDER BY s.taken_at, s.display_index LIMIT 3000', [$target, $date.' 00:00:00', date('Y-m-d', strtotime($date.' +1 day')).' 00:00:00']);
+    $rows = HubController::dayShots($target, $date);
     $hours = [];
-    foreach ($rows as $r) { $t = strtotime($r['taken_at']); $hours[(int) date('G', $t)][intdiv((int) date('i', $t), 10)][] = $r; }
+    foreach ($rows as $n => $r) { $hours[(int) substr($r['taken_at'], 11, 2)][intdiv((int) substr($r['taken_at'], 14, 2), 10)][$n] = $r; }
+    [$gallery] = HubController::gallery($rows);
     if ($target !== $this->uid()) { Audit::log('monitoring.view', 'user', $target, ['date' => $date]); }
     $day = self::day($target, $date);
-    return $this->view('attendance::screenshots/index', ['title' => 'Screenshots', 'hours' => $hours, 'count' => count($rows), 'date' => $date, 'target' => $target, 'targetName' => $name, 'people' => $people,
+    return $this->view('attendance::screenshots/index', ['title' => 'Screenshots', 'hours' => $hours, 'gallery' => $gallery, 'count' => count($rows), 'date' => $date, 'target' => $target, 'targetName' => $name, 'people' => $people,
       'retention' => Monitoring::retention(), 'enabled' => Monitoring::enabled(), 'chart' => HubController::chart($target, $date, $day['entries']), 'styles' => ['css/attendance.css'], 'scripts' => ['js/attendance.js']] + $day); }
 
   public function image(int $id): Response {

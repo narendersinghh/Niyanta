@@ -16,7 +16,7 @@ final class TimesheetController extends BaseController {
     $ws = $this->weekParam();
     if (($other = $this->request->int('user')) && $other !== (int) $u['id']) { return $this->redirect('/timesheets/user/'.$other.'?week='.$ws); }
     $recent = DB::all('SELECT t.week_start, t.total_seconds, t.billable_seconds, t.status FROM timesheets t WHERE t.user_id=? ORDER BY t.week_start DESC LIMIT 8', [$u['id']]);
-    $rejected = $this->can('attendance.timesheets.approve') ? $this->rejectedCount($u) : 0;
+    $rejected = $this->can('attendance.timesheets.approve') ? TS::rejectedCount($u, true) : 0;
     return $this->view('attendance::timesheets/index', ['title' => 'Timesheets', 'recent' => $recent, 'rejectedTeam' => $rejected, 'projects' => T::projects($u), 'people' => $this->peers()] + $this->weekView($u, $ws, true)); }
 
   /** Team members the viewer may switch to in the Weekly tab (attendance.view_all or approvers), self included. */
@@ -27,10 +27,6 @@ final class TimesheetController extends BaseController {
     $d = $this->validate(['week' => 'required|date']);
     $ws = T::weekStart($d['week']);
     return $this->act(function () use ($ws): string { TS::resubmit($this->user(), $ws); return 'Week resubmitted and approved again.'; }, '/timesheets?week='.$ws); }
-
-  private function rejectedCount(array $u): int {
-    [$w, $p] = Team::where($u, 't.user_id');
-    return (int) DB::value("SELECT COUNT(*) FROM timesheets t WHERE t.status='rejected' AND t.user_id<>? AND $w", [$u['id'], ...$p]); }
 
   /** Team weeks with status, totals and quick reject / approve; filters by week, person and status. */
   public function approvals(): Response {

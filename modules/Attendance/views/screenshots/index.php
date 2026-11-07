@@ -16,16 +16,15 @@ $hm = static fn (int $h, int $m): string => date($tf, mktime($h, $m, 0));
   <h3 class="shot-hour-h"><span class="dot" aria-hidden="true"></span><?= e($hm($h, 0)) ?> - <?= e($hm(($h + 1) % 24, 0)) ?><span class="muted small"><?= array_sum(array_map('count', $slots)) ?> captures</span></h3>
   <div class="shot-grid">
   <?php foreach ($slots as $k => $list):
-    $first = $list[0];
+    $at = (int) array_key_first($list); $first = $list[$at];
     $acts = array_filter(array_column($list, 'activity_pct'), static fn ($v) => $v !== null);
     $a = $acts ? (int) round(array_sum($acts) / count($acts)) : null;
     $label = $pj ? ($first['project_name'] ?? 'No project') : 'Tracked time';
     $sub = ($pj ? $first['task_title'] : null) ?: $first['description'];
-    $gallery = array_map([\Modules\Attendance\Controllers\HubController::class, 'shot'], $list);
     $range = $hm($h, $k * 10).' - '.$hm($k === 5 ? ($h + 1) % 24 : $h, $k === 5 ? 0 : $k * 10 + 10); ?>
-    <button type="button" class="shot-card" id="slot-<?= (int) $h ?>-<?= (int) $k ?>" data-shots="<?= e(json_encode($gallery)) ?>" data-shots-title="<?= e($range.' · '.$label) ?>" aria-label="View <?= count($list) ?> screenshots, <?= e($range) ?>">
+    <button type="button" class="shot-card" id="slot-<?= (int) $h ?>-<?= (int) $k ?>" data-shot-at="<?= $at ?>" aria-haspopup="dialog" aria-label="Open the day's screenshots at <?= e($range) ?> (<?= count($list) ?> in this slot)">
       <span class="sc-head"><b class="truncate"><?= e($label) ?></b><?php if ($sub): ?><span class="truncate"><?= e(str_limit($sub, 50)) ?></span><?php endif ?></span>
-      <span class="sc-img<?= count($list) > 1 ? ' stack' : '' ?>"><img src="<?= e($gallery[0]['src']) ?>" alt="" loading="lazy"><?php if (count($list) > 1): ?><span class="sc-more"><?= count($list) - 1 ?> more</span><?php endif ?></span>
+      <span class="sc-img<?= count($list) > 1 ? ' stack' : '' ?>"><img src="<?= e($gallery[$at]['src']) ?>" alt="" loading="lazy"><?php if (count($list) > 1): ?><span class="sc-more"><?= count($list) - 1 ?> more</span><?php endif ?></span>
       <span class="sc-time"><?= e($range) ?><?php if (array_filter(array_column($list, 'meeting'))): ?> <span class="pill pill-sky" title="Meeting mode was on: this activity is not counted in the day's average">Meeting</span><?php endif ?></span>
       <?php if ($a !== null): ?><span class="sc-act"><span class="ds-bar"><i class="<?= $a >= 60 ? 'hi' : ($a >= 30 ? 'mid' : 'lo') ?>" style="width:<?= $a ?>%"></i></span><?= $a ?>%</span>
       <span class="sc-foot">Active time <b><?= (int) round($a / 10) ?> min</b></span><?php endif ?>
@@ -34,4 +33,4 @@ $hm = static fn (int $h, int $m): string => date($tf, mktime($h, $m, 0));
   </div>
 </section>
 <?php endforeach; endif ?>
-<?= partial('attendance::partials/shot_viewer') ?>
+<?= partial('attendance::partials/shot_viewer', ['gallery' => $gallery, 'who' => $targetName, 'date' => $date]) ?>

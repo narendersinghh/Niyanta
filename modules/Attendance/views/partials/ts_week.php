@@ -1,11 +1,9 @@
 <?php
-/* Timesheet week: navigator hero, status banner, summary tiles and the project x day grid.
-   $ws, $s (Timesheets::summary), $ts (row|null), $person, $own, $locked, $canReview, $nav (base url for ?week=) */
+/* Timesheet week: week hero (the week navigator lives in the hub toolbar), status banner, summary tiles and the project x day grid.
+   $ws, $s (Timesheets::summary), $ts (row|null), $person, $own, $locked, $canReview */
 use Modules\Attendance\Services\TimeService;
 $we = date('Y-m-d', strtotime($ws.' +6 days'));
-$prev = date('Y-m-d', strtotime($ws.' -7 days')); $next = date('Y-m-d', strtotime($ws.' +7 days'));
 $thisWeek = TimeService::weekStart();
-$sep = str_contains($nav, '?') ? '&' : '?';
 $hm = static fn (int $x): string => $x ? sprintf('%d:%02d', intdiv($x, 3600), intdiv($x % 3600, 60)) : '-';
 $h1 = static fn (int $x): string => rtrim(rtrim(number_format($x / 3600, 1), '0'), '.');
 $status = $ts['status'] ?? null;
@@ -17,19 +15,13 @@ $range = fdate($ws, 'd M').' - '.fdate($we, 'd M Y');
 ?>
 <div class="card hero ts-hero">
   <div class="ts-nav">
-    <a class="btn icon ghost" href="<?= e(url($nav.$sep.'week='.$prev)) ?>" aria-label="Previous week" title="Previous week"><?= icon('chevron-left', 'sm') ?></a>
     <div class="grow">
       <div class="eyebrow">Week <?= (int) date('W', strtotime($ws)) ?> · <?= e($ws === $thisWeek ? 'This week' : ($ws === date('Y-m-d', strtotime($thisWeek.' -7 days')) ? 'Last week' : date('Y', strtotime($ws)))) ?></div>
       <h2><?= e($range) ?></h2>
       <?php if (!$own): ?><div class="person"><?= avatar($person['name'], $person['avatar'] ?? null, 'sm') ?><span><b><?= e($person['name']) ?></b><?= !empty($person['designation']) ? ' · '.e($person['designation']) : '' ?></span></div><?php endif ?>
     </div>
-    <?php if ($ws < $thisWeek): ?><a class="btn icon ghost" href="<?= e(url($nav.$sep.'week='.$next)) ?>" aria-label="Next week" title="Next week"><?= icon('chevron-right', 'sm') ?></a><?php endif ?>
   </div>
-  <div class="ts-tools">
-    <?php if (($s['total'] || $ts) && ($rejected || !$own)): ?><span class="st<?= $rejected ? ' rej' : '' ?>"><?= icon($rejected ? 'alert' : 'check-circle', 'sm') ?> <?= $rejected ? 'Rejected' : 'Approved' ?></span><?php endif ?>
-    <form method="get" action="<?= e(url(strtok($nav, '?'))) ?>"><input type="date" name="week" value="<?= e($ws) ?>" max="<?= e(date('Y-m-d')) ?>" data-autosubmit aria-label="Jump to week"></form>
-    <?php if ($ws !== $thisWeek): ?><a class="btn sm ghost" href="<?= e(url($nav)) ?>">This week</a><?php endif ?>
-  </div>
+  <?php if (($s['total'] || $ts) && ($rejected || !$own)): ?><div class="ts-tools"><span class="st<?= $rejected ? ' rej' : '' ?>"><?= icon($rejected ? 'alert' : 'check-circle', 'sm') ?> <?= $rejected ? 'Rejected' : 'Approved' ?></span></div><?php endif ?>
 </div>
 
 <?php if ($rejected): ?>
