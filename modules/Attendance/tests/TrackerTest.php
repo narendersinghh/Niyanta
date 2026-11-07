@@ -166,7 +166,7 @@ return [
     try {
       act_as($emp);
       $html = (string) http('GET', '/time')->body();
-      assert_true(str_contains($html, "The desktop app isn't available yet. An administrator needs to connect GitHub in") && str_contains($html, 'Coming soon'), 'no token: friendly message');
+      assert_true(str_contains($html, "The desktop app isn't available yet. An administrator needs to connect GitHub in") && str_contains($html, 'Not available yet'), 'no token: friendly message');
       assert_eq('skipped: no GitHub token', DesktopApp::cron());
 
       $bin = ['niyanta-tracker-1.2.10-win-x64.exe' => 'MZ'.str_repeat('w', 300), 'niyanta-tracker-1.2.10-win-x64.exe.blockmap' => 'bm-win', 'niyanta-tracker-1.2.10-mac-arm64.dmg' => 'dmg-arm', 'niyanta-tracker-1.2.10-mac-x64.dmg' => 'dmg-x64', 'niyanta-tracker-1.2.10-mac-arm64.zip' => 'PKzip',
@@ -276,7 +276,7 @@ return [
     act_as($emp);
     $html = (string) http('GET', '/time')->body();
     foreach (['/time/start', '/time/stop', 'clock-in', 'data-cap-start', 'getDisplayMedia', 'Start timer'] as $needle) { assert_true(!str_contains($html, $needle), "/time contains $needle"); }
-    assert_true(str_contains($html, 'Get the desktop app') && str_contains($html, 'data-live-status'), 'download section and live status');
+    assert_true((str_contains($html, 'Get the desktop app') || str_contains($html, 'Add another computer')) && str_contains($html, 'data-live-status'), 'download section and live status');
     $att = (string) http('GET', '/attendance')->body();
     assert_true(!str_contains($att, 'clock-out') && !str_contains($att, 'break/start'), 'attendance page is read-only');
     foreach (['/time/start', '/time/stop', '/attendance/clock-in', '/attendance/clock-out', '/time/heartbeat'] as $p) { assert_eq(404, http('POST', $p)->status(), $p); }

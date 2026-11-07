@@ -26,12 +26,10 @@ setInterval(poll,30000);d.addEventListener("visibilitychange",()=>{if(!d.hidden)
 const HO=()=>{const h=location.hash.slice(1),t=h&&d.getElementById(h),x=t&&(t.matches("details[data-hash-open]")?t:t.closest("details[data-hash-open]"));if(x){x.open=true;setTimeout(()=>t.scrollIntoView({block:"start"}),0)}};HO();addEventListener("hashchange",HO);
 /* hub tabs scroll sideways on small screens: bring the current tab into view */
 const HT=$(".hub-tabs [aria-current=page]");if(HT){const t=HT.parentNode,r=HT.getBoundingClientRect(),q=t.getBoundingClientRect();if(r.right>q.right||r.left<q.left)t.scrollLeft+=r.left-q.left-(q.width-r.width)/2}
-/* desktop downloads: highlight the visitor's OS */
-const G=$("[data-os-grid]");
-if(G){const ua=(navigator.userAgentData&&navigator.userAgentData.platform||navigator.platform||"")+" "+navigator.userAgent,os=/win/i.test(ua)?"windows":/mac|iphone|ipad/i.test(ua)?"mac":/linux|x11|cros/i.test(ua)?(/ubuntu|debian|mint/i.test(ua)?"deb":"linux"):"";
-if(os){const c=$('[data-os="'+os+'"]',G);if(c){c.classList.add("is-you");const y=$(".os-you",c);if(y)y.classList.remove("hide");G.prepend(c)}const st=$('[data-os-step="'+(os==="deb"?"linux":os)+'"]');if(st)st.classList.add("is-you")}
-/* one-line install commands: the visitor's OS first, the others behind "Commands for other systems" */
-const OL=$("[data-ol-list]"),oc=OL&&$('[data-ol="'+(os==="deb"?"linux":os)+'"]',OL);if(oc){oc.classList.add("is-you");const y=$(".os-you",oc);if(y)y.classList.remove("hide");OL.prepend(oc);OL.classList.add("is-short");const mb=$("[data-ol-more]");if(mb){mb.classList.remove("hide");mb.addEventListener("click",()=>{OL.classList.remove("is-short");mb.remove()})}}}
+/* desktop app card: Windows / macOS / Linux tabs, preselect the visitor's system */
+const DK=$("[data-dk]");
+if(DK){const ua=(navigator.userAgentData&&navigator.userAgentData.platform||navigator.platform||"")+" "+navigator.userAgent,os=/win/i.test(ua)?"windows":/mac|iphone|ipad/i.test(ua)?"mac":/linux|x11|cros/i.test(ua)?"linux":"";
+const set=v=>{DK.dataset.os=v;const r=$('#dk-'+v,DK);if(r)r.checked=true};if(os)set(os);DK.addEventListener("change",e=>{if(e.target.name==="dk-os")set(e.target.value)})}
 /* project -> task pickers: select[data-project-select][data-task-target=id] */
 const loadTasks=async(sel,val)=>{if(!sel)return;const t=d.getElementById(sel.dataset.taskTarget);if(!t)return;const p=sel.value;t.disabled=!p;t.innerHTML='<option value="">'+(p?"Loading tasks...":"Select a project first")+"</option>";if(!p)return;
 try{const j=await N().req("time/tasks?project_id="+encodeURIComponent(p));t.innerHTML='<option value="">No specific task</option>'+j.tasks.map(x=>'<option value="'+(+x.id)+'">'+N().esc(x.title)+(+x.mine?" ★":"")+"</option>").join("");if(val)t.value=String(val)}

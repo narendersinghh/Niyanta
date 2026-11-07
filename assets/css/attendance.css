@@ -600,3 +600,26 @@ a.ta-stat:focus-visible{outline:3px solid color-mix(in srgb,var(--primary) 45%,t
 @media (max-width:640px){.ta-rtable .rt-hide{display:none}.ta-rtable td.rt-wide:has(>.rt-hide:only-child){display:none}}
 .team-table td.rt-st .flex{white-space:nowrap}
 @media (max-width:640px){.ta-rtable tr.rt-empty td[data-l]{display:none}.ta-rtable tr.rt-empty td.actions{grid-column:4;grid-row:2}.ac-legend{justify-content:flex-start}}
+/* desktop app card: OS tabs and two numbered steps */
+.dk{display:grid;gap:16px}
+.dk-os{display:flex;gap:4px;background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:4px}
+.dk-os label{flex:1;display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:8px 10px;border-radius:9px;font-size:.85rem;font-weight:600;color:var(--muted);cursor:pointer;transition:background .15s,color .15s}
+.dk-os label:hover{color:var(--text)}
+.dk-os .os-ic{width:22px;height:22px;border-radius:7px;color:currentColor;background:transparent}
+.dk-os .os-ic svg{width:16px;height:16px}
+.dk-os input:checked+label{background:#5B4CF5;color:#fff;box-shadow:0 6px 14px -8px #5B4CF5}
+.dk-os input:focus-visible+label{outline:2px solid #5B4CF5;outline-offset:2px}
+.dk-panel{display:none}
+.dk[data-os=windows] [data-dk-panel=windows],.dk[data-os=mac] [data-dk-panel=mac],.dk[data-os=linux] [data-dk-panel=linux]{display:block}
+.dk-step{display:flex;gap:12px;align-items:flex-start}
+.dk-step b{font-size:.92rem}
+.dk-n{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;flex:none;background:color-mix(in srgb,#5B4CF5 14%,transparent);color:#5B4CF5;font-weight:700;font-size:.8rem;margin-top:1px}
+.dk-step .ol-cmd{margin:8px 0 6px;flex-direction:row}
+.dk-files{margin-top:8px}
+.dk-files>summary{cursor:pointer;color:#5B4CF5;display:inline-flex;align-items:center;gap:4px;list-style:none;font-weight:600}
+.dk-files>summary::-webkit-details-marker{display:none}
+.dk-files .os-btns{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 6px}
+.dk .cx-actions{margin:8px 0 0;display:flex}.dk .cx-actions .btn{width:auto;flex:0 0 auto}
+.dk .token-box{margin-top:6px}
+[data-theme=dark] .dk-files>summary,[data-theme=dark] .dk-n{color:#9d8fff}
+@media(max-width:640px){.dk-os label{padding:8px 6px;font-size:.8rem}.dk-step .ol-cmd{flex-direction:column;align-items:stretch}}

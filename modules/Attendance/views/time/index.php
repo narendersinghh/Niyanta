@@ -21,48 +21,34 @@ $wmax = max(1, $wk['per_day'], ...array_values($wk['days']));
 $ver = $app['version'] ? '<span class="pill pill-lav">Latest '.e($app['version']).($app['date'] ? ' · '.e(fdate($app['date'])) : '').'</span>' : '';
 ob_start(); ?>
       <?php if (!$app['ok']): $sa = user()['role_slug'] === 'super_admin'; ?><div class="alert info mb"><?= icon('info', 'sm') ?><div><?php if (!$app['connected']): ?>The desktop app isn't available yet. An administrator needs to connect GitHub in <?= $sa ? '<a href="'.e(url('/admin/updates#desktop-mirror')).'"><b>Settings › Updates</b></a>' : '<b>Settings › Updates</b>' ?>.<?php else: ?>The desktop app isn't available yet. It is being fetched in the background, please check back soon.<?= $sa ? ' Status and <b>Refresh now</b>: <a href="'.e(url('/admin/updates#desktop-mirror')).'"><b>Settings › Updates</b></a>.' : '' ?><?php endif ?></div></div><?php endif ?>
-      <?php if (!empty($install)): $olInfo = [
-        'windows' => ['Windows', 'Open <b>PowerShell</b> (Start menu, type <i>PowerShell</i>), paste and press Enter. It saves the setup to your Downloads folder and opens it: click through it (Next, Install, Finish) and the app starts.'],
-        'mac' => ['macOS', 'Open <b>Terminal</b> (Spotlight, type <i>Terminal</i>), paste and press Enter. It installs to Applications and opens the app.'],
-        'linux' => ['Linux', 'Paste into a terminal and press Enter. It installs the AppImage to <span class="mono">~/.local/bin</span>, adds it to your apps menu and opens it.']]; ?>
-      <div class="oneline" data-oneline>
-        <div class="ol-head"><span class="ol-ic"><?= icon('zap', 'sm') ?></span><div class="grow"><h4>Install with one command (no security warnings) <span class="pill pill-mint">Recommended</span></h4><p class="small mb0">Copy the command for your system, paste it and press Enter. That is all.</p><p class="xs muted mb0">The command downloads the app straight from this workspace and checks it, so Chrome, Windows SmartScreen and macOS Gatekeeper do not get in the way. It is personal and works until <b><?= e(ftime(date('Y-m-d H:i:s', (int) $install['until']))) ?></b>; reload the page for a new one.</p></div></div>
-        <div class="ol-list" data-ol-list>
-          <?php foreach ($olInfo as $ok => [$ol, $oh]): $cmd = $install['commands'][$ok]; ?>
-          <div class="ol-item" data-ol="<?= e($ok) ?>">
-            <div class="ol-top"><span class="os-ic os-<?= e($ok) ?>"><?= $osIc[$ok] ?></span><b><?= e($ol) ?></b><span class="pill pill-mint os-you hide">Your system</span></div>
-            <div class="ol-cmd"><code><?= e($cmd) ?></code><button type="button" class="btn sm primary" data-copy="<?= e($cmd) ?>" aria-label="Copy the <?= e($ol) ?> install command"><?= icon('copy', 'sm') ?> Copy</button></div>
-            <p class="xs muted mb0"><?= $oh ?></p></div>
-          <?php endforeach ?>
-        </div>
-        <button type="button" class="btn ghost sm ol-more hide" data-ol-more><?= icon('chevron-down', 'sm') ?> Commands for other systems</button>
-      </div>
-      <?php endif ?>
-      <?php $dl = !empty($install); /* with a one-line command, the download files are the fallback, folded away (closed by default) */ ?>
-      <?php if ($dl): ?><details class="dl-more" data-dl-more><summary><span class="dl-more-ic"><?= icon('download', 'sm') ?></span><span class="grow"><b>Other ways to install: download files</b><span class="xs muted">Installers for every system, with step-by-step help</span></span><span class="dl-more-chev"><?= icon('chevron-down', 'sm') ?></span></summary><div class="dl-more-body"><?php endif ?>
-      <div class="os-grid" data-os-grid>
-        <?php foreach (DesktopApp::PLATFORMS as $pk => [$pl, $hint]): $files = $app['platforms'][$pk]; $f0 = $files[0] ?? null; ?>
-        <div class="os-card" data-os="<?= e($pk) ?>">
-          <div class="os-top"><span class="os-ic os-<?= e($pk) ?>"><?= $osIc[$pk] ?></span><div class="grow"><b><?= e($pl) ?></b><div class="xs muted"><?= e($hint) ?></div></div><span class="pill pill-mint os-you hide">Your system</span></div>
-          <?php if ($f0): ?>
-            <div class="os-meta xs"><span>v<?= e($f0['version']) ?></span><?= $size((int) $f0['size']) ? '<span>'.e($size((int) $f0['size'])).'</span>' : '' ?><span><?= e(fdate($f0['date'])) ?></span></div>
-            <div class="os-btns"><?php foreach ($files as $f): ?><a class="btn sm <?= $f === $f0 ? 'primary' : 'ghost' ?>" href="<?= e($f['url']) ?>" title="<?= e($f['name']) ?>" download><?= icon('download', 'sm') ?> <?= e($pk === 'mac' ? ($archLbl[$f['arch']] ?? $f['arch']).($f['ext'] === 'zip' ? ' (.zip)' : '') : ($pk === 'windows' ? 'Download .exe' : ($pk === 'deb' ? 'Download .deb' : 'Download AppImage'))) ?></a><?php endforeach ?></div>
-          <?php else: ?><div class="os-meta xs muted"><?= $app['ok'] ? 'Not in this release' : 'Not available yet' ?></div><div class="os-btns"><span class="btn sm ghost is-disabled" aria-disabled="true"><?= icon('download', 'sm') ?> Coming soon</span></div><?php endif ?>
+      <?php /* one panel per system (Windows, macOS, Linux), chosen with radio tabs (no JS needed; JS preselects the visitor's system) */
+      $dkOs = ['windows' => ['Windows', 'Open <b>PowerShell</b> (Start menu, type <i>PowerShell</i>), paste and press Enter. Click through the setup (Next, Install, Finish).', ['windows']],
+        'mac' => ['macOS', 'Open <b>Terminal</b> (Spotlight, type <i>Terminal</i>), paste and press Enter. It installs to Applications and opens the app.', ['mac']],
+        'linux' => ['Linux', 'Paste into a terminal and press Enter. It installs to <span class="mono">~/.local/bin</span> and adds it to your apps menu.', ['linux', 'deb']]];
+      $dkHelp = ['windows' => 'Run the .exe. If Windows says <i>Windows protected your PC</i>, click <b>More info</b>, then <b>Run anyway</b>.', 'mac' => 'Open the .dmg and drag the app to Applications. If macOS cannot verify it, open <b>System Settings › Privacy &amp; Security</b> and click <b>Open Anyway</b>.', 'linux' => 'Make the AppImage executable (<span class="mono">chmod +x</span>) and run it, or install the .deb with <span class="mono">sudo apt install ./niyanta-tracker-*.deb</span>.']; ?>
+      <div class="dk" data-dk data-os="windows">
+        <div class="dk-os" role="tablist" aria-label="Your computer"><?php foreach ($dkOs as $ok => [$ol]): ?><input type="radio" class="sr" name="dk-os" id="dk-<?= e($ok) ?>" value="<?= e($ok) ?>"<?= $ok === 'windows' ? ' checked' : '' ?>><label for="dk-<?= e($ok) ?>"><span class="os-ic os-<?= e($ok) ?>"><?= $osIc[$ok] ?></span><?= e($ol) ?></label><?php endforeach ?></div>
+        <?php foreach ($dkOs as $ok => [$ol, $oh, $pks]): ?>
+        <div class="dk-panel" data-dk-panel="<?= e($ok) ?>">
+          <div class="dk-step"><span class="dk-n">1</span><div class="grow">
+            <?php if (!empty($install)): $cmd = $install['commands'][$ok]; ?>
+            <b>Install with one command</b> <span class="pill pill-mint">No security warnings</span>
+            <div class="ol-cmd" data-ol="<?= e($ok) ?>"><code><?= e($cmd) ?></code><button type="button" class="btn sm primary" data-copy="<?= e($cmd) ?>" aria-label="Copy the <?= e($ol) ?> install command"><?= icon('copy', 'sm') ?> Copy</button></div>
+            <p class="xs muted mb0"><?= $oh ?> Personal link, valid until <?= e(ftime(date('Y-m-d H:i:s', (int) $install['until']))) ?>.</p>
+            <?php else: ?><b>Download and install</b><?php endif ?>
+            <?php $files = array_merge(...array_map(static fn ($pk) => $app['platforms'][$pk] ?? [], $pks)); if ($files): ?>
+            <details class="dk-files"<?= empty($install) ? ' open' : '' ?>><summary class="xs"><?= icon('download', 'sm') ?> <?= empty($install) ? 'Installer' : 'Or download the installer' ?><?= $files[0]['version'] ? ' · v'.e($files[0]['version']) : '' ?></summary>
+              <div class="os-btns"><?php foreach ($files as $f): ?><a class="btn sm ghost" href="<?= e($f['url']) ?>" title="<?= e($f['name']) ?>" download><?= icon('download', 'sm') ?> <?= e($ok === 'mac' ? ($archLbl[$f['arch']] ?? $f['arch']).($f['ext'] === 'zip' ? ' (.zip)' : '') : ($ok === 'windows' ? '.exe' : ($f['ext'] === 'deb' ? '.deb' : 'AppImage'))) ?><?= $size((int) $f['size']) ? ' <span class="muted">'.e($size((int) $f['size'])).'</span>' : '' ?></a><?php endforeach ?></div>
+              <p class="xs muted mb0"><?= $dkHelp[$ok] ?></p></details>
+            <?php elseif (empty($install)): ?><p class="xs muted mb0"><?= $app['ok'] ? 'Not in this release.' : 'Not available yet.' ?></p><?php endif ?>
+          </div></div>
         </div>
         <?php endforeach ?>
+        <div class="dk-step" id="connect"><span class="dk-n">2</span><div class="grow"><b>Connect it</b><p class="xs muted mb0">Installed? Click the button: the app opens and signs in as you. It stays signed in even when you sign out of the website.</p>
+          <form method="post" action="<?= e(url('/time/desktop/connect-link')) ?>" class="cx-actions"><?= csrf_field() ?><button class="btn primary sm"><?= icon('monitor', 'sm') ?> Connect the desktop app</button></form>
+          <details class="dk-files"><summary class="xs">Sign in with email and password instead</summary><p class="xs muted">In the app, use your Niyanta email and password and this workspace address:</p>
+            <div class="token-box"><code><?= e(absolute_url('/')) ?></code><button type="button" class="btn icon sm ghost" data-copy="<?= e(absolute_url('/')) ?>" aria-label="Copy workspace address"><?= icon('copy', 'sm') ?></button></div></details></div></div>
       </div>
-        <div class="dl-howto"><h4><?= icon('package', 'sm') ?> Install from the download button</h4><ol class="steps-list small">
-          <li data-os-step="windows"><b>Windows:</b> run the .exe. If Chrome says the file isn't commonly downloaded, open Downloads (<span class="mono">Ctrl+J</span>) and choose <b>Keep</b>. If Windows shows <i>Windows protected your PC</i>, click <b>More info</b>, then <b>Run anyway</b>.<?= !empty($install) ? ' The one-line command above avoids both.' : '' ?></li>
-          <li data-os-step="mac"><b>macOS:</b> open the .dmg and drag Niyanta Tracker to Applications. If macOS says it cannot verify the developer, open <b>System Settings › Privacy &amp; Security</b> and click <b>Open Anyway</b>. If it says the app is <i>damaged</i>, run <span class="mono">xattr -cr "/Applications/Niyanta Tracker.app"</span> in Terminal once<?= !empty($install) ? ', or simply use the one-line command above' : '' ?>. Allow <i>Screen Recording</i> and <i>Accessibility</i> when asked.</li>
-          <li data-os-step="linux"><b>Linux:</b> make the AppImage executable (<span class="mono">chmod +x</span>) and run it, or install the .deb with <span class="mono">sudo apt install ./niyanta-tracker-*.deb</span>.</li>
-          <li><b>Updates:</b> the app tells you when a new version is out. Click <b>Update now</b>: it downloads, restarts by itself and your tracking continues.</li></ol></div>
-      <?php if ($dl): ?></div></details><?php endif ?>
-      <div class="dl-connect" id="connect">
-        <h4><?= icon('link', 'sm') ?> <?= $tokens ? 'Connect another computer' : 'Then connect the desktop app' ?></h4><p class="small mb0">Installed? Click the button: Niyanta Tracker opens and signs in as you. Nothing to type.</p>
-        <form method="post" action="<?= e(url('/time/desktop/connect-link')) ?>" class="cx-actions"><?= csrf_field() ?><button class="btn primary"><?= icon('monitor', 'sm') ?> Connect the desktop app</button></form>
-        <p class="xs muted">The app stays signed in even when you sign out of the website. Remove a computer any time under <a href="#devices">Your devices</a>.</p>
-        <details class="dl-more"><summary><span class="grow"><span class="xs muted">Sign in with email and password instead</span></span><span class="dl-more-chev"><?= icon('chevron-down', 'sm') ?></span></summary><div class="dl-more-body"><p class="small mb">In the app, sign in with your Niyanta email and password and this workspace address:</p>
-          <div class="token-box"><code><?= e(absolute_url('/')) ?></code><button type="button" class="btn icon sm ghost" data-copy="<?= e(absolute_url('/')) ?>" aria-label="Copy workspace address"><?= icon('copy', 'sm') ?></button></div></div></details></div>
 <?php $desk = ob_get_clean(); ?>
 <?= partial('attendance::partials/hub', ['tab' => 'tracker', 'title' => 'Time & Attendance', 'subtitle' => 'Your live status and today\'s time. Tracking runs in the Niyanta Tracker desktop app.']) ?>
 <div class="ta-split">
@@ -87,12 +73,6 @@ ob_start(); ?>
         <?php else: ?><div class="tt-goal-t"><span>Day off: no target today</span><span class="xs" data-ls-updated></span></div><?php endif ?>
       </div>
     </section>
-    <?php if (!$tokens): ?>
-    <section class="card dl-card" id="desktop">
-      <div class="card-head"><div><h3>Get the desktop app</h3><p class="small muted mb0">Install Niyanta Tracker, then connect it. It tracks your day for Windows, macOS and Linux.</p></div><?= $ver ?></div>
-      <?= $desk ?>
-    </section>
-    <?php endif ?>
     <section class="card wk-card" aria-labelledby="wk-h">
       <div class="card-head"><h3 id="wk-h">This week</h3><a class="btn sm ghost" href="<?= e(url('/timesheets')) ?>">Open timesheet <?= icon('chevron-right', 'sm') ?></a></div>
       <div class="wk-sum"><b><?= e(hours($wk['total'])) ?></b><span class="muted small"><?= $wk['expected'] ? 'of '.e(hours($wk['expected'])).' expected · '.$wpct.'%' : 'tracked' ?></span></div>
@@ -102,6 +82,18 @@ ob_start(); ?>
           <span class="wd-v"><?= $v ? e(hours((int) $v)) : '-' ?></span><span class="wd-bar" aria-hidden="true"><i style="height:<?= $v ? max(6, (int) round(100 * $v / $wmax)) : 0 ?>%"></i></span><span class="wd-d"><?= e(date('D', strtotime($d))) ?></span></a></li>
       <?php endforeach ?></ol>
     </section>
+    <?php if (!$tokens): ?>
+    <section class="card dl-card" id="desktop">
+      <div class="card-head"><div><h3>Get the desktop app</h3><p class="small muted mb0">Install Niyanta Tracker, then connect it. It tracks your day for Windows, macOS and Linux.</p></div><?= $ver ?></div>
+      <?= $desk ?>
+    </section>
+    <?php endif ?>
+    <?php if ($tokens): ?>
+    <section class="card dl-card dk-card" id="desktop">
+      <div class="card-head"><div><h3>Add another computer</h3><p class="small muted mb0">Install Niyanta Tracker on another Windows, macOS or Linux computer.</p></div><?= $ver ?></div>
+      <?= $desk ?>
+    </section>
+    <?php endif ?>
   </div>
   <div class="ta-col">
     <section class="card" aria-labelledby="td-h">
@@ -140,9 +132,4 @@ ob_start(); ?>
     </section>
   </div>
 </div>
-<?php if ($tokens): ?>
-<details class="dl-more ta-desk" id="desktop" data-hash-open>
-  <summary><span class="dl-more-ic"><?= icon('download', 'sm') ?></span><span class="grow"><b>Get the desktop app on another computer</b><span class="xs muted">Install commands, download files and connect another computer</span></span><?= $ver ?><span class="dl-more-chev"><?= icon('chevron-down', 'sm') ?></span></summary>
-  <div class="dl-more-body dl-card"><?= $desk ?></div>
-</details>
-<?php endif ?>
+

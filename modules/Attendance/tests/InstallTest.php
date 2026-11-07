@@ -63,7 +63,7 @@ return [
     try {
       act_as($emp);
       $html = (string) http('GET', '/time')->body();
-      assert_true(str_contains($html, 'Install with one command (no security warnings)') && str_contains($html, 'data-ol="windows"') && str_contains($html, 'data-ol="mac"'), 'commands on the download card');
+      assert_true(str_contains($html, 'Install with one command') && str_contains($html, 'No security warnings') && str_contains($html, 'data-ol="windows"') && str_contains($html, 'data-ol="mac"'), 'commands on the download card');
       assert_true((bool) preg_match('#curl -fsSL &quot;http://localhost/time/desktop/install\.sh\?k=('.$emp.'-\d{10}-[A-Za-z0-9_-]{32})&quot; \| bash#', $html, $m), 'curl | bash command with a personal key');
       $k = $m[1];
       assert_true(str_contains($html, 'irm &quot;http://localhost/time/desktop/install.ps1?k='.$k.'&quot; | iex'), 'PowerShell command');
