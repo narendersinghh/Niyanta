@@ -484,3 +484,5 @@ html{scrollbar-color:color-mix(in srgb,var(--muted) 45%,transparent) transparent
 .tm-foot{padding:9px 14px;border-top:1px solid var(--border);font-size:.74rem;color:var(--muted);background:var(--surface-2)}
 .dd-menu .tm-foot a{display:inline;width:auto;padding:0;border-radius:0;color:var(--lav-d);font-weight:600}.dd-menu .tm-foot a:hover{background:none;text-decoration:underline}
 @media (max-width:900px){.tm-pill{padding:0 12px}.tm-pill .tm-lbl{display:none}.tm-pop{position:fixed;left:16px;right:16px;top:64px;width:auto}}
+/* dashboard header: deep brand indigo with soft mint and sky glows */
+.dash-hero{background:radial-gradient(110% 140% at 100% 0%,rgba(18,181,160,.38) 0%,transparent 46%),radial-gradient(90% 130% at 0% 100%,rgba(46,155,246,.32) 0%,transparent 52%),linear-gradient(120deg,#2A1E8F 0%,#4B3BE8 48%,#6C4CF5 100%);box-shadow:0 22px 44px -26px rgba(42,30,143,.85)}
