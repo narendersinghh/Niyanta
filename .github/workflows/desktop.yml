@@ -21,6 +21,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 env:
   TAG: ${{ inputs.tag || github.ref_name }}
@@ -98,6 +99,7 @@ jobs:
         with:
           name: niyanta-tracker-${{ matrix.name }}
           if-no-files-found: error
+          retention-days: 1
           path: |
             desktop/dist/*.exe
             desktop/dist/*.dmg
@@ -140,3 +142,8 @@ jobs:
             out/*.deb
             out/*.blockmap
             out/latest*.yml
+      # The files now live on the GitHub Release; drop the build artifacts so they do not use the Actions storage quota.
+      - uses: geekyeggo/delete-artifact@v5
+        with:
+          name: niyanta-tracker-*
+          failOnError: false

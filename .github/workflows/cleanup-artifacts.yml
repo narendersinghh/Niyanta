@@ -1,0 +1,34 @@
+# Deletes old workflow artifacts so the private repository stays within its Actions storage quota.
+# Installers are kept on GitHub Releases, so build artifacts are only needed while a release run is in progress.
+# Runs weekly and can be started by hand (Actions › Clean up artifacts › Run workflow).
+name: Clean up artifacts
+
+on:
+  schedule:
+    - cron: '17 3 * * 1'
+  workflow_dispatch:
+    inputs:
+      older_than_hours:
+        description: Delete artifacts older than this many hours
+        type: number
+        default: 1
+
+permissions:
+  actions: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const hours = Number('${{ inputs.older_than_hours }}' || 1) || 1;
+            const cutoff = Date.now() - hours * 3600 * 1000;
+            let deleted = 0, freed = 0, kept = 0;
+            const all = await github.paginate(github.rest.actions.listArtifactsForRepo, { owner: context.repo.owner, repo: context.repo.repo, per_page: 100 });
+            for (const a of all) {
+              if (a.expired || new Date(a.created_at).getTime() > cutoff) { kept++; continue; }
+              await github.rest.actions.deleteArtifact({ owner: context.repo.owner, repo: context.repo.repo, artifact_id: a.id });
+              deleted++; freed += a.size_in_bytes; }
+            core.notice(`Deleted ${deleted} artifacts (${(freed / 1048576).toFixed(1)} MB), kept ${kept}.`);
