@@ -39,7 +39,7 @@ return [
     $r->post('/time/desktop/connect', [ConnectController::class, 'allow'], ['perm' => $t, 'throttle' => [20, 60]]);
     $r->get('/time/tasks', [TimeController::class, 'tasks'], $t);
     /* top-bar "active members" widget: count refresh (?count=1) and the popup lists, team-scoped */
-    $r->get('/time/team/now', [TeamNowController::class, 'index'], ['perm' => 'attendance.view_all', 'throttle' => [60, 60]]);
+    $r->get('/time/team/now', [TeamNowController::class, 'index'], ['perm' => ['attendance.view_all', 'attendance.track'], 'throttle' => [60, 60]]);
     $r->post('/time/entries', [TimeController::class, 'storeEntry'], $t);
     $r->post('/time/entries/{id}', [TimeController::class, 'updateEntry'], $t);
     $r->post('/time/entries/{id}/delete', [TimeController::class, 'deleteEntry'], $t);
@@ -96,7 +96,7 @@ return [
   'topbar' => static function (array $user): string {
     if (!feature_on('attendance')) { return ''; }
     $h = Core\Gate::allows('attendance.track', $user) && ($run = Modules\Attendance\Services\TimeService::running((int) $user['id'])) ? Core\View::partial('attendance::partials/topbar_live', ['run' => $run]) : '';
-    return $h.(Core\Gate::allows('attendance.view_all', $user) ? Core\View::partial('attendance::partials/topbar_team', ['active' => TeamNowController::count($user)]) : ''); },
+    return $h.(Core\Gate::any(['attendance.view_all', 'attendance.track'], $user) ? Core\View::partial('attendance::partials/topbar_team', ['active' => TeamNowController::count($user), 'full' => TeamNowController::full($user)]) : ''); },
   'global_scripts' => ['js/tt-live.js' => ['perm' => ['attendance.track', 'attendance.view_all'], 'feature' => 'attendance']],
   'file_access' => [],
 ];

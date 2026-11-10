@@ -19,11 +19,27 @@ function tnow_fixture(): array {
 function tnow_get(string $path): array { $r = http('GET', $path); return [$r->status(), json_decode((string) $r->body(), true) ?? []]; }
 
 return [
-  'team now: employees without attendance.view_all get 403' => function () {
-    ['emp' => $emp] = tnow_fixture();
-    act_as($emp);
-    assert_eq(403, http('GET', '/time/team/now')->status());
-    assert_eq(403, http('GET', '/time/team/now?count=1')->status()); },
+  'team now: employees see their own team with names and status only (no times, projects or links)' => function () {
+    ['mgr' => $mgr, 'emp' => $emp, 'stale' => $stale, 'idle' => $idle, 'out' => $out] = tnow_fixture();
+    act_as($idle);
+    [$code, $j] = tnow_get('/time/team/now?count=1');
+    assert_eq(200, $code, json_encode($j));
+    assert_eq(1, $j['active'], 'the tracking teammate counts, the outsider does not');
+    [$code, $j] = tnow_get('/time/team/now');
+    assert_eq(200, $code);
+    assert_true($j['full'] === false && $j['team_url'] === null, 'peers view');
+    $ids = static fn (array $rows): array => array_map(static fn ($r) => (int) $r['id'], $rows);
+    $all = array_merge($ids($j['active']), $ids($j['away']), $ids($j['leave']), $ids($j['notin']));
+    assert_eq([$emp], $ids($j['active']), 'teammate tracking');
+    assert_true(in_array($stale, $ids($j['away']), true), 'stale teammate shows as away');
+    assert_true(in_array($mgr, $all, true), 'the manager is part of the team');
+    assert_true(!in_array($out, $all, true) && !in_array($idle, $all, true), 'no outsider, not themselves');
+    foreach (['active', 'away', 'leave', 'notin'] as $k) { foreach ($j[$k] as $row) { assert_eq(['id', 'name', 'avatar', 'status', 'label'], array_keys($row), 'only names and status: '.json_encode($row)); } }
+    assert_eq('Away', $j['away'][0]['label']);
+    act_as($out);
+    [$code, $j] = tnow_get('/time/team/now');
+    assert_eq(200, $code);
+    assert_eq([], array_merge($j['active'], $j['away'], $j['leave'], $j['notin']), 'no manager and no department: nobody listed'); },
 
   'team now: a manager sees only the own team, active vs not active' => function () {
     ['mgr' => $mgr, 'emp' => $emp, 'stale' => $stale, 'idle' => $idle, 'out' => $out] = tnow_fixture();
@@ -34,13 +50,14 @@ return [
     [$code, $j] = tnow_get('/time/team/now');
     assert_eq(200, $code);
     $ids = static fn (array $rows): array => array_map(static fn ($r) => (int) $r['id'], $rows);
-    $all = array_merge($ids($j['active']), $ids($j['away']), $ids($j['off']));
+    $all = array_merge($ids($j['active']), $ids($j['away']), $ids($j['leave']), $ids($j['notin']));
     assert_eq([$emp], $ids($j['active']), 'active list');
     assert_true(!in_array($out, $all, true), 'outsider never listed');
     assert_true(!in_array($mgr, $all, true), 'the manager is not part of the own team list');
     assert_true(in_array($stale, $ids($j['away']), true), 'stale heartbeat shows as idle');
     assert_eq('idle', $j['away'][array_search($stale, $ids($j['away']), true)]['status']);
-    assert_true(in_array($idle, $ids($j['off']), true), 'not started member under not active');
+    assert_true(in_array($idle, $ids($j['notin']), true), 'not started member under not in yet');
+    assert_true($j['full'] === true && isset($j['active'][0]['dur'], $j['active'][0]['project']), 'managers keep times and projects');
     assert_eq(1, $j['counts']['active']);
     assert_true(str_contains($j['active'][0]['url'], '/time/daily?user='.$emp), 'link to the daily timesheet');
     assert_true(str_contains($j['team_url'], '/attendance/team'), 'team tab link');
@@ -55,7 +72,7 @@ return [
     assert_true(in_array($emp, $act, true) && in_array($out, $act, true), 'HR sees all trackers: '.json_encode($act));
     assert_true(str_contains(http('GET', '/time/screenshots')->body(), 'data-team-now'), 'pill rendered for HR');
     act_as($emp);
-    assert_true(!str_contains(http('GET', '/time')->body(), 'data-team-now'), 'no pill for employees'); },
+    assert_true(str_contains(http('GET', '/time')->body(), 'data-team-now'), 'employees get the pill too (peers view)'); },
 
   'team now: switched off with the attendance feature' => function () {
     ['mgr' => $mgr] = tnow_fixture();
