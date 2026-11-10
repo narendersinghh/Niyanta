@@ -12,7 +12,7 @@ final class Session {
     ini_set('session.cookie_httponly', '1');
     ini_set('session.sid_length', '48');
     ini_set('session.sid_bits_per_character', '6');
-    ini_set('session.gc_maxlifetime', '86400');
+    ini_set('session.gc_maxlifetime', (string) max(86400, self::lifetime()));
     session_name('niyanta_sid');
     session_set_cookie_params(self::cookieParams(Request::current()));
     session_start();
@@ -20,8 +20,11 @@ final class Session {
     $_SESSION['_flash'] = $flashOld;
     $_SESSION['_flash_next'] = []; }
 
-  /** Session cookie flags: session-only, HttpOnly, SameSite=Lax, Secure whenever the request came over HTTPS. */
-  public static function cookieParams(Request $r): array { return ['lifetime' => 0, 'path' => (Request::base() ?: '').'/', 'domain' => '', 'secure' => $r->isSecure(), 'httponly' => true, 'samesite' => 'Lax']; }
+  /** How long a sign-in lasts (Settings › Users, default 7 days): the cookie survives closing the browser for that long. */
+  public static function lifetime(): int { try { return max(1, (int) Settings::get('security.session_absolute_hours', 168)) * 3600; } catch (\Throwable) { return 168 * 3600; } }
+
+  /** Session cookie flags: kept for the sign-in lifetime, HttpOnly, SameSite=Lax, Secure whenever the request came over HTTPS. */
+  public static function cookieParams(Request $r): array { return ['lifetime' => self::lifetime(), 'path' => (Request::base() ?: '').'/', 'domain' => '', 'secure' => $r->isSecure(), 'httponly' => true, 'samesite' => 'Lax']; }
 
   public static function get(string $k, mixed $d = null): mixed { return $_SESSION[$k] ?? $d; }
   public static function put(string $k, mixed $v): void { $_SESSION[$k] = $v; }

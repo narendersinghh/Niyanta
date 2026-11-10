@@ -11,8 +11,8 @@ final class Auth {
     self::$loaded = true;
     $id = (int) Session::get('uid', 0);
     if (!$id) { return null; }
-    $idle = max(5, (int) Settings::get('security.session_idle_minutes', 120)) * 60;
-    $absolute = max(1, (int) Settings::get('security.session_absolute_hours', 12)) * 3600;
+    $idle = max(5, (int) Settings::get('security.session_idle_minutes', 10080)) * 60;
+    $absolute = max(1, (int) Settings::get('security.session_absolute_hours', 168)) * 3600;
     if (time() - (int) Session::get('last_seen', 0) > $idle || time() - (int) Session::get('login_at', 0) > $absolute || Session::get('fp') !== self::fingerprint()) { self::logout(); return null; }
     $u = DB::first('SELECT u.*, r.slug AS role_slug, r.name AS role_name FROM users u JOIN roles r ON r.id=u.role_id WHERE u.id=? AND u.status=\'active\' LIMIT 1', [$id]);
     if (!$u || (int) $u['session_version'] !== (int) Session::get('sv', -1)) { self::logout(); return null; }
@@ -28,7 +28,8 @@ final class Auth {
   public static function role(): ?string { return self::user()['role_slug'] ?? null; }
   public static function isSuperAdmin(): bool { return self::role() === 'super_admin'; }
 
-  private static function fingerprint(): string { return hash('sha256', Request::current()->userAgent()); }
+  /* browser family without version numbers: an automatic browser update must not sign people out */
+  private static function fingerprint(): string { return hash('sha256', preg_replace('/[\d._]+/', '', Request::current()->userAgent())); }
 
   /** @return string|null error message, null on success */
   public static function attempt(string $email, string $password): ?string {

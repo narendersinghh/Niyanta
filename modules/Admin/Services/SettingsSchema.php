@@ -148,8 +148,8 @@ final class SettingsSchema {
       'users' => [
         $num('security.password_min_length', 'Minimum password length', 8, 64, 'Passwords must also contain letters and numbers.', ['section' => 'Passwords & sessions']),
         $num('security.login_max_attempts', 'Wrong passwords allowed per 15 min', 3, 20, 'Only wrong passwords count, successful sign-ins never block anyone. After 10 wrong passwords in a row the account locks for 30 minutes; an admin can unlock it in Users & Access.'),
-        $num('security.session_idle_minutes', 'Session idle timeout (minutes)', 5, 1440, 'Users are signed out after this much inactivity.'),
-        $num('security.session_absolute_hours', 'Sign in again after (hours)', 1, 720, 'Every browser session ends this long after sign-in, even while in use.', ['default' => '12'])],
+        $num('security.session_idle_minutes', 'Session idle timeout (minutes)', 5, 43200, 'Users are signed out after this much inactivity. 10080 = 7 days.', ['default' => '10080']),
+        $num('security.session_absolute_hours', 'Sign in again after (hours)', 1, 720, 'A sign-in lasts this long, also after closing the browser. 168 = 7 days.', ['default' => '168'])],
       'appearance' => [
         ['key' => 'appearance.primary_color', 'label' => 'Primary', 'type' => 'color', 'section' => 'Colours', 'var' => '--primary', 'hint' => 'Buttons, links, focus rings.'],
         ['key' => 'appearance.sidebar_color', 'label' => 'Sidebar', 'type' => 'color', 'var' => '--sidebar', 'hint' => 'Keep it dark for contrast.'],

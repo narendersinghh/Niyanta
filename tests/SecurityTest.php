@@ -24,10 +24,10 @@ return [
     $h = Response::securityHeaders(Request::capture());
     assert_true(str_starts_with($h['Strict-Transport-Security'] ?? '', 'max-age=31536000') && str_contains($h['Content-Security-Policy'], 'upgrade-insecure-requests'), 'HSTS and upgrade over https');
     $_SERVER['HTTPS'] = 'off'; },
-  'session cookie: HttpOnly, SameSite=Lax, session lifetime, Secure on HTTPS' => function () {
+  'session cookie: HttpOnly, SameSite=Lax, kept for the sign-in lifetime, Secure on HTTPS' => function () {
     $_SERVER['HTTPS'] = 'off';
     $c = Session::cookieParams(Request::capture());
-    assert_true($c['httponly'] && $c['samesite'] === 'Lax' && $c['lifetime'] === 0 && !$c['secure']);
+    assert_true($c['httponly'] && $c['samesite'] === 'Lax' && $c['lifetime'] === Session::lifetime() && $c['lifetime'] >= 3600 && !$c['secure']);
     $_SERVER['HTTPS'] = 'on'; assert_true(Session::cookieParams(Request::capture())['secure'], 'secure flag over https'); $_SERVER['HTTPS'] = 'off'; },
   'passwords: argon2id when available (else bcrypt cost 12), old bcrypt hashes upgraded at sign-in, common passwords refused' => function () {
     $h = Auth::hash('Longer12345'); $i = password_get_info($h);
@@ -40,8 +40,10 @@ return [
   'sessions end after the absolute lifetime even while active' => function () {
     $id = make_user('employee', 'absolute@unit.test');
     act_as($id); assert_true(Auth::check());
-    $_SESSION['login_at'] = time() - 13 * 3600; Auth::forget();
-    assert_true(!Auth::check(), 'signed out after 12 hours'); },
+    $_SESSION['login_at'] = time() - 6 * 86400; Auth::forget();
+    assert_true(Auth::check(), 'still signed in after 6 days');
+    $_SESSION['login_at'] = time() - 8 * 86400; Auth::forget();
+    assert_true(!Auth::check(), 'signed out after 7 days'); },
   'CSRF: cross-site Origin is refused even with a valid token, same-origin accepted' => function () {
     act_as($GLOBALS['ADMIN_ID']);
     $_SERVER['HTTP_ORIGIN'] = 'https://evil.example';
