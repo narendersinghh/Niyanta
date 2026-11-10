@@ -5,8 +5,7 @@ use Modules\Attendance\Services\{AttendanceService, Team, TimeService};
 
 /**
  * Top-bar "active members" widget. Managers / HR (attendance.view_all): their team (Team::where) with project, task and
- * times. Employees (attendance.track): their own team (same manager, that manager, own direct reports, or the same
- * department when nobody has a manager) with names and status only: no times, projects or timesheet links.
+ * times. Employees (attendance.track): every active member with names and status only: no times, projects or links.
  * Groups: active (tracking), away (logged in today but not tracking: paused, idle, clocked in, day ended), leave, notin.
  */
 final class TeamNowController extends BaseController {
@@ -27,14 +26,10 @@ final class TeamNowController extends BaseController {
   /** Whether $u sees the full team view (times, projects, links) or the peers view (names and status only). */
   public static function full(array $u): bool { return \Core\Gate::allows('attendance.view_all', $u); }
 
-  /** SQL scope: Team::where for managers/HR; for employees their own team, never themselves. */
+  /** SQL scope: Team::where for managers/HR; employees see everyone (names and status only), never themselves. */
   private static function scope(array $u, string $col): array {
     if (self::full($u)) { return Team::where($u, $col); }
-    $me = (int) $u['id']; $mgr = (int) DB::value('SELECT manager_id FROM users WHERE id=?', [$me]);
-    if ($mgr) { return ["($col<>? AND ($col IN (SELECT id FROM users WHERE manager_id=?) OR $col=? OR $col IN (SELECT id FROM users WHERE manager_id=?)))", [$me, $mgr, $mgr, $me]]; }
-    $dep = (string) DB::value('SELECT department FROM users WHERE id=?', [$me]);
-    if ($dep !== '') { return ["($col<>? AND ($col IN (SELECT id FROM users WHERE department=?) OR $col IN (SELECT id FROM users WHERE manager_id=?)))", [$me, $dep, $me]]; }
-    return ["($col IN (SELECT id FROM users WHERE manager_id=?))", [$me]]; }
+    return ["$col<>?", [(int) $u['id']]]; }
 
   private static function fresh(): string { return date('Y-m-d H:i:s', time() - TimeService::STALE_SECONDS); }
 

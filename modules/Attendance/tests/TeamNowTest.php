@@ -19,27 +19,24 @@ function tnow_fixture(): array {
 function tnow_get(string $path): array { $r = http('GET', $path); return [$r->status(), json_decode((string) $r->body(), true) ?? []]; }
 
 return [
-  'team now: employees see their own team with names and status only (no times, projects or links)' => function () {
+  'team now: employees see everyone with names and status only (no times, projects or links)' => function () {
     ['mgr' => $mgr, 'emp' => $emp, 'stale' => $stale, 'idle' => $idle, 'out' => $out] = tnow_fixture();
     act_as($idle);
     [$code, $j] = tnow_get('/time/team/now?count=1');
     assert_eq(200, $code, json_encode($j));
-    assert_eq(1, $j['active'], 'the tracking teammate counts, the outsider does not');
+    assert_true($j['active'] >= 2, 'everyone tracking counts, the outsider too');
     [$code, $j] = tnow_get('/time/team/now');
     assert_eq(200, $code);
     assert_true($j['full'] === false && $j['team_url'] === null, 'peers view');
     $ids = static fn (array $rows): array => array_map(static fn ($r) => (int) $r['id'], $rows);
     $all = array_merge($ids($j['active']), $ids($j['away']), $ids($j['leave']), $ids($j['notin']));
-    assert_eq([$emp], $ids($j['active']), 'teammate tracking');
+    assert_true(in_array($emp, $ids($j['active']), true), 'teammate tracking');
     assert_true(in_array($stale, $ids($j['away']), true), 'stale teammate shows as away');
     assert_true(in_array($mgr, $all, true), 'the manager is part of the team');
-    assert_true(!in_array($out, $all, true) && !in_array($idle, $all, true), 'no outsider, not themselves');
+    assert_true(in_array($out, $ids($j['active']), true) && !in_array($idle, $all, true), 'everyone (the outsider too), never themselves');
     foreach (['active', 'away', 'leave', 'notin'] as $k) { foreach ($j[$k] as $row) { assert_eq(['id', 'name', 'avatar', 'status', 'label'], array_keys($row), 'only names and status: '.json_encode($row)); } }
-    assert_eq('Away', $j['away'][0]['label']);
-    act_as($out);
-    [$code, $j] = tnow_get('/time/team/now');
-    assert_eq(200, $code);
-    assert_eq([], array_merge($j['active'], $j['away'], $j['leave'], $j['notin']), 'no manager and no department: nobody listed'); },
+    assert_eq('Away', $j['away'][array_search($stale, $ids($j['away']), true)]['label'], 'idle reads Away');
+    assert_true(!str_contains(json_encode($j), 'Website') && !str_contains(json_encode($j), '/time/daily'), 'no projects or timesheet links'); },
 
   'team now: a manager sees only the own team, active vs not active' => function () {
     ['mgr' => $mgr, 'emp' => $emp, 'stale' => $stale, 'idle' => $idle, 'out' => $out] = tnow_fixture();
