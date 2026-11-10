@@ -49,6 +49,7 @@ echo partial('partials/head', get_defined_vars());
       <?php if ($label): ?><div class="nav-group"><?= e($label) ?></div><?php endif ?><?= $links ?>
     <?php endforeach ?>
   </nav>
+  <?php if (empty($nav['hr']) && empty($nav['system'])): ?><?= partial('partials/side_work', ['u' => $u]) ?><?php endif ?>
 </aside>
 <div class="overlay" data-nav-close></div>
 <div class="main">
