@@ -1,33 +1,90 @@
 'use strict';
-/* Preferences and the device token, kept in userData/config.json (file mode 600, written atomically). The token and the key
-   that encrypts queued screenshots are encrypted with the OS keychain (safeStorage: DPAPI on Windows, Keychain on macOS,
-   libsecret/kwallet on Linux) whenever that is available. */
+/*
+ * Preferences and the device token, kept in two small JSON files in userData (file mode 600):
+ *   config.json  what the person chose and the sign-in: preferences (pomodoro, screenshot alert, launch at startup, tone,
+ *                last project / task), workspace, email, the token and the screenshot key. Written only when one of them
+ *                changes, so it is rarely open for writing.
+ *   state.json   what the app rewrites all the time (the crash-recovery session every 15 s, the cached bootstrap, update
+ *                bookkeeping). A damaged or lost state.json never costs a preference or the sign-in.
+ * Every write goes to a .tmp file first and is then renamed over the old one. On Windows the rename fails now and then
+ * (EPERM / EBUSY / EACCES while an antivirus scanner or the search indexer has the file open); it is retried and, if it
+ * still fails, the file is written in place, so a preference is never kept only in memory. Each good config.json
+ * is also kept as config.json.bak and read when config.json is empty or damaged (power cut during a write).
+ * The token and the key that encrypts queued screenshots are encrypted with the OS keychain (safeStorage: DPAPI on Windows,
+ * Keychain on macOS, libsecret/kwallet on Linux) whenever that is available. Nothing in the app ever resets a preference:
+ * not a new day, a server refresh, an update or signing out (scripts/prefs-check.js).
+ */
 const fs = require('fs');
 const path = require('path');
 const { app, safeStorage } = require('electron');
 const guard = require('./guard');
 
-const file = () => path.join(app.getPath('userData'), 'config.json');
-let data = null;
+/** Keys that change often and live in state.json; everything else is a preference or the sign-in (config.json). */
+const VOLATILE = ['session', 'bootCache', 'updateRestart', 'updateNotified', 'updatePrompted', 'updateDismissed', 'connectPending'];
+const SCHEMA = 2;
+const dir = () => app.getPath('userData');
+const files = { config: () => path.join(dir(), 'config.json'), state: () => path.join(dir(), 'state.json') };
+let data = null, state = null;
+const written = { config: null, state: null };
+const isObj = v => !!v && typeof v === 'object' && !Array.isArray(v);
+
+function readJson(f) {
+  try { const t = fs.readFileSync(f, 'utf8'); if (!t.trim()) return null; const v = JSON.parse(t); return isObj(v) ? v : null; } catch (e) { return null; } }
+
+/** Sleep without the event loop (only between rename retries, a few ms). */
+function pause(ms) { try { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); } catch (e) { /* no wait */ } }
+
+/** Write `text` to `f` atomically when possible; returns true when it is on disk. */
+function writeFile(f, text) {
+  fs.mkdirSync(path.dirname(f), { recursive: true, mode: 0o700 });
+  const tmp = f + '.tmp';
+  try {
+    fs.writeFileSync(tmp, text, { mode: 0o600 });
+    for (let i = 0; i < 6; i++) {
+      try { fs.renameSync(tmp, f); return true; }
+      catch (e) { if (!['EPERM', 'EBUSY', 'EACCES', 'ENOTEMPTY', 'EEXIST'].includes(e.code) || i === 5) throw e; pause(15 * (i + 1)); } } }
+  catch (e) {
+    /* the rename keeps failing (the file is held open): write in place, a plain write is allowed while another reader has it */
+    try { fs.writeFileSync(f, text, { mode: 0o600 }); try { fs.rmSync(tmp, { force: true }); } catch (x) { /* left over */ } return true; }
+    catch (x) { console.error('store: write failed', f, x.code || x.message); return false; } }
+  return false; }
 
 function load() {
   if (data) return data;
-  try { data = JSON.parse(fs.readFileSync(file(), 'utf8')); } catch (e) { data = {}; }
-  if (!data || typeof data !== 'object' || Array.isArray(data)) data = {};
+  const f = files.config();
+  data = readJson(f);
+  if (data) written.config = JSON.stringify(data, null, 2);
+  /* config.json empty or damaged (cut off by a power loss): the last good copy, else the write that was in flight */
+  else data = readJson(f + '.bak') || readJson(f + '.tmp') || {};
+  state = readJson(files.state()) || {};
+  written.state = JSON.stringify(state);
+  /* 1.4.3 and older kept everything in config.json: move the busy keys out once (preferences stay where they are) */
+  let moved = false;
+  for (const k of VOLATILE) if (k in data) { if (!(k in state)) state[k] = data[k]; delete data[k]; moved = true; }
+  if (data.schema !== SCHEMA) { data.schema = SCHEMA; moved = true; }
+  if (moved) { save('state'); save('config'); }
   return data; }
 
-function save() {
-  try {
-    const dir = path.dirname(file());
-    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-    const tmp = file() + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify(data, null, 2), { mode: 0o600 });
-    fs.renameSync(tmp, file());
-    if (process.platform !== 'win32') { try { fs.chmodSync(file(), 0o600); } catch (e) { /* best effort */ } }
-  } catch (e) { console.error('config save failed', e); } }
+/** Write one of the files; skipped when its content did not change. */
+function save(which = 'config') {
+  const obj = which === 'state' ? state : data;
+  if (!obj) return;
+  const text = JSON.stringify(obj, null, which === 'state' ? 0 : 2);
+  if (written[which] === text) return;
+  const f = files[which]();
+  if (!writeFile(f, text)) return;
+  written[which] = text;
+  if (process.platform !== 'win32') { try { fs.chmodSync(f, 0o600); } catch (e) { /* best effort */ } }
+  /* config.json: a second copy of what was just written, read when config.json is found damaged (power cut mid-write) */
+  if (which === 'config') writeFile(f + '.bak', text); }
 
-function get(key, def) { const v = load()[key]; return v === undefined ? def : v; }
-function set(key, value) { load(); if (value === undefined) delete data[key]; else data[key] = value; save(); }
+const where = key => (VOLATILE.includes(key) ? 'state' : 'config');
+function get(key, def) { load(); const v = (where(key) === 'state' ? state : data)[key]; return v === undefined ? def : v; }
+function set(key, value) {
+  load();
+  const w = where(key), obj = w === 'state' ? state : data;
+  if (value === undefined) { if (!(key in obj)) return; delete obj[key]; } else obj[key] = value;
+  save(w); }
 
 function canEncrypt() { try { return safeStorage.isEncryptionAvailable(); } catch (e) { return false; } }
 
@@ -51,13 +108,10 @@ function getToken() { load(); return unseal(data.tokenEnc, data.token); }
 function tokenProtected() { return !!load().tokenEnc; }
 
 /** A small object kept like the token (sealed with the OS keychain when available); null / undefined removes it. */
-function setSealed(key, value) {
-  load(); delete data[key];
-  if (value !== null && value !== undefined) data[key] = seal(JSON.stringify(value));
-  save(); }
+function setSealed(key, value) { set(key, value !== null && value !== undefined ? seal(JSON.stringify(value)) : undefined); }
 
 function getSealed(key) {
-  const v = load()[key];
+  const v = get(key);
   if (!v || typeof v !== 'object') return null;
   try { return JSON.parse(unseal(v.enc, v.plain) || 'null'); } catch (e) { return null; } }
 
@@ -85,4 +139,4 @@ function getQueueKey() {
 /** New key (sign-out: whatever was queued is deleted with it). */
 function resetQueueKey() { load(); queueKey = null; delete data.queueKeyEnc; delete data.queueKey; save(); }
 
-module.exports = { get, set, setToken, getToken, tokenProtected, setSealed, getSealed, canEncrypt, getQueueKey, resetQueueKey };
+module.exports = { get, set, setToken, getToken, tokenProtected, setSealed, getSealed, canEncrypt, getQueueKey, resetQueueKey, VOLATILE, writeFile };

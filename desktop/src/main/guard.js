@@ -28,6 +28,8 @@ const OPEN_TARGETS = ['web', 'time', 'screenshots', 'download', 'permissions', '
 const PREF_KEYS = ['launchAtLogin', 'notify', 'tone'];
 /** Pomodoro operations (tracker:pomodoro). */
 const POMODORO_OPS = ['save', 'break', 'snooze', 'dismiss'];
+/** In-app notices the window may dismiss (tracker:dismiss, the x on each banner and card). */
+const DISMISS_IDS = ['notice', 'pomodoro', 'idle', 'offline', 'permission', 'consent', 'update'];
 /** "Sign in with your browser" operations (tracker:connect). */
 const CONNECT_OPS = ['browser', 'cancel', 'confirm', 'decline', 'retry', 'dismiss'];
 
@@ -66,7 +68,7 @@ function safeFileName(name, exts) {
 /**
  * Uninstall: may the path `p` be removed as `kind`? Only absolute, normalised paths with the expected name in the expected
  * place, never the root, the home folder or one of its parents, never a path with a control character (and on Windows none
- * of the characters cmd.exe treats specially, since the helper is a .cmd script). ctx: {platform, home, execPath}.
+ * of the characters cmd.exe treats specially, so a path is always safe on a command line). ctx: {platform, home, execPath}.
  *   userData      the app's data folder (…/Niyanta Tracker or …/niyanta-tracker) inside the home folder
  *   cache         an app cache or log folder inside the home folder (updater cache, ~/Library/Logs|Caches/Niyanta Tracker)
  *   macState      ~/Library/Saved Application State/app.niyanta.tracker.savedState, ~/Library/Preferences/app.niyanta.tracker.plist
@@ -212,5 +214,5 @@ function decrypt(key, blob) {
 
 function isEncrypted(blob) { return Buffer.isBuffer(blob) && blob.length >= 4 && blob.subarray(0, 4).equals(ENC_MAGIC); }
 
-module.exports = { uninstallPath, UNINSTALL_KINDS, str, id, selection, allowedLink, sameOrigin, safeFileName, desktopExecArg, RateLimiter, newKey, encrypt, decrypt, isEncrypted, OPEN_TARGETS, PREF_KEYS, POMODORO_OPS, CONNECT_OPS, LINK_HOSTS,
+module.exports = { uninstallPath, UNINSTALL_KINDS, str, id, selection, allowedLink, sameOrigin, safeFileName, desktopExecArg, RateLimiter, newKey, encrypt, decrypt, isEncrypted, OPEN_TARGETS, PREF_KEYS, POMODORO_OPS, CONNECT_OPS, DISMISS_IDS, LINK_HOSTS,
   SCHEME, CONNECT_TTL_MS, workspaceBase, sameWorkspace, parseDeepLink, pkceVerifier, pkceChallenge, newState, checkState, deviceName, osCode, connectPageUrl };

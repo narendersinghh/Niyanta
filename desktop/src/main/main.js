@@ -4,17 +4,17 @@
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
-const { app, BrowserWindow, Tray, Menu, Notification, ipcMain, shell, nativeTheme, nativeImage, powerMonitor, dialog, clipboard, session } = require('electron');
+const START = Date.now();
+const { app, BrowserWindow, Tray, Menu, Notification, ipcMain, shell, nativeTheme, nativeImage, powerMonitor, dialog, clipboard, session, screen } = require('electron');
 const errors = require('./errors');
 const store = require('./store');
-const capture = require('./capture');
-const toast = require('./toast');
-const badge = require('./badge');
 const guard = require('./guard');
 const { Tracker } = require('./tracker');
 const { Connect } = require('./connect');
 const { normaliseUrl } = require('./api');
-const uninstall = require('./uninstall');
+/* needed later or only in some cases (Screen Recording pane, the capture notice, the taskbar dot, uninstall): loaded on use */
+const lazy = name => { let m = null; return () => (m = m || require(name)); };
+const capture = lazy('./capture'), toast = lazy('./toast'), badge = lazy('./badge'), uninstall = lazy('./uninstall');
 
 /* ---------- process hardening (before anything else runs) ---------- */
 /* Every renderer runs in the Chromium sandbox (also set per window; the fuses of the packaged app turn off runAsNode,
@@ -84,9 +84,13 @@ const trayDir = () => app.isPackaged ? path.join(process.resourcesPath, 'tray') 
 /* A compact tool window: resizable a little (taller for long project lists), never maximized or full screen. */
 const SIZE = { width: 384, height: 700, minWidth: 360, minHeight: 600, maxWidth: 460, maxHeight: 900 };
 
+let windows = 0;
 function createWindow() {
+  /* started hidden (at login, into the tray): the page stays inactive until it is shown, so its clock does not tick (a
+     window created hidden would otherwise count as visible to the page until its first show / hide) */
+  const hidden = process.argv.includes('--hidden') && !windows++;
   win = new BrowserWindow(Object.assign({}, SIZE, {
-    show: false, resizable: true, maximizable: false, fullscreenable: false,
+    show: false, paintWhenInitiallyHidden: !hidden, resizable: true, maximizable: false, fullscreenable: false,
     title: 'Niyanta Tracker', icon: asset('renderer', 'icon.png'), autoHideMenuBar: true,
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#0E0D1C' : '#F4F4FA',
     webPreferences: Object.assign({ preload: asset('preload', 'preload.js') }, WEB_PREFS) }));
@@ -95,8 +99,12 @@ function createWindow() {
   win.on('enter-full-screen', () => win.setFullScreen(false));
   /* no menu bar at all on Windows/Linux (autoHideMenuBar would still show it on Alt and push the content down) */
   if (process.platform !== 'darwin') win.removeMenu(); else win.setMenuBarVisibility(false);
+  /* a (re)loaded page has no project list yet: the next push carries it */
+  win.webContents.on('did-start-loading', () => { sentRev = -1; });
   win.loadFile(asset('renderer', 'index.html'));
-  win.once('ready-to-show', () => { if (!process.argv.includes('--hidden')) win.show(); });
+  if (hidden) win.webContents.once('did-finish-load', () => errors.log(`startup: window loaded (hidden) ${Date.now() - START} ms after launch`));
+  else win.once('ready-to-show', () => { onScreen(); win.show(); errors.log(`startup: window shown ${Date.now() - START} ms after launch`); });
+  win.on('closed', () => { win = null; });
   win.on('session-end', () => tracker && tracker.onShutdown());
   win.on('focus', () => win.flashFrame(false));
   /* a hidden window gets no state pushes (nothing to paint); the latest state is sent when it shows again */
@@ -117,22 +125,47 @@ let uiDirty = false;
 /** Deny every permission a page could ask for (nothing in the app needs one; screenshots are taken by the main process). */
 function lockSession() {
   const ses = session.defaultSession;
+  /* no spell checking anywhere, and no language list: otherwise Electron downloads a Hunspell dictionary from Google's CDN
+     at every start on Windows and Linux (nothing in the app needs it) */
+  try { ses.setSpellCheckerEnabled(false); if (process.platform !== 'darwin') ses.setSpellCheckerLanguages([]); } catch (e) { /* not available */ }
   ses.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
   ses.setPermissionCheckHandler(() => false);
   ses.setDevicePermissionHandler(() => false);
   ses.on('will-download', e => e.preventDefault()); }
 
 function showWindow() {
-  if (!win) createWindow();
+  if (!win || win.isDestroyed()) createWindow();
   if (process.platform === 'darwin' && app.dock) app.dock.show();
   if (win.isMinimized()) win.restore();
+  onScreen();
   win.show(); win.focus(); }
 
-function flushUi() { if (uiDirty && lastUi && win && !win.isDestroyed()) { uiDirty = false; win.webContents.send('tracker:state', lastUi); } }
+/**
+ * Keep the window on a display that exists: a monitor was unplugged, a laptop left its dock or the scaling changed while the
+ * window was hidden in the tray. When less than a corner of it is visible on any display it is centred on the nearest one.
+ */
+function onScreen() {
+  if (!win || win.isDestroyed()) return;
+  try {
+    const b = win.getBounds();
+    const fit = require('./screens').fitWindow(b, screen.getAllDisplays().map(d => d.workArea), screen.getDisplayMatching(b).workArea);
+    if (fit) win.setBounds(fit); }
+  catch (e) { errors.report('window', e, {}, 'warning'); } }
+
+function flushUi() { if (uiDirty && lastUi && win && !win.isDestroyed()) { uiDirty = false; send(lastUi); } }
+
+/* The project list (up to a few thousand tasks) is sent again only when it changed (a new bootstrap); otherwise the page
+   keeps the one it has. Sent state is otherwise small. */
+let sentRev = -1;
+function send(ui) {
+  const rev = ui.projectsRev || 0;
+  const out = rev === sentRev ? Object.assign({}, ui, { projects: undefined }) : ui;
+  sentRev = rev;
+  win.webContents.send('tracker:state', out); }
 
 function push(ui) {
   lastUi = ui;
-  if (win && !win.isDestroyed()) { if (win.isVisible() && !win.isMinimized()) win.webContents.send('tracker:state', ui); else uiDirty = true; }
+  if (win && !win.isDestroyed()) { if (win.isVisible() && !win.isMinimized()) send(ui); else uiDirty = true; }
   updateTray(ui);
   indicator(!!(ui && ui.screen === 'tracker' && ui.tracking)); }
 
@@ -147,14 +180,14 @@ const ind = { on: false, frame: 0, timer: null, frames: null, base: null };
 function indicatorFrames() {
   if (ind.frames) return ind.frames;
   if (process.platform === 'win32') {
-    ind.frames = badge.FRAMES.map(a => nativeImage.createFromBitmap(badge.dot(32, a), { width: 32, height: 32, scaleFactor: 2 }));
+    ind.frames = badge().FRAMES.map(a => nativeImage.createFromBitmap(badge().dot(32, a), { width: 32, height: 32, scaleFactor: 2 }));
   } else {
     const src = nativeImage.createFromPath(asset('renderer', 'icon.png'));
     ind.base = src.isEmpty() ? null : src.resize({ width: 256, height: 256, quality: 'best' });
     if (!ind.base) return (ind.frames = []);
     const { width, height } = ind.base.getSize();
     const bmp = ind.base.toBitmap();
-    ind.frames = badge.FRAMES.map(a => nativeImage.createFromBitmap(badge.onIcon(bmp, width, height, a), { width, height })); }
+    ind.frames = badge().FRAMES.map(a => nativeImage.createFromBitmap(badge().onIcon(bmp, width, height, a), { width, height })); }
   return ind.frames; }
 
 function showFrame(i) {
@@ -172,7 +205,7 @@ function indicator(on) {
   if (on === ind.on) return;
   ind.on = on;
   stopIndicator();
-  if (on) { ind.frame = 0; showFrame(0); ind.timer = setInterval(() => { ind.frame = 1 - ind.frame; showFrame(ind.frame); }, badge.PULSE_MS); return; }
+  if (on) { ind.frame = 0; showFrame(0); ind.timer = setInterval(() => { ind.frame = 1 - ind.frame; showFrame(ind.frame); }, badge().PULSE_MS); return; }
   try {
     if (process.platform === 'win32') { if (win && !win.isDestroyed()) win.setOverlayIcon(null, ''); }
     else if (process.platform === 'darwin') { if (app.dock && ind.base) app.dock.setIcon(ind.base); }
@@ -197,7 +230,8 @@ function idleReturn(p) {
 
 /** "Message alert tone" (on by default): a short chime played by the window with the app's own banners and notifications
     (not with the screenshot notice). System notifications are always silent so the tone plays once. */
-function tone() { if (store.get('alertTone', true) !== false && win && !win.isDestroyed()) win.webContents.send('tracker:tone'); }
+function tone() { if (toneOn() && win && !win.isDestroyed()) win.webContents.send('tracker:tone'); }
+const toneOn = () => store.get('alertTone', true) !== false;
 
 /**
  * Pomodoro reminder / break over: banner in the window plus a system notification (click opens the window; on macOS the
@@ -313,7 +347,7 @@ function openTarget(what) {
   const ws = tracker.boot && tracker.boot.workspace;
   const base = (ws && ws.url) || store.get('workspaceUrl');
   const urls = { web: base, time: ws && ws.time_page, screenshots: ws && ws.screenshots_page, download: (tracker.update && tracker.update.url) || (ws && ws.time_page ? ws.time_page + '#desktop' : null) };
-  if (what === 'permissions') return capture.openPermissionSettings();
+  if (what === 'permissions') return capture().openPermissionSettings();
   if (what === 'logs') return shell.showItemInFolder(errors.logFile());
   const url = urls[what];
   if (!guard.allowedLink(url, tracker.api.base || base)) { if (url) errors.log(`open: refused link outside the workspace (${what})`); return false; }
@@ -333,7 +367,7 @@ function openConnectPage(url, ws) {
  * validates its arguments (types, ranges, lengths: guard.js) and is rate limited per channel. Errors never leak stacks to
  * the page, only the message.
  */
-const limiter = new guard.RateLimiter({ state: 240, select: 120, action: 60, error: 10, signIn: 10, connect: 20, copy: 30, updates: 10, refresh: 10, uninstall: 3 }, 60000, 60);
+const limiter = new guard.RateLimiter({ state: 240, select: 120, action: 60, error: 10, signIn: 10, connect: 20, dismiss: 60, copy: 30, updates: 10, refresh: 10, uninstall: 3 }, 60000, 60);
 function validSender(e) {
   if (!win || win.isDestroyed() || e.sender !== win.webContents) return false;
   const f = e.senderFrame;
@@ -372,6 +406,7 @@ function registerIpc() {
   h('installUpdate', () => tracker.updateNow());
   h('updatePrompted', v => tracker.updatePrompted(guard.str(v, 40)));
   h('meeting', on => tracker.setMeeting(!!on));
+  h('dismiss', id => { id = guard.str(id, 20); return guard.DISMISS_IDS.includes(id) ? tracker.dismiss(id) : { ok: false }; });
   h('quitAnyway', () => tracker.quitAnyway());
   h('downloadInstaller', () => tracker.downloadInstaller());
   h('openInstaller', () => ({ ok: tracker.updater.open() }));
@@ -403,7 +438,7 @@ async function prepareQuit(wait, sync = false) {
     /* whatever happens (a hung request, a stuck sync) the app quits after QUIT_CEILING_MS: the queue is on disk */
     await Promise.race([work, new Promise(r => setTimeout(r, QUIT_CEILING_MS))]);
     try { tracker.quitAnyway(); } catch (err) { /* nothing to abort */ }
-    toast.destroy();
+    toast().destroy();
     quitting = true;
   })();
   return closing; }
@@ -426,16 +461,19 @@ let removing = false;
 async function uninstallApp() {
   if (removing || !tracker) return { ok: false };
   const ctx = { platform: process.platform, packaged: app.isPackaged, execPath: process.execPath, appImage: process.env.APPIMAGE || null, home: os.homedir(), userData: app.getPath('userData'), tmp: os.tmpdir(), exists: p => fs.existsSync(p) };
-  const p = uninstall.plan(ctx);
+  const p = uninstall().plan(ctx);
   if (!p.ok) { tracker.uninstall = { step: null, error: p.error }; tracker.changed(); return { ok: false, error: p.error }; }
   removing = true;
+  const win32 = process.platform === 'win32';
   let dir = null, log = null;
   const note = m => { errors.log('uninstall: ' + m); if (log) { try { fs.appendFileSync(log, `${new Date().toISOString()} ${m}\n`, { mode: 0o600 }); } catch (e) { /* the log is best effort */ } } };
   const step = m => { tracker.uninstall = { step: m, error: null }; tracker.changed(); note(m); };
   try {
-    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ny-uninstall-'));
-    if (!guard.uninstallPath(dir, 'helperDir', ctx)) throw new Error('The temporary folder for the uninstall helper is not usable.');
-    log = path.join(dir, 'uninstall.log');
+    /* macOS / Linux: a small /bin/sh helper in its own temporary folder; Windows: no helper at all (see below) */
+    if (!win32) {
+      dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ny-uninstall-'));
+      if (!guard.uninstallPath(dir, 'helperDir', ctx)) throw new Error('The temporary folder for the uninstall helper is not usable.');
+      log = path.join(dir, 'uninstall.log'); }
     step('Stopping tracking and syncing your data...');
     await Promise.race([(async () => { await tracker.beforeQuit(4000); await tracker.syncBeforeQuit(); })(), new Promise(r => setTimeout(r, QUIT_CEILING_MS))]);
     try { tracker.quitAnyway(); } catch (e) { /* nothing to abort */ }
@@ -446,24 +484,29 @@ async function uninstallApp() {
     setLaunchAtLogin(false);
     try { if (process.defaultApp && process.argv.length >= 2) app.removeAsDefaultProtocolClient(guard.SCHEME, process.execPath, [path.resolve(process.argv[1])]); else app.removeAsDefaultProtocolClient(guard.SCHEME); } catch (e) { note('protocol: ' + e.message); }
     step('Removing Niyanta Tracker...');
-    const win32 = process.platform === 'win32';
-    const file = path.join(dir, win32 ? 'uninstall.cmd' : 'uninstall.sh');
-    const body = win32 ? uninstall.cmdScript({ pid: process.pid, uninstaller: p.uninstaller, remove: p.remove, dir, log, exe: process.execPath }) : uninstall.shScript({ pid: process.pid, remove: p.remove, dir, log, platform: process.platform });
-    fs.writeFileSync(file, body, { mode: 0o700 });
     note('plan: ' + p.kind + ' ' + p.remove.map(r => r.path).join(' | '));
     const { spawn } = require('child_process');
-    const child = win32 ? spawn(process.env.ComSpec || 'cmd.exe', ['/d', '/c', file], { detached: true, stdio: 'ignore', windowsHide: true, cwd: dir })
-      : spawn('/bin/sh', [file], { detached: true, stdio: 'ignore', cwd: dir });
+    let child;
+    if (win32) {
+      /* Windows: the app's own NSIS uninstaller, exactly as Settings › Apps runs it, silently and with electron-builder's
+         documented --delete-app-data (removes %APPDATA%\Niyanta Tracker; build/installer.nsh removes the update cache). It
+         waits for this process to end by itself. No script, nothing written to %TEMP%, no cmd.exe. */
+      child = spawn(p.uninstaller, uninstall().NSIS_ARGS, { detached: true, stdio: 'ignore', cwd: path.dirname(p.uninstaller) }); }
+    else {
+      const file = path.join(dir, 'uninstall.sh');
+      fs.writeFileSync(file, uninstall().shScript({ pid: process.pid, remove: p.remove, dir, log, platform: process.platform }), { mode: 0o700 });
+      child = spawn('/bin/sh', [file], { detached: true, stdio: 'ignore', cwd: dir }); }
+    await new Promise((resolve, reject) => { child.once('error', reject); child.once('spawn', resolve); });
     child.unref();
-    if (p.manual) await dialog.showMessageBox({ type: 'info', message: 'Niyanta Tracker is almost removed', detail: p.manual + '\n\nThe app closes now.', buttons: ['Copy the command and close', 'Close'] }).then(r => { if (r.response === 0) clipboard.writeText(uninstall.DEB_COMMAND); });
-    toast.destroy();
+    if (p.manual) await dialog.showMessageBox({ type: 'info', message: 'Niyanta Tracker is almost removed', detail: p.manual + '\n\nThe app closes now.', buttons: ['Copy the command and close', 'Close'] }).then(r => { if (r.response === 0) clipboard.writeText(uninstall().DEB_COMMAND); });
+    toast().destroy();
     quitting = true;
     app.exit(0);
     return { ok: true }; }
   catch (e) {
     removing = false;
     const left = p.remove.map(r => r.path);
-    const how = process.platform === 'win32' ? 'Remove Niyanta Tracker in Windows Settings › Apps › Installed apps.' : process.platform === 'darwin' ? 'Quit the app, move Niyanta Tracker from Applications to the Trash and delete the folders listed.' : (p.kind === 'deb' ? `Run: ${uninstall.DEB_COMMAND}` : 'Delete the AppImage and the folders listed.');
+    const how = process.platform === 'win32' ? 'Remove Niyanta Tracker in Windows Settings › Apps › Installed apps.' : process.platform === 'darwin' ? 'Quit the app, move Niyanta Tracker from Applications to the Trash and delete the folders listed.' : (p.kind === 'deb' ? `Run: ${uninstall().DEB_COMMAND}` : 'Delete the AppImage and the folders listed.');
     tracker.uninstall = { step: null, error: `Niyanta Tracker could not finish removing itself (${String(e && e.message || e).slice(0, 200)}). ${how}`, left };
     note('failed: ' + (e && e.message));
     errors.report('uninstall', e);
@@ -506,15 +549,19 @@ app.whenReady().then(async () => {
   createWindow();
   createTray();
   for (const ev of ['suspend', 'resume', 'lock-screen', 'unlock-screen']) powerMonitor.on(ev, () => tracker.onPower(ev));
+  /* a monitor unplugged or rescaled: the window comes back onto a display that exists */
+  for (const ev of ['display-removed', 'display-metrics-changed']) screen.on(ev, () => onScreen());
   /* Linux/macOS shutdown or log-out: delay it until tracking is paused and everything is saved (Windows: 'session-end') */
   powerMonitor.on('shutdown', e => { if (quitting) return; e.preventDefault(); tracker.onShutdown(); prepareQuit().then(() => app.quit()); });
-  if (store.get('launchAtLogin') === undefined) setLaunchAtLogin(true);
+  /* first start of the installed app: launch at login on (a choice made later is never changed again; development runs
+     never register themselves) */
+  if (store.get('launchAtLogin') === undefined && app.isPackaged) setLaunchAtLogin(true);
   await tracker.restore();
   /* a link that started the app (or came before the session was restored) is handled now */
   connect.ready = true;
   const first = earlyLink || linkIn(process.argv);
   earlyLink = null;
   if (first) deepLink(first);
-  if (process.platform === 'darwin' && tracker.settings.screenshots_enabled && capture.screenPermission() === 'denied') {
+  if (process.platform === 'darwin' && tracker.settings.screenshots_enabled && capture().screenPermission() === 'denied') {
     dialog.showMessageBox({ type: 'info', message: 'Allow screen recording', detail: 'Your organisation uses screenshots while you track time. Open System Settings › Privacy & Security › Screen Recording and turn on Niyanta Tracker, then restart the app.', buttons: ['Open Settings', 'Later'] })
-      .then(r => { if (r.response === 0) capture.openPermissionSettings(); }); } });
+      .then(r => { if (r.response === 0) capture().openPermissionSettings(); }); } });

@@ -27,9 +27,10 @@ const { EventEmitter } = require('events');
 const { app } = require('electron');
 const { Api, ApiError } = require('./api');
 const { Queue } = require('./queue');
-const capture = require('./capture');
-const toast = require('./toast');
 const store = require('./store');
+/* loaded on first use (the first screenshot, the first update check): not needed to show the window */
+const lazy = name => { let m = null; const f = () => (m = m || require(name)); f.loaded = () => !!m; return f; };
+const capture = lazy('./capture'), toast = lazy('./toast');
 const { Updater } = require('./updater');
 const { cmpVersion, macAppPath } = require('./selfupdate');
 const { Activity } = require('./activity');
@@ -98,13 +99,14 @@ class Tracker extends EventEmitter {
     this.updater.on('available', v => this.emit('update-available', v));
     this.updater.on('restart', () => this.emit('update-restart'));
     this.autoPaused = false;
-    this.permission = capture.screenPermission();
+    this.permission = process.platform === 'darwin' ? capture().screenPermission() : 'granted';
     this.loops = [];
     this.lastCaptureError = 0;
     this.selection = { project_id: null, task_id: null };
     this.meeting = null;       /* {since, until} (ms) while meeting mode is on */
     this.idleFloor = 0;        /* ms: idle never starts before this (the end of the last meeting) */
     this.quitSync = null;      /* {total, left, startedAt, until, shown}: sending the offline queue before quitting */
+    this.dismissed = { offline: false, permission: false, consent: false };  /* banners closed with their x (this run) */
     this.queue.on('change', () => this.changed());
     this.queue.on('online', on => { this.offline = !on; this.changed(); if (on) this.refreshState(); });
     this.queue.on('unauthorized', () => this.signedOutRemotely());
@@ -206,6 +208,10 @@ class Tracker extends EventEmitter {
     store.resetQueueKey();
     this.activity.stop();
     this.boot = null; this.snap = null; this.idlePause = null; this.spans = []; this.idleFrom = 0; this.slot = null; this.lastSlot = null; this.meeting = null;
+    /* nothing of this person's day carries over to the next sign-in (preferences stay: they belong to this computer) */
+    this.dayAct = null; this.autoPaused = false; this.localTracking = false; this.hb = { a: 0, i: 0 }; this.update = null;
+    clearTimeout(this._autoResume); clearTimeout(this._wakeCheck); this.dismissed = { offline: false, permission: false, consent: false };
+    this.pomo.resumed(); this.selection = { project_id: null, task_id: null };
     this.api.configure(store.get('workspaceUrl'), null);
     this.updater.configure(null, null);
     this.error = message; this.notice = null;
@@ -218,9 +224,16 @@ class Tracker extends EventEmitter {
     this.boot = { user: b.user, workspace: b.workspace, permissions: b.permissions, settings: b.settings, consent: b.consent, policy: b.policy, projects: b.projects || [] };
     clock24 = !!(b.workspace && b.workspace.clock === 24);
     if (!cached) store.set('bootCache', Object.assign({}, this.boot, { state: b.state }));
-    if (b.state) this.setSnap(b.state, cached);
-    const cur = this.snap && (this.snap.running || this.snap.last);
-    if (cur && this.selection.project_id === null) this.selection = { project_id: cur.project_id || null, task_id: cur.task_id || null };
+    /* the window gets the project list again only when it changed (main.js send()) */
+    const sig = JSON.stringify(this.boot.projects);
+    if (sig !== this.projectsSig) { this.projectsSig = sig; this.projectsRev = (this.projectsRev || 0) + 1; }
+    /* tracking actions still waiting in the queue: the local projection stays (the server has not seen them yet) */
+    if (b.state && !(this.snap && this.queue.jobs.some(j => j.type === 'action'))) this.setSnap(b.state, cached);
+    if (this.selection.project_id === null) {
+      const cur = this.snap && (this.snap.running || this.snap.last);
+      const saved = store.get('selection');
+      if (cur) this.selection = { project_id: cur.project_id || null, task_id: cur.task_id || null };
+      else if (saved && b.user && saved.user === b.user.id && this.projectById(saved.project_id)) this.selection = { project_id: saved.project_id, task_id: saved.task_id || null }; }
     this.changed(); }
 
   /* ---------- the workspace's day ---------- */
@@ -361,7 +374,8 @@ class Tracker extends EventEmitter {
       this.offline = false; this.lastFullState = Date.now(); this.stateWait = STATE_EVERY_MS;
       if (!this.queue.jobs.some(j => j.type === 'action')) this.setSnap(r.state);
       const had = !!(this.boot && this.boot.consent);
-      this.boot.settings = r.settings;
+      if (!this.boot) return;
+      if (r.settings && typeof r.settings === 'object') this.boot.settings = r.settings;
       if (had && !r.consent) { this.boot.consent = null; this.queue.dropScreenshots(); this.flash('Screen monitoring consent was revoked. No more screenshots are taken.', 'info'); }
       if (!had && r.consent) this.refreshBoot();
       this.reconcile();
@@ -608,7 +622,7 @@ class Tracker extends EventEmitter {
   /** Screenshots only with monitoring on, the person's consent, while tracking and never while the screen is locked or the computer asleep. */
   captureAllowed() {
     if (!this.settings.screenshots_enabled || !this.boot || !this.boot.consent || this.state !== 'tracking' || this.away || this.locked) return false;
-    this.permission = capture.screenPermission();
+    this.permission = capture().screenPermission();
     return this.permission === 'granted' || this.permission === 'unknown' || this.permission === 'not-determined'; }
 
   async acceptConsent() {
@@ -619,10 +633,16 @@ class Tracker extends EventEmitter {
       return { ok: true }; }
     catch (e) { this.flash(e.message, 'error'); return { ok: false, error: e.message }; } }
 
-  notifyOn() {
-    const pref = store.get('notifyScreenshots');
-    if (!this.settings.screenshot_notify_user_can_disable) return !!this.settings.screenshot_notify;
-    return pref === undefined || pref === null ? !!this.settings.screenshot_notify : !!pref; }
+  /**
+   * Is the "Screenshot taken" notice on? The workspace decides first: notice off (screenshot_notify false) means off for
+   * everyone, whatever was chosen on this computer before; notice on and people may not turn it off means on. Only when
+   * the workspace has it on and lets people choose does this computer's choice count (on until it is turned off). Settings
+   * come from the latest bootstrap / state answer, or the cached bootstrap while offline; nothing before the first one.
+   */
+  notifyOn() { return notifyDecision(this.settings, store.get('notifyScreenshots')); }
+
+  /** May the person change the notice here (the switch in Settings)? */
+  notifyChoice() { return !!(this.settings.screenshot_notify && this.settings.screenshot_notify_user_can_disable); }
 
   /**
    * Capture and queue the upload with the activity of the slot that just ended. Screenshots are not shown in the app; only
@@ -631,15 +651,17 @@ class Tracker extends EventEmitter {
   async screenshot(activity, slot) {
     let shots;
     const notify = this.notifyOn();
-    try { shots = await capture.captureAll({ thumb: notify }); }
+    /* a notice still on screen from the last capture is never in the next one */
+    if (toast.loaded()) toast().hideNow();
+    try { shots = await capture().captureAll({ thumb: notify }); }
     catch (e) {
-      this.permission = capture.screenPermission();
+      this.permission = capture().screenPermission();
       if (Date.now() - this.lastCaptureError > 10 * 60000) { this.lastCaptureError = Date.now(); this.report('capture', e, { permission: this.permission, displays: require('electron').screen.getAllDisplays().length }); }
       this.changed();
       return; }
     const at = new Date().toISOString();
     for (const s of shots) this.queue.addScreenshot(s.jpeg, { activity_pct: activity, meeting: slot.meeting ? 1 : 0, display: s.index, captured_at: at });
-    if (notify) toast.show({ title: 'Screenshot taken', body: `${shots.length > 1 ? shots.length + ' screens · ' : ''}${clock(Date.now())} · ${slot.meeting ? 'meeting' : 'activity ' + activity + '%'}`, thumb: shots[0].thumb });
+    if (notify && this.notifyOn()) { toast().show({ title: 'Screenshot taken', body: `${shots.length > 1 ? shots.length + ' screens · ' : ''}${clock(Date.now())} · ${slot.meeting ? 'meeting' : 'activity ' + activity + '%'}`, thumb: shots[0].thumb }); }
     this.changed(); }
 
   onRejected(job, err) {
@@ -677,6 +699,26 @@ class Tracker extends EventEmitter {
 
   /** After a crash or an update restart: meeting mode continues until its original end. */
   restoreMeeting(m) { if (m && +m.until > Date.now() && this.state === 'tracking') { this.meeting = { since: +m.since, until: +m.until }; this.changed(); } }
+
+  /* ---------- in-app notices: the x on each banner ---------- */
+
+  /**
+   * The person closed a banner (guard.DISMISS_IDS). Each stays closed for what it is about: the message (notice), this
+   * break reminder (the next one comes after another full working period), this break's countdown, this automatic pause,
+   * this offline spell (it comes back the next time the connection drops), the Screen Recording and consent reminders
+   * until the next start (consent is still asked before screenshots), and the update card for this version (stored, so it
+   * does not come back on every refresh; Settings › Version still offers it, and a newer version shows again).
+   */
+  dismiss(id) {
+    const d = this.dismissed;
+    if (id === 'notice') this.notice = null;
+    else if (id === 'pomodoro') { if (this.pomo.due) this.pomo.rest(); else if (this.pomo.over) this.pomo.dismissOver(); else if (this.pomo.brk) this.pomo.brk.hidden = true; }
+    else if (id === 'idle') { if (this.idlePause) this.idlePause.dismissed = true; }
+    else if (id === 'update') { const u = this.updateUi(); if (u && u.latest) store.set('updateDismissed', String(u.latest).slice(0, 40)); }
+    else if (id === 'offline') d.offline = !!this.offline;
+    else d[id] = true;
+    this.changed();
+    return { ok: true }; }
 
   /* ---------- pomodoro break reminder ---------- */
 
@@ -841,18 +883,23 @@ class Tracker extends EventEmitter {
     const available = !!(this.update && this.update.available) || !!(u.version && cmpVersion(u.version, cur) > 0);
     return { available, latest, current: cur, url: this.update && this.update.url, notes: u.notes || [], mode: u.mode, auto: this.updater.auto, status: u.status,
       percent: u.percent || 0, error: u.error, want: !!u.want, manual: u.manual, platform: process.platform, checkedAt: this.update && this.update.checkedAt,
-      prompt: available && !!latest && !u.want && !['manual', 'error'].includes(u.status) && store.get('updatePrompted') !== latest }; }
+      prompt: available && !!latest && !u.want && !['manual', 'error'].includes(u.status) && store.get('updatePrompted') !== latest,
+      dismissed: !!latest && store.get('updateDismissed') === latest && !u.want }; }
 
   /** The update prompt was answered (Update now or Later): it is shown once per version; the card stays. */
   updatePrompted(v) { if (v) store.set('updatePrompted', String(v).slice(0, 40)); this.changed(); return { ok: true }; }
 
-  setSelection(sel) { this.selection = { project_id: sel.project_id || null, task_id: sel.task_id || null }; }
+  /** The project / task picked in the window; remembered (per person) for the next start when the server has no last entry. */
+  setSelection(sel) {
+    this.selection = { project_id: sel.project_id || null, task_id: sel.task_id || null };
+    if (this.boot && this.boot.user) store.set('selection', Object.assign({ user: this.boot.user.id }, this.selection)); }
 
   ui() {
     const v = this.view();
     const st = this.state;
     const idle = st === 'tracking' && !!this.idleFrom;
     const chip = this.offline && this.signedIn ? 'offline' : (idle ? 'idle' : st);
+    if (!this.offline) this.dismissed.offline = false;
     return {
       screen: this.signedIn ? 'tracker' : 'signin',
       version: app.getVersion(), platform: process.platform,
@@ -863,19 +910,26 @@ class Tracker extends EventEmitter {
       skew: this.snap && this.snap.server_time ? Date.parse(this.snap.server_time) - this.snapAt : 0,
       meeting: this.meeting && this.state === 'tracking' ? this.meeting : null, quitSync: this.quitSync && this.quitSync.shown ? Object.assign({ offline: this.offline }, this.quitSync) : null,
       dayActivity: this.dayAct && this.dayAct.day === this.dayKey() && this.dayAct.tracked ? Math.round(100 * this.dayAct.active / this.dayAct.tracked) : null,
-      projectsEnabled: !!this.settings.projects_enabled, projects: this.boot ? this.boot.projects : [], selection: this.selection,
+      projectsEnabled: !!this.settings.projects_enabled, projects: this.boot ? this.boot.projects : [], projectsRev: this.boot ? this.projectsRev || 0 : -2, selection: this.selection,
       settings: this.settings, consent: this.boot ? { given: !!this.boot.consent, needed: this.consentNeeded(), policy: this.boot.policy } : null,
       monitoring: { on: !!this.settings.screenshots_enabled && !!(this.boot && this.boot.consent), interval: this.settings.screenshot_interval_seconds, permission: this.permission },
       idlePause: this.idlePause, activity: { source: this.activity.source, slot: this.slotPct(), last: this.lastSlot }, update: this.updateUi(),
       tracking: st === 'tracking' && !idle, idleSince: idle ? this.idleFrom : null,
-      prefs: { launchAtLogin: store.get('launchAtLogin', true), notify: this.notifyOn(), notifyAllowed: !!this.settings.screenshot_notify_user_can_disable, tone: store.get('alertTone', true), tokenProtected: store.tokenProtected() },
+      prefs: { launchAtLogin: store.get('launchAtLogin', true), notify: this.notifyOn(), notifyAllowed: this.notifyChoice(), tone: store.get('alertTone', true), tokenProtected: store.tokenProtected() },
       pomodoro: this.pomo.view(),
-      uninstall: this.uninstall || null,
+      uninstall: this.uninstall || null, dismissed: Object.assign({}, this.dismissed),
       at: Date.now() }; } }
+
+/** The notice decision (pure, checked by scripts/prefs-check.js): settings from the server, pref = this computer's choice. */
+function notifyDecision(settings, pref) {
+  const s = settings || {};
+  if (!s.screenshot_notify) return false;
+  if (!s.screenshot_notify_user_can_disable) return true;
+  return pref !== false; }
 
 function osName() { return { win32: 'Windows', darwin: 'macOS', linux: 'Linux' }[process.platform] || process.platform; }
 /** A login / connect answer: a printable token and the bootstrap's user and workspace. */
 function validLogin(res) { return !!res && typeof res.token === 'string' && /^[\x21-\x7e]{16,200}$/.test(res.token) && !!res.user && typeof res.user === 'object' && !!res.workspace && typeof res.workspace === 'object'; }
 function osLabel() { return `${osName()} ${os.release()}`.slice(0, 40); }
 
-module.exports = { Tracker, ApiError, osName, UPDATE_EVERY_MS, UPDATE_WAKE_GAP_MS };
+module.exports = { Tracker, ApiError, osName, notifyDecision, UPDATE_EVERY_MS, UPDATE_WAKE_GAP_MS };

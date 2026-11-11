@@ -50,6 +50,6 @@ class Pomodoro extends EventEmitter {
 
   dismissOver() { this.over = false; }
 
-  view() { return Object.assign({}, this.prefs, { due: this.due, worked: Math.floor(this.work), breakUntil: this.brk ? this.brk.until : null, breakMinutes: this.brk ? this.brk.minutes : null, over: this.over, snooze: SNOOZE_MIN }); } }
+  view() { return Object.assign({}, this.prefs, { due: this.due, worked: Math.floor(this.work), breakUntil: this.brk ? this.brk.until : null, breakMinutes: this.brk ? this.brk.minutes : null, breakHidden: !!(this.brk && this.brk.hidden), over: this.over, snooze: SNOOZE_MIN }); } }
 
 module.exports = { Pomodoro, normalize, DEFAULTS, LIMITS, SNOOZE_MIN };

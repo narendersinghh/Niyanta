@@ -31,6 +31,7 @@ contextBridge.exposeInMainWorld('tracker', {
   installUpdate: () => call('installUpdate'),
   updatePrompted: (version) => call('updatePrompted', text(version, 40)),
   setMeeting: (on) => call('meeting', !!on),
+  dismiss: (id) => call('dismiss', text(id, 20)),
   quitAnyway: () => call('quitAnyway'),
   downloadInstaller: () => call('downloadInstaller'),
   openInstaller: () => call('openInstaller'),

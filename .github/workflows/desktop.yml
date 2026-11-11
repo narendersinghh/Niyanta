@@ -6,8 +6,11 @@
 # Release builds upload straight to a draft GitHub Release (no workflow artifacts, so the Actions storage quota is never
 # used) and the last job publishes it once all three update files are there. Manual runs (workflow_dispatch) are test
 # builds: workflow artifacts only, no release.
-# Unsigned by default. Optional signing secrets: WIN_CSC_LINK, WIN_CSC_KEY_PASSWORD, MAC_CSC_LINK, MAC_CSC_KEY_PASSWORD,
-# APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID (see desktop/README.md).
+# Unsigned by default. Optional signing (see docs/RELEASING.md), each used only when its secrets exist:
+#   Windows, Azure Trusted Signing: secrets AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET and repository variables
+#     AZURE_TRUSTED_SIGNING_ENDPOINT, AZURE_TRUSTED_SIGNING_ACCOUNT, AZURE_TRUSTED_SIGNING_PROFILE
+#   Windows, OV/EV certificate (.pfx): WIN_CSC_LINK, WIN_CSC_KEY_PASSWORD
+#   macOS: MAC_CSC_LINK, MAC_CSC_KEY_PASSWORD, APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID
 name: Desktop tracker
 
 on:
@@ -96,13 +99,27 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_SIGN_ENDPOINT: ${{ vars.AZURE_TRUSTED_SIGNING_ENDPOINT }}
+          AZURE_SIGN_ACCOUNT: ${{ vars.AZURE_TRUSTED_SIGNING_ACCOUNT }}
+          AZURE_SIGN_PROFILE: ${{ vars.AZURE_TRUSTED_SIGNING_PROFILE }}
         run: |
           if [ -z "$CSC_LINK" ] && [ -z "$WIN_CSC_LINK" ]; then export CSC_IDENTITY_AUTO_DISCOVERY=false; unset CSC_LINK CSC_KEY_PASSWORD WIN_CSC_LINK WIN_CSC_KEY_PASSWORD; fi
           if [ -z "$CSC_LINK" ]; then unset CSC_LINK CSC_KEY_PASSWORD; fi
           # Notarize only when a Developer ID certificate and an Apple ID are configured (repository secrets).
-          extra=""
-          if [ "${{ matrix.name }}" = "macOS" ] && [ -n "$CSC_LINK" ] && [ -n "$APPLE_ID" ]; then extra="-c.mac.notarize=true"; fi
-          npm run ${{ matrix.script }} -- $extra
+          extra=()
+          if [ "${{ matrix.name }}" = "macOS" ] && [ -n "$CSC_LINK" ] && [ -n "$APPLE_ID" ]; then extra+=("-c.mac.notarize=true"); fi
+          # Windows: Azure Trusted Signing when its secrets and variables are set (electron-builder signs the app, the
+          # installer and the uninstaller); otherwise the .pfx above, otherwise unsigned.
+          if [ "${{ matrix.name }}" = "Windows" ] && [ -n "$AZURE_CLIENT_SECRET" ] && [ -n "$AZURE_TENANT_ID" ] && [ -n "$AZURE_CLIENT_ID" ]; then
+            if [ -z "$AZURE_SIGN_ENDPOINT" ] || [ -z "$AZURE_SIGN_ACCOUNT" ] || [ -z "$AZURE_SIGN_PROFILE" ]; then echo "::error::Azure Trusted Signing secrets are set but the repository variables AZURE_TRUSTED_SIGNING_ENDPOINT / _ACCOUNT / _PROFILE are not."; exit 1; fi
+            extra+=("-c.win.azureSignOptions.endpoint=$AZURE_SIGN_ENDPOINT" "-c.win.azureSignOptions.codeSigningAccountName=$AZURE_SIGN_ACCOUNT" "-c.win.azureSignOptions.certificateProfileName=$AZURE_SIGN_PROFILE")
+            unset WIN_CSC_LINK WIN_CSC_KEY_PASSWORD
+          fi
+          if [ -z "$AZURE_CLIENT_SECRET" ]; then unset AZURE_TENANT_ID AZURE_CLIENT_ID AZURE_CLIENT_SECRET; fi
+          npm run ${{ matrix.script }} -- "${extra[@]}"
       - name: List output
         shell: bash
         run: ls -la dist

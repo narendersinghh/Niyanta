@@ -2,9 +2,13 @@
   "name": "niyanta-tracker",
   "productName": "Niyanta Tracker",
   "version": "1.4.3",
-  "description": "Niyanta desktop time tracker: day tracking, project switching, activity levels and consent-based screenshots synced with your Niyanta workspace.",
+  "description": "Niyanta Tracker",
   "main": "src/main/main.js",
-  "author": "Niyanta",
+  "author": {
+    "name": "Niyanta",
+    "email": "support@niyanta.app",
+    "url": "https://niyanta.app"
+  },
   "license": "UNLICENSED",
   "private": true,
   "homepage": "https://niyanta.app",
@@ -83,7 +87,10 @@
       "createDesktopShortcut": true,
       "shortcutName": "Niyanta Tracker",
       "artifactName": "niyanta-tracker-${version}-win-${arch}.${ext}",
-      "include": "build/installer.nsh"
+      "include": "build/installer.nsh",
+      "uninstallDisplayName": "Niyanta Tracker",
+      "deleteAppDataOnUninstall": false,
+      "menuCategory": false
     },
     "mac": {
       "target": [
@@ -135,6 +142,7 @@
       "category": "Office",
       "maintainer": "Niyanta <support@niyanta.app>",
       "synopsis": "Niyanta time tracker",
+      "description": "Niyanta desktop time tracker: day tracking, project switching, activity levels and consent-based screenshots synced with your Niyanta workspace.",
       "executableName": "niyanta-tracker"
     },
     "publish": [

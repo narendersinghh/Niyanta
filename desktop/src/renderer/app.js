@@ -20,6 +20,10 @@
   let consentLater = false;
   let promptLater = '';
   let pomoDirty = false;
+  let pomoBusy = false;
+  let pomoTimer = null;
+  let pomoMsg = '';
+  let pomoMsgTimer = null;
   let sheetReturn = null;
   let meetBusy = false;
   let wsOpen = false;
@@ -33,6 +37,10 @@
   /* ---------- rendering ---------- */
 
   function render(next) {
+    /* the project list comes only when it changed (main.js send()); otherwise the one we have stays */
+    if (next && next.projects === undefined) {
+      if (ui && ui.projects && ui.projectsRev === next.projectsRev) next.projects = ui.projects;
+      else { next.projects = []; T.getState().then(full => { if (full && full.projects) render(full); }); } }
     ui = next;
     $('signin').classList.toggle('hide', ui.screen !== 'signin');
     $('tracker').classList.toggle('hide', ui.screen !== 'tracker');
@@ -90,7 +98,7 @@
     show('btn-resume', s === 'paused' || s === 'stopped');
     renderMeeting(st);
     renderBanners(st);
-    $('update-slot').innerHTML = updateCard();
+    setHtml('update-slot', updateCard());
     document.querySelectorAll('[data-pc]').forEach(el => { el.style.width = el.dataset.pc + '%'; });
     renderMonitoring();
     const sync = $('sync');
@@ -102,7 +110,7 @@
     $('pickers').classList.toggle('hide', !on);
     if (!on) return;
     const sel = ui.selection || {};
-    const key = JSON.stringify([ui.projects.map(p => [p.id, p.tasks.length]), sel]);
+    const key = JSON.stringify([ui.projectsRev, (ui.projects || []).length, sel]);
     if (key !== pickerKey) {
       pickerKey = key;
       $('project').innerHTML = '<option value="">No project</option>' + ui.projects.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
@@ -129,29 +137,34 @@
     $('meet').classList.toggle('on', on);
     $('meet-left').classList.toggle('hide', !on);
     const mins = Math.round(S.MEETING_MS / 60000);
-    $('meet-hint').textContent = on ? `Turn it off when your meeting is done. Auto off in ${mins} min.` : (st.state === 'tracking' ? `Activity is not counted. Turn it off when your meeting is done. Auto off in ${mins} min.` : `Starts tracking. Activity is not counted. Auto off in ${mins} min.`); }
+    /* "Auto off in 30 min." never breaks inside (no lone "min." on a line of its own) */
+    const off = `Auto\u00a0off\u00a0in\u00a0${mins}\u00a0min.`;
+    setText('meet-hint', on ? `Turn it off when the meeting ends. ${off}` : (st.state === 'tracking' ? `Activity not counted. ${off}` : `Starts tracking, activity not counted. ${off}`)); }
 
-  function banner(kind, html, actions = '') { return `<div class="alert ${kind}" role="status"><div class="grow">${html}</div>${actions}</div>`; }
+  /** The x that closes a notice (main.js tracker:dismiss, ids in guard.DISMISS_IDS). */
+  const closeX = id => `<button class="x-btn" type="button" data-close="${id}" aria-label="Dismiss" title="Dismiss">${icon('x', 'sm')}</button>`;
+  function banner(kind, html, actions = '', id = null) { return `<div class="alert ${kind}" role="status"><div class="grow">${html}</div>${actions}${id ? closeX(id) : ''}</div>`; }
   /** Banner with its buttons on a row below the text (pomodoro). */
-  function stackBanner(kind, html, actions) { return `<div class="alert stack ${kind}" role="status"><div>${html}</div><div class="acts">${actions}</div></div>`; }
+  function stackBanner(kind, html, actions, id = null) { return `<div class="alert stack ${kind}" role="status"><div>${html}${id ? closeX(id) : ''}</div><div class="acts">${actions}</div></div>`; }
 
   function pomodoroBanners(st) {
     const p = ui.pomodoro;
     if (!p || !p.on) return [];
-    if (p.due && st.state === 'tracking') return [stackBanner('ok', `${icon('coffee', 'sm')} <span><b>Time for a ${+p.brk}-minute break</b><br>You have tracked ${+p.work} minutes without a break.</span>`, '<button class="btn" data-pomo="break">Take a break</button><button class="btn" data-pomo="snooze">Snooze 10 min</button>')];
-    if (p.breakUntil && st.state === 'paused') return [stackBanner('info', `${icon('coffee', 'sm')} <span><b>On a ${+p.breakMinutes}-minute break</b><br>Tracking is paused. <span data-countdown="${+p.breakUntil}">${mmss(p.breakUntil - Date.now())}</span> left.</span>`, '<button class="btn" data-resume>Resume now</button>')];
-    if (p.over && st.state === 'paused') return [stackBanner('ok', `${icon('coffee', 'sm')} <span><b>Break over</b><br>Resume tracking when you are ready.</span>`, '<button class="btn" data-resume>Resume</button><button class="btn" data-pomo="dismiss">Not yet</button>')];
+    if (p.due && st.state === 'tracking') return [stackBanner('ok', `${icon('coffee', 'sm')} <span><b>Time for a ${+p.brk}-minute break</b><br>You have tracked ${+p.work} minutes without a break.</span>`, '<button class="btn" data-pomo="break">Take a break</button><button class="btn" data-pomo="snooze">Snooze 10 min</button>', 'pomodoro')];
+    if (p.breakUntil && st.state === 'paused' && !p.breakHidden) return [stackBanner('info', `${icon('coffee', 'sm')} <span><b>On a ${+p.breakMinutes}-minute break</b><br>Tracking is paused. <span data-countdown="${+p.breakUntil}">${mmss(p.breakUntil - Date.now())}</span> left.</span>`, '<button class="btn" data-resume>Resume now</button>', 'pomodoro')];
+    if (p.over && st.state === 'paused') return [stackBanner('ok', `${icon('coffee', 'sm')} <span><b>Break over</b><br>Resume tracking when you are ready.</span>`, '<button class="btn" data-resume>Resume</button><button class="btn" data-pomo="dismiss">Not yet</button>', 'pomodoro')];
     return []; }
 
   function renderBanners(st) {
     const b = [];
-    if (ui.notice && ui.notice.id !== noticeShown) b.push(banner(ui.notice.kind === 'error' ? 'error' : 'info', esc(ui.notice.text), (ui.notice.action === 'meeting-on' ? `<button class="btn" data-meeting-on="${ui.notice.id}">Turn back on</button>` : '') + `<button class="btn" data-dismiss="${ui.notice.id}">OK</button>`));
+    const dis = ui.dismissed || {};
+    if (ui.notice && ui.notice.id !== noticeShown) b.push(banner(ui.notice.kind === 'error' ? 'error' : 'info', esc(ui.notice.text), ui.notice.action === 'meeting-on' ? `<button class="btn" data-meeting-on="${ui.notice.id}">Turn back on</button>` : '', 'notice'));
     b.push(...pomodoroBanners(st));
-    if (ui.idlePause && ui.idlePause.back && st.state === 'paused') b.push(banner('info', `${icon('coffee', 'sm')} Tracking paused after ${+ui.idlePause.minutes} min idle. Resume when you are back.`, '<button class="btn" data-resume>Resume</button>'));
-    if (ui.offline) b.push(banner('warn', `${icon('cloud-off', 'sm')} <span><b>Offline.</b> Your actions are saved and sync automatically. Without a connection for 10 minutes, time is not counted.</span>`));
-    if (ui.monitoring && ui.settings.screenshots_enabled && ui.consent && ui.consent.given && ui.monitoring.permission === 'denied') b.push(banner('error', 'Screenshots need the <b>Screen Recording</b> permission.', '<button class="btn" data-open="permissions">Open settings</button>'));
-    if (ui.consent && ui.consent.needed && st.state === 'tracking' && modalKind !== 'consent') b.push(banner('warn', 'Screen monitoring is on in your workspace. Please review the notice.', '<button class="btn" data-consent>Review</button>'));
-    $('banners').innerHTML = b.join(''); }
+    if (ui.idlePause && ui.idlePause.back && !ui.idlePause.dismissed && st.state === 'paused') b.push(banner('info', `${icon('coffee', 'sm')} Tracking paused after ${+ui.idlePause.minutes} min idle. Resume when you are back.`, '<button class="btn" data-resume>Resume</button>', 'idle'));
+    if (ui.offline && !dis.offline) b.push(banner('warn', `${icon('cloud-off', 'sm')} <span><b>Offline.</b> Your actions are saved and sync automatically. Without a connection for 10 minutes, time is not counted.</span>`, '', 'offline'));
+    if (ui.monitoring && ui.settings.screenshots_enabled && ui.consent && ui.consent.given && ui.monitoring.permission === 'denied' && !dis.permission) b.push(banner('error', 'Screenshots need the <b>Screen Recording</b> permission.', '<button class="btn" data-open="permissions">Open settings</button>', 'permission'));
+    if (ui.consent && ui.consent.needed && st.state === 'tracking' && modalKind !== 'consent' && !dis.consent) b.push(banner('warn', 'Screen monitoring is on in your workspace. Please review the notice.', '<button class="btn" data-consent>Review</button>', 'consent'));
+    setHtml('banners', b.join('')); }
 
   const BUSY = ['downloading', 'verifying', 'ready', 'installing'];
   /** Short steps after the installer was saved to Downloads (fallback, .deb, development builds). */
@@ -165,8 +178,11 @@
   function updateCard() {
     const up = ui.update;
     if (!up || !(up.available || up.manual)) return '';
+    const busy = up.want && BUSY.includes(up.status);
+    /* closed with its x: gone for this version (Settings › Version still has it); never while an update is running */
+    if (up.dismissed && !busy) return '';
     const v = esc(up.latest || '');
-    const head = (title, sub) => `<div class="upd-head">${icon('download')}<div><b>${title}</b>${sub ? `<small>${sub}</small>` : ''}</div></div>`;
+    const head = (title, sub) => `<div class="upd-head">${icon('download')}<div class="grow"><b>${title}</b>${sub ? `<small>${sub}</small>` : ''}</div>${busy ? '' : closeX('update')}</div>`;
     const card = (cls, inner) => `<section class="upd ${cls}" aria-live="polite">${inner}</section>`;
     if (up.status === 'manual' && up.manual) {
       const m = up.manual;
@@ -189,17 +205,20 @@
     const m = ui.monitoring || {};
     const last = ui.activity && ui.activity.last;
     const a = last && ui.state && ui.state.state === 'tracking' ? (last.meeting ? `Last ${esc(every(last.seconds))}: meeting` : `Activity ${+last.pct}% (last ${esc(every(last.seconds))})`) : '';
-    const mon = !ui.settings.screenshots_enabled ? '' : (m.on ? `${icon('camera', 'sm')} Screenshots every ${esc(every(m.interval))} while tracking` : `${icon('camera', 'sm')} Screen monitoring is on: please review the notice`);
-    $('mon-info').innerHTML = [mon, a].filter(Boolean).join(' · '); }
+    const mon = !ui.settings.screenshots_enabled ? '' : (m.on ? `Screenshots every ${esc(every(m.interval))}${a ? '' : ' while tracking'}` : 'Screen monitoring is on: please review the notice');
+    const line = [mon, a].filter(Boolean).join(' · ');
+    setHtml('mon-info', line ? `${icon(mon ? 'camera' : 'check', 'sm')} <span>${line}</span>` : ''); }
 
   function renderSheet() {
     if (!ui || ui.screen !== 'tracker') { $('sheet').classList.add('hide'); return; }
+    /* closed: nothing to update (openSheet renders it) */
+    if ($('sheet').classList.contains('hide')) return;
     $('p-launch').checked = !!ui.prefs.launchAtLogin;
     $('p-tone').checked = ui.prefs.tone !== false;
     $('p-notify').checked = !!ui.prefs.notify;
     $('p-notify').disabled = !ui.prefs.notifyAllowed;
     $('p-notify').closest('.switch-row').classList.toggle('locked', !ui.prefs.notifyAllowed);
-    $('p-notify-hint').innerHTML = ui.prefs.notifyAllowed ? 'Show a small notice each time a screenshot is taken.' : `${icon('lock', 'sm')} ${ui.prefs.notify ? 'Your workspace keeps this notice on for everyone.' : 'Your workspace has turned this notice off.'}`;
+    setHtml('p-notify-hint', ui.prefs.notifyAllowed ? 'Show a small notice each time a screenshot is taken.' : `${icon('lock', 'sm')} ${ui.prefs.notify ? 'Your workspace keeps this notice on for everyone.' : 'Your workspace has turned this notice off.'}`);
     renderPomodoroForm();
     const m = ui.monitoring || {};
     $('p-monitor').textContent = !ui.settings.screenshots_enabled ? 'Screenshots are off in your workspace. Only your tracked time and activity level (not what you type) are recorded.'
@@ -215,10 +234,13 @@
     $('p-download').lastChild.textContent = up && up.auto && up.status !== 'error' ? ' Update now' : ' Download the new version';
     $('p-account').textContent = ui.account ? `${ui.account.name} · ${ui.account.email} · ${ui.account.workspace.url}${ui.prefs.tokenProtected ? ' · sign-in stored in the system keychain' : ''}` : ''; }
 
+  /* Pomodoro settings save themselves (like the other switches): the switch at once, the minutes as soon as they are
+     valid (a short pause after typing, or leaving the field). pomoDirty only protects a field while it is being edited. */
   function renderPomodoroForm(force = false) {
     const p = ui.pomodoro;
-    if (!p || (pomoDirty && !force)) return;
-    $('pomo-on').checked = !!p.on; $('pomo-work').value = p.work; $('pomo-brk').value = p.brk;
+    if (!p) return;
+    if (!pomoBusy) $('pomo-on').checked = !!p.on;
+    if (!pomoDirty || force) { $('pomo-work').value = p.work; $('pomo-brk').value = p.brk; }
     pomoState(); }
 
   /** Field validity and the status line under the pomodoro fields. */
@@ -227,11 +249,30 @@
     const okW = Number.isInteger(work) && work >= 1 && work <= 600, okB = Number.isInteger(brk) && brk >= 1 && brk <= 120;
     $('pomo-work').setAttribute('aria-invalid', okW ? 'false' : 'true'); $('pomo-brk').setAttribute('aria-invalid', okB ? 'false' : 'true');
     $('pomo-form').classList.toggle('off', !$('pomo-on').checked);
-    $('pomo-save').disabled = !pomoDirty || !okW || !okB;
     const p = ui && ui.pomodoro;
-    $('pomo-msg').textContent = msg || (!okW ? 'Working time: 1 to 600 minutes.' : !okB ? 'Break: 1 to 120 minutes.' : pomoDirty ? 'Unsaved changes.'
-      : (p && p.on ? `On: a reminder after ${p.work} minutes of tracking.` : 'Off.'));
+    const text = msg || pomoMsg || (!okW ? 'Working time: 1 to 600 minutes.' : !okB ? 'Break: 1 to 120 minutes.'
+      : (p && p.on ? `On: a ${p.brk}-minute break after ${p.work} minutes of tracking.` : 'Off: no break reminders.'));
+    setText('pomo-msg', text);
+    $('pomo-msg').classList.toggle('bad', !okW || !okB);
     return okW && okB; }
+
+  /** Save what the form shows; invalid minutes keep the saved ones (the switch alone always saves). */
+  async function savePomodoro() {
+    clearTimeout(pomoTimer);
+    const p = ui.pomodoro || {};
+    const valid = pomoState();
+    const prefs = { on: $('pomo-on').checked, work: valid ? +$('pomo-work').value : p.work, brk: valid ? +$('pomo-brk').value : p.brk };
+    pomoBusy = true;
+    let r = null;
+    try { r = await T.setPomodoro(prefs); } catch (e) { r = null; } finally { pomoBusy = false; }
+    if (r && r.ok) {
+      pomoDirty = false;
+      ui.pomodoro = Object.assign({}, ui.pomodoro, r.prefs);
+      pomoFlash(r.prefs.on ? `Saved. A ${r.prefs.brk}-minute break after ${r.prefs.work} minutes of tracking.` : 'Saved. Break reminders are off.');
+      renderPomodoroForm(!$('pomo-form').contains(document.activeElement) || document.activeElement === $('pomo-on')); }
+    else { $('pomo-on').checked = !!p.on; pomoFlash('Could not save. Please try again.'); } }
+
+  function pomoFlash(text) { pomoMsg = text; pomoState(); clearTimeout(pomoMsgTimer); pomoMsgTimer = setTimeout(() => { pomoMsg = ''; if (ui) pomoState(); }, 4000); }
 
   /* ---------- modals: sync before quitting > consent notice > update prompt (once per version) ---------- */
 
@@ -344,7 +385,14 @@
     if (shown.get('clock-aria') !== aria) { shown.set('clock-aria', aria); $('clock').setAttribute('aria-label', aria); }
     setText('day-total', hms(cur.total));
     const r = st.running;
-    setText('hero-proj', r && ui.projectsEnabled ? (r.project || 'No project') + (r.task ? ' · ' + r.task : '') : '');
+    const proj = r && ui.projectsEnabled ? (r.project || 'No project') + (r.task ? ' · ' + r.task : '') : '';
+    setText('hero-proj', proj);
+    /* nothing under the divider (tracker off, no project): no empty strip */
+    const foot = cur.ticking || proj ? '1' : '0';
+    if (shown.get('hero-foot') !== foot) { shown.set('hero-foot', foot); document.querySelector('.hero-foot').classList.toggle('hide', foot === '0'); }
+    /* the status dot beats with the clock: dimmed every other second while time counts */
+    const beat = cur.ticking && (kind === 'tracking' || kind === 'meeting') && Math.floor(Date.now() / 1000) % 2 ? '1' : '0';
+    if ($('hero').dataset.beat !== beat) $('hero').dataset.beat = beat;
     const since = cur.since ? `<b>${esc(time(cur.since))}</b>` : '';
     const pomo = ui.pomodoro && ui.pomodoro.breakUntil && st.state === 'paused' ? ui.pomodoro : null;
     setHtml('caption', {
@@ -409,9 +457,11 @@
     const first = f[0], last = f[f.length - 1];
     if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
     else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); } }
-  function openSheet() { sheetReturn = document.activeElement; pomoDirty = false; $('sheet').classList.remove('hide'); renderSheet(); renderPomodoroForm(true); $('close-settings').focus(); }
+  function openSheet() { sheetReturn = document.activeElement; pomoDirty = false; pomoMsg = ''; $('sheet').classList.remove('hide'); renderSheet(); renderPomodoroForm(true); $('sheet').querySelector('.sheet-card').focus(); }
   function closeSheet() {
     if ($('sheet').classList.contains('hide')) return;
+    /* minutes typed but not saved yet (the short pause after typing had not passed): saved now, when valid */
+    if (pomoDirty && pomoState()) savePomodoro();
     $('sheet').classList.add('hide'); pomoDirty = false;
     if (sheetReturn && document.contains(sheetReturn)) sheetReturn.focus(); else $('open-settings').focus(); }
   $('open-settings').addEventListener('click', openSheet);
@@ -422,15 +472,11 @@
   $('p-launch').addEventListener('change', e => T.setPref('launchAtLogin', e.target.checked));
   $('p-notify').addEventListener('change', e => T.setPref('notify', e.target.checked));
   $('p-tone').addEventListener('change', e => { T.setPref('tone', e.target.checked); if (e.target.checked) chime(); });
-  $('pomo-form').addEventListener('input', () => { pomoDirty = true; pomoState(); });
-  $('pomo-form').addEventListener('submit', async e => {
-    e.preventDefault();
-    if (!pomoState()) return;
-    $('pomo-save').disabled = true;
-    const r = await T.setPomodoro({ on: $('pomo-on').checked, work: +$('pomo-work').value, brk: +$('pomo-brk').value });
-    pomoDirty = !(r && r.ok);
-    if (r && r.ok) { ui.pomodoro = Object.assign({}, ui.pomodoro, r.prefs); renderPomodoroForm(true); pomoState(r.prefs.on ? `Saved. A reminder after ${r.prefs.work} minutes of tracking.` : 'Saved. Pomodoro break is off.'); }
-    else pomoState('Could not save. Please try again.'); });
+  $('pomo-on').addEventListener('change', () => savePomodoro());
+  for (const id of ['pomo-work', 'pomo-brk']) {
+    $(id).addEventListener('input', () => { pomoDirty = true; pomoMsg = ''; clearTimeout(pomoTimer); if (pomoState()) pomoTimer = setTimeout(savePomodoro, 700); });
+    $(id).addEventListener('change', () => { if (pomoDirty && pomoState()) savePomodoro(); }); }
+  $('pomo-form').addEventListener('submit', e => { e.preventDefault(); if (pomoState()) savePomodoro(); });
   $('p-check').addEventListener('click', () => T.checkUpdates());
   $('p-download').addEventListener('click', () => { const up = ui && ui.update; closeSheet(); if (up && up.auto && up.status !== 'error') T.installUpdate(); else T.downloadInstaller(); });
   $('p-perm').addEventListener('click', () => T.open('permissions'));
@@ -451,7 +497,7 @@
   document.addEventListener('click', e => {
     const t = e.target.closest('button');
     if (!t) return;
-    if (t.dataset.dismiss) { noticeShown = +t.dataset.dismiss; renderBanners(ui.state || {}); }
+    if (t.dataset.close) { if (t.dataset.close === 'notice' && ui.notice) noticeShown = ui.notice.id; t.closest('.alert,.upd').classList.add('hide'); T.dismiss(t.dataset.close); }
     if (t.dataset.meetingOn) { noticeShown = +t.dataset.meetingOn; t.disabled = true; T.setMeeting(true); renderBanners(ui.state || {}); }
     if (t.dataset.open) T.open(t.dataset.open);
     if ('installUpdate' in t.dataset) { t.disabled = true; T.installUpdate(); }

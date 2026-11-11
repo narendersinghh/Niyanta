@@ -18,7 +18,7 @@ src/main/      main.js (lifecycle, tray, window, tracking dot on the app icon, I
                events), activity.js (system idle time every second), meter.js (12-second activity blocks, grace,
                bridging, locked screen, wake-up, meeting slots), badge.js (tracking dot bitmaps), pomodoro.js (break reminder), api.js (HTTP client),
                queue.js (offline queue), capture.js (screenshots),
-               toast.js (capture notice), store.js (prefs + encrypted token), errors.js (error reporting),
+               toast.js (capture notice), store.js (config.json: prefs + encrypted token; state.json: session, caches), errors.js (error reporting),
                updater.js (update check, Update now, manual download), selfupdate.js (pure helpers: feed parsing,
                macOS helper script), guard.js (pure: IPC argument validation, link allowlist, rate limiter, safe file
                names, screenshot encryption, deep links, PKCE), connect.js (sign in with the browser)
@@ -29,7 +29,10 @@ build/         icon.png (1024, converted by electron-builder), icons/ (Linux), t
 scripts/       icons.js (regenerate icons from the logo), check.js (syntax check + simulation + update checks + status-check.js:
                counter, meeting slots, sync before quitting, tracking dot, Windows activity and build), simulate.js
                (activity and pomodoro simulation on fake input timelines), updates-check.js (selfupdate.js checks, runs the
-               generated macOS helper on fake bundles), security-check.js (security regression checks, see Security),
+               generated macOS helper on fake bundles), tracker-check.js (no time accrues once the tracker is off),
+               prefs-check.js (preferences survive restarts, new days, refreshes, sign-out and the 1.4.3 upgrade; the
+               screenshot notice decision and window; the Windows build; start-up and memory budget), security-check.js
+               (security regression checks, see Security),
                after-pack.js (afterPack: Electron fuses, then adhoc-sign.js: ad-hoc signature without a certificate)
 ```
 
@@ -88,7 +91,7 @@ token). When the workspace has a newer version, the window pops up (without taki
 to 4 lines of *what's new* when the `latest*.yml` has `releaseNotes`); the tray menu has the same item, and one OS
 notification is shown per version. Nothing restarts without that click (or a normal quit, which installs a pre-downloaded update on
 Windows / AppImage, as before). Clicking: progress bar, then tracking is paused (the click's time is sent; up to 15 s for the
-server), the app installs and restarts, and on the next start tracking resumes by itself (`config.json` > `updateRestart`,
+server), the app installs and restarts, and on the next start tracking resumes by itself (`state.json` > `updateRestart`,
 honoured within 30 minutes). The restart minutes are never counted and nothing is counted twice: if the pause did not reach
 the server, the entry is closed at the click time first. If the version did not change after the restart, the card shows
 the manual download instead.
@@ -129,22 +132,37 @@ on HTTPS workspaces (or localhost). Server side: `modules/Attendance/Services/De
 ### Code signing (optional)
 
 Unsigned builds work but a browser download shows warnings (Chrome "uncommon download", Windows SmartScreen "unknown
-publisher", macOS "damaged" / "unverified developer"). The one-line commands and in-app updates avoid them; signing removes
-them for the normal download buttons too. To sign in CI add these repository secrets; the workflow passes them to electron-builder when present:
+publisher", macOS "damaged" / "unverified developer") and unsigned Windows apps are flagged by Defender far more often. The
+one-line commands and in-app updates avoid the warnings; signing removes them for the normal download buttons too. The
+workflow signs only when the secrets exist (details and costs: docs/RELEASING.md):
 
 | Platform | Secrets |
 |---|---|
-| Windows | `WIN_CSC_LINK` (base64 .pfx or https URL), `WIN_CSC_KEY_PASSWORD` |
-| macOS | `MAC_CSC_LINK` (base64 Developer ID Application .p12), `MAC_CSC_KEY_PASSWORD`, and for notarisation `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID` (then set `"notarize": true` under `build.mac`) |
+| Windows, Azure Trusted Signing | secrets `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`; variables `AZURE_TRUSTED_SIGNING_ENDPOINT`, `AZURE_TRUSTED_SIGNING_ACCOUNT`, `AZURE_TRUSTED_SIGNING_PROFILE` (passed as `-c.win.azureSignOptions.*`) |
+| Windows, OV/EV .pfx | `WIN_CSC_LINK` (base64 .pfx or https URL), `WIN_CSC_KEY_PASSWORD` |
+| macOS | `MAC_CSC_LINK` (base64 Developer ID Application .p12), `MAC_CSC_KEY_PASSWORD`, and for notarisation `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID` |
 
-### Windows Defender / antivirus
+### Windows Defender
 
-Versions 1.1.0 to 1.2.1 contained a global keyboard hook; unsigned, that made Defender's machine-learning detection report
-the installer ("contains a virus or potentially unwanted software"). Since then no build has an input hook or any native
-module; the Windows build asks for no elevation (`requestedExecutionLevel: asInvoker`, per-user install), carries version
-information (company, copyright, description) and the one-line PowerShell command behaves like a person: it saves the setup
-to Downloads and opens it normally (no silent `/S`, no hidden window, no TLS or execution-policy tweaks). If a build is still
-reported, submit it as a false positive (docs/RELEASING.md); code signing is the lasting fix.
+Some Windows devices deleted or quarantined the app. What the Windows build does, so heuristics have as little as possible
+to object to (checked by `scripts/prefs-check.js`):
+
+- **No scripts, shells or temporary executables.** *Settings › Uninstall* starts the app's own NSIS uninstaller (`Uninstall
+  Niyanta Tracker.exe /S --delete-app-data`, electron-builder's documented options). Up to 1.4.3 it wrote a `.cmd` file to
+  `%TEMP%` and ran it in a hidden `cmd.exe` (waiting with `tasklist`, deleting folders and itself): the pattern of a dropper.
+  No source file mentions `cmd.exe`, PowerShell, `.bat`/`.cmd`, `reg add`, `schtasks` or hidden consoles.
+- **Conventional installer.** Per-user NSIS setup, `requestedExecutionLevel: asInvoker` (no administrator rights), version
+  resource with product name, company (`author`), file description "Niyanta Tracker", copyright and trademark, a stable
+  file name (`niyanta-tracker-<version>-win-x64.exe`). `build/installer.nsh` only writes the `niyanta-tracker://` key and,
+  on a real uninstall, removes it and the update cache; it runs no programs.
+- **Built-in mechanisms only.** Launch at startup: `app.setLoginItemSettings` (the user's Run key). Updates: electron-updater
+  (downloads into its cache and runs the new NSIS setup). No input hook, no native module (activity comes from the system
+  idle time), Electron fuses on (no `ELECTRON_RUN_AS_NODE`, no `--inspect`, asar integrity checked).
+- **What remains** is inherent to a time tracker: starting with Windows, reading the idle time every second and, when the
+  workspace enables it and the person consented, capturing the screen. On an **unsigned** app those are enough for some
+  machine-learning detections. The real fix is **code signing** (Azure Trusted Signing or an OV/EV certificate, above), plus
+  a false-positive submission at https://www.microsoft.com/wdsi/filesubmission for each release that is still flagged
+  (step by step in docs/RELEASING.md).
 
 ## Permissions per OS
 
@@ -173,6 +191,11 @@ Escape closes them).
   are sent with `meeting: 1`: kept and visible to managers, never counted in the activity average. It shows a countdown and
   turns off by itself after 30 minutes (the notice *Meeting mode turned off after 30 minutes* offers **Turn back on**), on
   Pause, or when switched off; the hint under the switch asks people to turn it off when the meeting is done.
+- **Closing a notice**: every banner and card has a small **x** (*Dismiss*), sent through `tracker:dismiss` (ids allowlisted
+  in `guard.DISMISS_IDS`). It closes that occurrence: a message for good, this break reminder (the next one after another
+  full working period), this break countdown or *Break over*, this automatic pause, this offline spell, the Screen Recording
+  and consent reminders until the next start (consent is still asked before any screenshot), and the update card for that
+  version (`state.json` > `updateDismissed`; *Settings › Version* still offers it, a newer version shows again).
 - **Tracking dot**: while tracking (not paused, idle or stopped) a small mint dot sits on the taskbar / dock icon and pulses
   very slowly (two opacity frames every 4 s): Windows taskbar overlay, macOS dock icon, Linux window icon (most taskbars
   other than GNOME show it; the tray icon shows the state everywhere).
@@ -219,24 +242,35 @@ Escape closes them).
 - **Power**: locking the screen or sleeping pauses tracking (if the workspace setting is on) and unlocking / waking resumes it.
   Quitting the app while tracking pauses first; a system shutdown or log-out is delayed (Linux/macOS) until that is done.
 - **Crash or power cut**: heartbeats (at most every 60 s) keep the running entry's end on the server, and the app saves locally
-  every 15 s whether it is tracking and when it was last alive (`config.json` > `session`). On the next start after an unclean
+  every 15 s whether it is tracking and when it was last alive (`state.json` > `session`). On the next start after an unclean
   exit while tracking: back within 10 minutes (crash, quick restart) the entry is closed at the last alive moment and tracking
   resumes automatically with a note; after longer, the server closes the entry at its last heartbeat (at most a minute is lost,
   the time the computer was off is never counted) and the app shows the normal not-tracking state with a note, so nobody is
   tracked by surprise hours later (Resume, or Start in a new day). The server's stale job does the same if the app never returns.
-- **Settings (gear icon)**: *Pomodoro break* (off by default; *Notify after working* 120 minutes, *Break interval* 5
-  minutes, Save): after that much tracked time without a break, pause or resume (idle time does not count; idle or sleep at
+- **Settings (gear icon)**: *Break reminder* › *Pomodoro break* (off by default; *Notify after working* 120 minutes, *Break
+  length* 5 minutes; saved at once like every switch, the minutes as soon as they are valid): after that much tracked time without a break, pause or resume (idle time does not count; idle or sleep at
   least as long as the break resets it), a system notification and a banner say "Time for a 5-minute break" with **Take a
   break** (pauses and counts the break down, then "Break over" with **Resume**; tracking never resumes by itself) and
   **Snooze 10 min**. Pausing resets the counter. Stored only on this device (`config.json` > `pomodoro`), nothing is sent to
-  the server; notification buttons are on macOS, elsewhere the notification opens the window with the buttons.
-  *Preferences*: **Screenshot alert** (the capture notice; locked when the workspace does not let people turn it off),
+  the server and nothing ever resets it (see *Preferences that stick* below); notification buttons are on macOS, elsewhere the notification opens the window with the buttons.
+  *Preferences*: **Screenshot alert** (the capture notice: off for everyone when the workspace turned the notice off; on
+  and locked when the workspace does not let people turn it off; otherwise this computer's choice, on until turned off),
   **Launch at startup** (on by default; Login Items / Run key / `~/.config/autostart`) and **Message alert tone** (on by
   default: a short chime with the app's own messages, reminders and notifications, never with the screenshot notice).
 - **Screenshots**: only with monitoring enabled, the person's consent (the app shows the notice and records consent via the
   API before the first capture) and while tracking. One capture at the end of each activity slot, all displays, max 1920 px
   wide, JPEG quality 60, uploaded with that slot's activity percentage (and the meeting flag). They are not shown in the app (only the small capture notice, if enabled); people see them on
-  the web (My screenshots).
+  the web (My screenshots). The capture notice is a small window hidden 2.6 s after the capture (counted from the
+  capture, so a slow load can never leave it on screen) and destroyed when no other capture follows within a minute, never focusable, click-through, placed inside the
+  primary display's work area, excluded from screen capture where the OS allows it (Windows 10 2004+, macOS) and removed
+  before the next capture.
+- **Preferences that stick**: preferences and the sign-in live in `userData/config.json`; what changes all the time (the
+  15-second session, the cached bootstrap, update bookkeeping) in `userData/state.json`, so the busy file can never take a
+  preference with it. Writes go through a `.tmp` file and a rename; when Windows refuses the rename (`EPERM`/`EBUSY` while a
+  scanner or the indexer holds the file) it is retried and then written in place, and `config.json.bak` is read when
+  `config.json` is found empty or damaged. Nothing resets a preference: not a new day, a bootstrap or state refresh, sign-out,
+  an update (1.4.3's single `config.json` is migrated on the first start) or a crash. Up to 1.4.3 the pomodoro switch only
+  took effect after **Save** and a refused rename on Windows was only logged, so the reminder came back after a restart.
 - **Errors**: uncaught exceptions, unhandled rejections, failed syncs and capture failures are written to
   `userData/logs/tracker.log` and sent to the workspace error log (Audit log › Error logs, source *desktop*, with the version).
 - **Updates**: see *Updates (in the app)* above.
@@ -255,17 +289,41 @@ Escape closes them).
   further (see `modules/Attendance/AGENT_API.md`, *Tracker off*), which also protects older apps.
 - `scripts/tracker-check.js` (part of `npm run check`) replays each scenario with a fake clock.
 
+## Resource use
+
+The window is small and mostly static, so the app is built to do almost nothing between seconds:
+
+- **Start-up** loads only what the window needs: the screenshot code, the capture notice, the taskbar dot and the uninstall
+  helper are required on first use. Started at login (`--hidden`) the page loads inactive (`paintWhenInitiallyHidden: false`),
+  so nothing ticks or paints until the window is opened. Spell checking is off and no Hunspell dictionary is downloaded.
+- **One timer** in the main process (1 s: idle sample, slots, heartbeats every 60 s, state / bootstrap / update checks when
+  due); the window's own clock runs only while it is visible and writes only the texts that changed. The status dot beats
+  with the clock instead of an endless CSS animation (which kept the compositor drawing 60 frames a second).
+- **Little IPC**: a hidden window gets no state at all (the latest is sent when it shows); the project list (up to thousands of
+  tasks) is sent only when it changed; banners and the update card are re-rendered only when their HTML changes.
+- **Disk**: `config.json` is written only when a preference changes; the 15-second session goes to `state.json`.
+- **Screenshots**: 1920 px max, JPEG 60; the notice thumbnail is a 160 px JPEG (about 5 KB) instead of a 240 px PNG; the
+  notice window is dropped when no capture follows within a minute.
+- Hardware acceleration stays on (with `--disable-gpu` Chromium still runs a GPU process for software compositing, and it
+  saved nothing in measurements); background throttling stays at Electron's default (on).
+
+Measured on Linux (packaged `dir` build, Xvfb, non-root user, mock workspace, 60 s windows after a 15 s settle, all
+processes; 1.4.3 vs this version): CPU while tracking with the window open **6.5% to 1.1%** (renderer 3.9% to 0.7%, GPU
+2.4% to 0.13%); hidden in the tray **1.1% to 0.2%**; time to a painted tracker about 0.4 s for both; memory (PSS, all
+processes) about 290 to 310 MB for both, about 290 MB when hidden.
+
 ## Uninstall
 
 Settings › **Uninstall Niyanta Tracker** (after a confirmation): tracking is paused and the offline queue is synced (at most
 75 s), this device is signed out (token revoked on the server; token, keys and queue removed), the login item / autostart
-entry and the `niyanta-tracker://` handler are removed, then a small helper (written to a `ny-uninstall-*` temp folder,
-every path checked by `guard.uninstallPath`) waits for the app to quit and removes it: Windows runs the installed
-`Uninstall Niyanta Tracker.exe /S` and deletes the data folder; macOS removes the `.app` (only from /Applications or
-~/Applications), data, logs, caches and saved state; an AppImage is deleted with its `.desktop` entries and data; a `.deb`
-install has its data removed and the app shows `sudo apt remove niyanta-tracker`. The helper logs each step and deletes its
-folder at the end; if something is left it keeps the log and says so (dialog on macOS, notification on Linux, Notepad on
-Windows). Not available in a development run.
+entry and the `niyanta-tracker://` handler are removed, then the app quits and the removal runs. Windows: the installed
+`Uninstall Niyanta Tracker.exe` is started directly with `/S --delete-app-data` (electron-builder's own options: it waits
+for or closes the app, removes the program, `%APPDATA%\Niyanta Tracker`, and `build/installer.nsh` the update cache); no
+script or temporary file. macOS and Linux: a small `/bin/sh` helper (in a `ny-uninstall-*` temp folder, every path checked by
+`guard.uninstallPath`) waits for the app to quit and removes the `.app` (only from /Applications or ~/Applications), data,
+logs, caches and saved state; an AppImage with its `.desktop` entries and data; for a `.deb` install the data, and the app
+shows `sudo apt remove niyanta-tracker`. The helper logs each step and deletes its folder at the end; if something is left it
+keeps the log and says so (dialog on macOS, notification on Linux). Not available in a development run.
 
 ## Sign in with your browser
 

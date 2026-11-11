@@ -438,11 +438,8 @@ function uninstallChecks() {
   let threw = 0;
   for (const bad of [{ pid: 0 }, { dir: '/tmp' }, { log: '/etc/x' }]) { try { un.shScript(Object.assign({ pid: 1, remove: [], dir: '/tmp/ny-uninstall-AbC1', log: '/tmp/ny-uninstall-AbC1/l', platform: 'linux' }, bad)); } catch (e) { threw++; } }
   eq(threw, 3, 'sh helper refuses a bad pid or helper folder');
-  const cmd = un.cmdScript({ pid: 4242, uninstaller: r.uninstaller, remove: [{ path: wctx.userData }], dir: 'C:\\Users\\ana\\AppData\\Local\\Temp\\ny-uninstall-AbC123', log: 'C:\\Users\\ana\\AppData\\Local\\Temp\\ny-uninstall-AbC123\\uninstall.log', exe: wn.execPath });
-  ok(cmd.includes(`"${r.uninstaller}" /S`) && cmd.includes(`rmdir /s /q "${wctx.userData}"`) && /tasklist \/FI "PID eq 4242"/.test(cmd), 'cmd helper: waits for the app, runs the uninstaller silently, removes the data');
-  threw = 0;
-  try { un.cmdScript({ pid: 1, uninstaller: 'C:\\a\\Uninstall Niyanta Tracker.exe', remove: [{ path: 'C:\\x" & del C:\\y' }], dir: 'C:\\t\\ny-uninstall-AbC1', log: 'C:\\t\\ny-uninstall-AbC1\\l', exe: 'C:\\a\\n.exe' }); } catch (e) { threw++; }
-  eq(threw, 1, 'cmd helper refuses a path with cmd.exe metacharacters');
+  /* Windows: no helper script at all, the NSIS uninstaller itself with electron-builder's documented arguments */
+  ok(!('cmdScript' in un) && JSON.stringify(un.NSIS_ARGS) === JSON.stringify(['/S', '--delete-app-data']), 'Windows: no .cmd helper; the NSIS uninstaller runs with /S --delete-app-data');
   /* the sh helper for real (Linux/macOS): removes what it lists, and its own folder */
   if (process.platform !== 'win32') {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ny-home-'));
@@ -458,6 +455,8 @@ function uninstallChecks() {
   /* wiring */
   has('src/main/main.js', /guard\.uninstallPath\(dir, 'helperDir'/, 'the helper folder is validated');
   has('src/main/main.js', /spawn\('\/bin\/sh', \[file\], \{ detached: true/, 'sh helper spawned detached, no shell string');
+  has('src/main/main.js', /spawn\(p\.uninstaller, uninstall\(\)\.NSIS_ARGS, \{ detached: true, stdio: 'ignore'/, 'Windows: the uninstaller is started directly (no cmd.exe, no script)');
+  not('src/main/main.js', /ComSpec|cmd\.exe|uninstall\.cmd/, 'no cmd.exe and no .cmd file');
   not('src/main/main.js', /shell:\s*true/, 'no spawn with shell: true');
   not('src/main/uninstall.js', /require\('electron'\)/, 'uninstall.js is pure (no Electron)');
   has('src/main/uninstall.js', /guard\.uninstallPath\(p, kind, ctx\)/, 'every planned path goes through guard.uninstallPath');

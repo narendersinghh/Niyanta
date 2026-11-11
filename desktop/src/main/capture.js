@@ -1,13 +1,15 @@
 'use strict';
 /* Full-desktop screenshots: every display is captured separately (desktopCapturer 'screen' sources, at most MAX_DISPLAYS),
    scaled to at most 1920 px wide and encoded as JPEG (quality 60). The small thumbnail for the capture notice is only made
-   when the notice is on. macOS needs the Screen Recording permission. The Screen Recording settings pane is the only
+   when the notice is on (a 160 px JPEG). macOS needs the Screen Recording permission. The Screen Recording settings pane is the only
    non-http link the app ever opens, and it is a fixed constant. */
 const { desktopCapturer, screen, systemPreferences, shell } = require('electron');
 
 const MAX_W = 1920;
 const QUALITY = 60;
 const MAX_DISPLAYS = 6;
+/* the notice shows the thumbnail at 76 x 48: a small JPEG (about 5 KB) instead of a 240 px PNG data URL */
+const THUMB_W = 160;
 const SETTINGS_PANE = 'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture';
 
 /** 'granted' | 'denied' | 'restricted' | 'not-determined' | 'unknown' (only macOS asks for permission). */
@@ -36,7 +38,7 @@ async function captureAll({ thumb = true } = {}) {
     if (got.width > want.width + 2 || got.height > want.height + 2) img = img.resize({ width: want.width, height: want.height, quality: 'good' });
     const size = img.getSize();
     const idx = Math.max(0, displays.indexOf(display));
-    out.push({ display: display.id, index: idx >= 0 ? idx : i, jpeg: img.toJPEG(QUALITY), thumb: thumb && i === 0 ? img.resize({ width: 240 }).toDataURL() : null, width: size.width, height: size.height }); });
+    out.push({ display: display.id, index: idx >= 0 ? idx : i, jpeg: img.toJPEG(QUALITY), thumb: thumb && i === 0 ? 'data:image/jpeg;base64,' + img.resize({ width: THUMB_W, quality: 'good' }).toJPEG(70).toString('base64') : null, width: size.width, height: size.height }); });
   if (!out.length) throw new Error('Screen capture returned empty images (permission missing?)');
   return out; }
 

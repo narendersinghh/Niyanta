@@ -24,24 +24,33 @@ The repository is private, so the server needs a read-only key:
 
 ## Code signing (removes the "damaged" and "unknown publisher" warnings)
 
-Without certificates the desktop app is built unsigned on Windows and ad-hoc signed on macOS. People can still install it (see the steps on Time & Attendance › Tracker), but browsers and the operating system warn first. To remove the warnings, add these repository secrets (GitHub › Settings › Secrets and variables › Actions) and release again; nothing else needs to change:
+Without certificates the desktop app is built unsigned on Windows and ad-hoc signed on macOS. People can still install it (see the steps on Time & Attendance › Tracker), but browsers and the operating system warn first, and on Windows an unsigned app is far more likely to be flagged by Defender (see below). Add the secrets of one option per platform (GitHub › Settings › Secrets and variables › Actions) and release again; nothing else needs to change. Builds without them keep working, unsigned.
 
-| Platform | What you need | Secrets |
+| Platform | What you need | Secrets (and variables) |
 |---|---|---|
+| Windows, **Azure Trusted Signing** (recommended, about 10 USD/month) | An Azure subscription with a Trusted Signing account and a *Public Trust* certificate profile (identity validation of your company), and an app registration (service principal) with the role *Trusted Signing Certificate Profile Signer* on that account | Secrets `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`; repository **variables** `AZURE_TRUSTED_SIGNING_ENDPOINT` (for example `https://weu.codesigning.azure.net/`), `AZURE_TRUSTED_SIGNING_ACCOUNT` (the account name), `AZURE_TRUSTED_SIGNING_PROFILE` (the certificate profile name) |
+| Windows, OV or EV certificate | A code signing certificate from a CA, exported as .pfx (EV certificates on a hardware token cannot be exported; use Azure Trusted Signing or a cloud HSM offer instead) | `WIN_CSC_LINK` (the .pfx as base64), `WIN_CSC_KEY_PASSWORD` |
 | macOS | Apple Developer Program membership (99 USD/year), a "Developer ID Application" certificate exported as .p12, and an app-specific password for your Apple ID | `MAC_CSC_LINK` (the .p12 as base64), `MAC_CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID` |
-| Windows | A code signing certificate (OV or EV) exported as .pfx | `WIN_CSC_LINK` (the .pfx as base64), `WIN_CSC_KEY_PASSWORD` |
 
-With the macOS secrets the build is signed with your Developer ID and notarized by Apple, so it opens without any prompt and updates itself. A new Windows certificate removes "unknown publisher" at once; SmartScreen stops warning after the certificate builds up reputation (immediately with EV).
+How it is wired (`.github/workflows/desktop.yml`): when the three Azure secrets exist, the Windows job passes `-c.win.azureSignOptions.endpoint/codeSigningAccountName/certificateProfileName` from the variables to electron-builder, which signs the app, its helper executables, the installer and the uninstaller with the `TrustedSigning` PowerShell module (it installs it on the runner). Otherwise a `WIN_CSC_LINK` certificate is used, otherwise nothing. The macOS secrets sign with your Developer ID and notarize, so the app opens without any prompt and updates itself.
+
+A signed installer shows your company as the publisher at once; SmartScreen stops warning after the certificate has built up reputation (Azure Trusted Signing and EV certificates start with more of it). Keep signing every release once you start: the version info and publisher stay the same from release to release, which is what reputation is built on. Installed apps keep updating either way (the app does not require its updates to be signed).
 
 ## Windows Defender says the app "contains a virus or potentially unwanted software"
 
-This is a false positive of Microsoft's machine-learning detection on unsigned apps. Niyanta Tracker 1.1.0 to 1.2.1 included a global keyboard and mouse hook, which such detections treat like a keylogger. Since then no build contains an input hook or counts keystrokes (activity is measured on every platform from the time of the last keyboard or mouse input that the system reports), the Windows build asks for no administrator rights, installs per user and the PowerShell command opens the setup normally. If a release is still reported:
+This is a false positive of Microsoft's heuristic and machine-learning detection on unsigned apps. A time tracker naturally does things that such detections watch for: it starts with Windows, reads the system idle time every second and, when your workspace turns screenshots on, captures the screen. Everything else that looked like malware has been removed:
+
+- 1.1.0 to 1.2.1 had a global keyboard and mouse hook (treated like a keylogger). No build since has an input hook or any native module.
+- Up to 1.4.3, *Settings › Uninstall* wrote a `.cmd` script to `%TEMP%` and ran it in a hidden `cmd.exe` that waited for the app, ran the uninstaller and deleted folders and itself (the pattern of a dropper). Since 1.4.4 the app starts its own NSIS uninstaller directly with electron-builder's documented `/S --delete-app-data`; no script, shell or temporary file is involved on Windows.
+- The installer is a conventional per-user NSIS setup (no administrator rights, `asInvoker`), with version information (product name, company, file description "Niyanta Tracker", copyright) and only standard installer steps (`desktop/build/installer.nsh` writes the `niyanta-tracker://` sign-in link key and removes it and the update cache on uninstall). Launch at startup uses Electron's own `setLoginItemSettings` (the user's Run key); updates use electron-updater's own NSIS flow.
+
+If a release is still reported, submit it as a false positive. Do this **for every release** that is flagged (each release is a new file), ideally right after publishing:
 
 1. Download the reported file from the GitHub release (or from *Settings › Updates › Desktop app*).
-2. Open https://www.microsoft.com/wdsi/filesubmission, choose **Software developer**, sign in with a Microsoft account, choose **Microsoft Defender Antivirus**, upload the `.exe` (or a zip of it) and select **Incorrectly detected as malware/malicious**. Mention the detection name Windows Security showed (Protection history) and that it is your company's time tracker.
-3. Microsoft usually answers within a few days; once cleared, new definitions stop flagging that file. People who need it sooner can restore it from Windows Security › Protection history (Allow on device), with their IT team's approval.
+2. Open https://www.microsoft.com/wdsi/filesubmission, choose **Software developer**, sign in with a Microsoft account, choose **Microsoft Defender Antivirus** (and *Microsoft Defender SmartScreen* if the browser blocks it), upload the `.exe` (or a zip of it) and select **Incorrectly detected as malware/malicious**. Mention the detection name Windows Security showed (Protection history), the version, that it is your company's time tracker and that screenshots are consent-based and configured by the employer.
+3. Microsoft usually answers within a few days; once cleared, new definitions stop flagging that file. People who need it sooner can restore it from Windows Security › Protection history (Allow on device), with their IT team's approval. IT teams can also allow the publisher or the file hash in Microsoft Defender for Endpoint.
 
-Every new release is a new file, so submissions only fix one version at a time. **Code signing is the lasting fix**: a Windows code signing certificate (see the table above; EV gets SmartScreen reputation at once) gives the installer a known publisher, which ML detections and SmartScreen trust far more than unsigned files.
+**Code signing is the lasting fix** (see above): a signed installer has a known publisher, which Defender's detections and SmartScreen trust far more than unsigned files, and a submission then clears the publisher's reputation instead of one file.
 
 ## How desktop updates and installs work (no browser or OS warnings)
 
