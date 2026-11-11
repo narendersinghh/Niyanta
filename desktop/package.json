@@ -1,7 +1,7 @@
 {
   "name": "niyanta-tracker",
   "productName": "Niyanta Tracker",
-  "version": "1.4.5",
+  "version": "1.4.6",
   "description": "Niyanta Tracker",
   "main": "src/main/main.js",
   "author": {
