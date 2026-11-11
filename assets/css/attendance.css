@@ -623,3 +623,19 @@ a.ta-stat:focus-visible{outline:3px solid color-mix(in srgb,var(--primary) 45%,t
 .dk .token-box{margin-top:6px}
 [data-theme=dark] .dk-files>summary,[data-theme=dark] .dk-n{color:#9d8fff}
 @media(max-width:640px){.dk-os label{padding:8px 6px;font-size:.8rem}.dk-step .ol-cmd{flex-direction:column;align-items:stretch}}
+/* device split (time hub Day and Screenshots, 2+ devices): toggle, per-device tiles, "Showing X only" label */
+.dev-split{display:flex;flex-wrap:wrap;align-items:stretch;gap:10px 16px;margin-bottom:16px}
+.seg.dev-seg{height:auto;min-height:40px;flex-wrap:wrap;max-width:100%;min-width:0}
+.dev-seg a{display:inline-flex;align-items:center;gap:6px;max-width:260px;min-width:0}
+.dev-seg a small{font-weight:600;font-size:.74rem;opacity:.75;font-variant-numeric:tabular-nums}
+.dev-seg a.on small{opacity:.9}
+.dev-stats{display:flex;flex-wrap:wrap;gap:8px;list-style:none;margin:0;padding:0;flex:1 1 360px;min-width:0}
+.dev-stats li{display:grid;grid-template-columns:repeat(3,auto);gap:2px 14px;align-items:end;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:7px 12px;min-width:0;flex:1 1 220px;max-width:340px}
+.dev-stats li.on{border-color:var(--primary);box-shadow:0 0 0 1px var(--primary) inset}
+.dev-stats b{grid-column:1/-1;font-size:.8rem;font-weight:700}
+.dev-stats span{display:flex;flex-direction:column;font-size:.86rem;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
+.dev-stats small{font-size:.7rem;font-weight:500;color:var(--muted)}
+.dev-stats .lv-hi{color:var(--mint-d)}.dev-stats .lv-mid{color:var(--lemon-d)}.dev-stats .lv-lo{color:var(--peach-d)}
+.ds-dev{display:flex;align-items:center;gap:6px;margin:0;font-size:.78rem;font-weight:600;color:var(--lav-d);background:var(--lav-s);border-radius:99px;padding:4px 10px;align-self:flex-start;max-width:100%;min-width:0}
+.ds-dev span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media(max-width:640px){.dev-split{gap:8px}.seg.dev-seg{display:flex;width:100%}.dev-seg a{flex:1 1 auto;justify-content:center;padding:6px 10px}.dev-stats{flex-basis:100%}.dev-stats li{max-width:none}}

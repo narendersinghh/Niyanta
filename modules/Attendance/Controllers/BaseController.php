@@ -43,14 +43,26 @@ abstract class BaseController extends Controller {
     return [$target, $name, $people]; }
 
   /**
-   * One person's day: entries (with project/task) and the summary strip (clock in/out, total, active, idle, paused, activity %
-   * without meeting-mode slots, meeting = seconds tracked in meeting mode).
+   * The day's device split (Services\Devices::day: empty for a single-device day) and the device picked by ?device= (ignored unless it is
+   * one of them). With a device, $day is replaced by that device's day.
    */
-  protected static function day(int $uid, string $date): array {
+  protected function devices(int $uid, string $date, array &$day): array {
+    $list = \Modules\Attendance\Services\Devices::day($uid, $date, $day['entries']);
+    $dev = \Modules\Attendance\Services\Devices::pick($list, $this->request->query('device'));
+    if ($dev) { $day = self::day($uid, $date, $dev); }
+    return [$list, $dev]; }
+
+  /**
+   * One person's day: entries (with project/task) and the summary strip (clock in/out, total, active, idle, paused, activity %
+   * without meeting-mode slots, meeting = seconds tracked in meeting mode). With $dev (Services\Devices::day item) only that device's
+   * entries count: start and end come from them and activity is the device's own.
+   */
+  protected static function day(int $uid, string $date, ?array $dev = null): array {
     $next = date('Y-m-d', strtotime($date.' +1 day'));
     $rows = \Core\DB::all('SELECT te.*, p.name AS project_name, p.color AS project_color, t.title AS task_title FROM time_entries te LEFT JOIN projects p ON p.id=te.project_id LEFT JOIN tasks t ON t.id=te.task_id WHERE te.user_id=? AND te.started_at>=? AND te.started_at<? ORDER BY te.started_at', [$uid, $date.' 00:00:00', $next.' 00:00:00']);
     $att = \Core\DB::first('SELECT clock_in, clock_out, break_seconds FROM attendance WHERE user_id=? AND work_date=? LIMIT 1', [$uid, $date]);
-    $da = \Modules\Attendance\Services\TimeService::dayActivity($uid, $date);
+    if ($dev) { $rows = array_values(array_filter($rows, static fn ($r) => \Modules\Attendance\Services\Devices::owns($r, $dev['key']))); $att = ['break_seconds' => $att['break_seconds'] ?? 0]; }
+    $da = $dev ? ['pct' => $dev['act'], 'meeting' => 0] : \Modules\Attendance\Services\TimeService::dayActivity($uid, $date);
     $act = $da['pct'];
     $total = 0; $idle = 0; $first = null; $last = null;
     foreach ($rows as &$r) {

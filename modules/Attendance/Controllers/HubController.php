@@ -11,17 +11,18 @@ final class HubController extends BaseController {
     $date = min(date('Y-m-d'), $this->dateParam('date', date('Y-m-d')));
     $own = $target === $this->uid();
     $day = self::day($target, $date);
+    [$devices, $dev] = $this->devices($target, $date, $day); $dk = $dev ? $dev['key'] : null;
     /* the chart's bars open the day gallery at that slot's first screenshot when the viewer may see them */
     $gallery = []; $first = [];
     if (Monitoring::canView($this->user(), $target)) {
-      [$gallery, $first] = self::gallery(self::dayShots($target, $date));
+      [$gallery, $first] = self::gallery(self::dayShots($target, $date, $dk));
       if ($gallery && !$own) { \Core\Audit::log('monitoring.view', 'user', $target, ['date' => $date, 'area' => 'daily']); } }
     return $this->view('attendance::hub/daily', ['title' => 'Daily timesheet', 'date' => $date, 'target' => $target, 'targetName' => $name, 'people' => $people, 'own' => $own,
-      'projects' => $own && $this->can('attendance.track') ? T::projects($this->user()) : [], 'chart' => self::chart($target, $date, $day['entries']), 'gallery' => $gallery, 'shots' => $first] + $day + ['styles' => ['css/attendance.css'], 'scripts' => ['js/attendance.js']]); }
+      'projects' => $own && $this->can('attendance.track') ? T::projects($this->user()) : [], 'chart' => self::chart($target, $date, $day['entries'], $dk), 'gallery' => $gallery, 'shots' => $first, 'devices' => $devices, 'device' => $dev] + $day + ['styles' => ['css/attendance.css'], 'scripts' => ['js/attendance.js']]); }
 
-  /** One person's screenshots of a day, oldest first, with the tracked entry's project, task and description. Callers check Monitoring::canView first. */
-  public static function dayShots(int $uid, string $date): array {
-    return DB::all('SELECT s.id, s.taken_at, s.activity_pct, s.display_index, '.(self::meetingFlag('screenshots') ? 's.meeting' : '0 AS meeting').', p.name AS project_name, t.title AS task_title, te.description FROM screenshots s LEFT JOIN time_entries te ON te.id=s.time_entry_id LEFT JOIN projects p ON p.id=te.project_id LEFT JOIN tasks t ON t.id=te.task_id WHERE s.user_id=? AND s.taken_at>=? AND s.taken_at<? ORDER BY s.taken_at, s.display_index LIMIT 3000', [$uid, $date.' 00:00:00', date('Y-m-d', strtotime($date.' +1 day')).' 00:00:00']); }
+  /** One person's screenshots of a day, oldest first, with the tracked entry's project, task and description; only device $dev's (Services\Devices key) when given. Callers check Monitoring::canView first. */
+  public static function dayShots(int $uid, string $date, ?int $dev = null): array {
+    return DB::all('SELECT s.id, s.taken_at, s.activity_pct, s.display_index, '.(self::meetingFlag('screenshots') ? 's.meeting' : '0 AS meeting').', p.name AS project_name, t.title AS task_title, te.description FROM screenshots s LEFT JOIN time_entries te ON te.id=s.time_entry_id LEFT JOIN projects p ON p.id=te.project_id LEFT JOIN tasks t ON t.id=te.task_id WHERE s.user_id=? AND s.taken_at>=? AND s.taken_at<?'.($dev !== null ? ' AND COALESCE(s.agent_token_id, te.agent_token_id, 0)=?' : '').' ORDER BY s.taken_at, s.display_index LIMIT 3000', array_merge([$uid, $date.' 00:00:00', date('Y-m-d', strtotime($date.' +1 day')).' 00:00:00'], $dev !== null ? [$dev] : [])); }
 
   /**
    * The whole-day gallery (partials/shot_viewer): one item per screenshot (self::shot plus id, hour label h, 10-minute slot range r, work label p)
@@ -51,20 +52,22 @@ final class HubController extends BaseController {
    * Activity per 10-minute slot of one person's day (bar chart in the day summary). Activity comes from activity_slots
    * (active_seconds / slot_seconds; meeting slots, when that column exists, are drawn apart and left out of the average),
    * else from the screenshots' activity_pct; tracked minutes per slot from the day's entries. Null when the day is empty.
+   * With $dev (Services\Devices key) only that device's slots and screenshots count ($entries are then that device's too).
    * Returns ['slots' => [[i, h, k, pct, lvl, meet, min, range, future]], 'hours' => [[h, label, now]], 'avg', 'src', 'meetings', 'now' (minute of the hour or null), 'from', 'to'].
    */
-  public static function chart(int $uid, string $date, array $entries): ?array {
+  public static function chart(int $uid, string $date, array $entries, ?int $dev = null): ?array {
     $from = $date.' 00:00:00'; $to = date('Y-m-d', strtotime($date.' +1 day')).' 00:00:00';
     $idx = static fn (string $dt): int => (int) substr($dt, 11, 2) * 6 + intdiv((int) substr($dt, 14, 2), 10);
     $meet = self::meetingFlag('activity_slots'); $b = [];
-    $rows = DB::all('SELECT slot_start, slot_seconds, active_seconds, '.($meet ? 'meeting' : '0').' AS meeting FROM activity_slots WHERE user_id=? AND slot_start>=? AND slot_start<?', [$uid, $from, $to]);
+    $dw = static fn (string $a) => $dev !== null ? " AND COALESCE($a.agent_token_id, (SELECT te.agent_token_id FROM time_entries te WHERE te.id=$a.time_entry_id), 0)=".$dev : '';
+    $rows = DB::all('SELECT slot_start, slot_seconds, active_seconds, '.($meet ? 'meeting' : '0').' AS meeting FROM activity_slots a WHERE user_id=? AND slot_start>=? AND slot_start<?'.$dw('a'), [$uid, $from, $to]);
     foreach ($rows as $r) {
       $i = $idx($r['slot_start']); $s = (int) $r['slot_seconds'];
       if ((int) $r['meeting']) { $b[$i]['m'] = ($b[$i]['m'] ?? 0) + $s; continue; }
       $b[$i]['s'] = ($b[$i]['s'] ?? 0) + $s; $b[$i]['a'] = ($b[$i]['a'] ?? 0) + min($s, (int) $r['active_seconds']); }
     if (!$rows) {
       $sm = self::meetingFlag('screenshots');
-      foreach (DB::all('SELECT HOUR(taken_at) * 6 + FLOOR(MINUTE(taken_at) / 10) AS i, AVG('.($sm ? 'CASE WHEN meeting=0 THEN activity_pct END' : 'activity_pct').') AS a, '.($sm ? 'MAX(meeting)' : '0').' AS m FROM screenshots WHERE user_id=? AND taken_at>=? AND taken_at<? AND activity_pct IS NOT NULL GROUP BY i', [$uid, $from, $to]) as $r) {
+      foreach (DB::all('SELECT HOUR(taken_at) * 6 + FLOOR(MINUTE(taken_at) / 10) AS i, AVG('.($sm ? 'CASE WHEN meeting=0 THEN activity_pct END' : 'activity_pct').') AS a, '.($sm ? 'MAX(meeting)' : '0').' AS m FROM screenshots s WHERE user_id=? AND taken_at>=? AND taken_at<? AND activity_pct IS NOT NULL'.$dw('s').' GROUP BY i', [$uid, $from, $to]) as $r) {
         if ($r['a'] !== null) { $b[(int) $r['i']]['p'] = (float) $r['a']; }
         if ((int) $r['m']) { $b[(int) $r['i']]['m'] = 1; } } }
     $d0 = strtotime($from); $d1 = strtotime($to);

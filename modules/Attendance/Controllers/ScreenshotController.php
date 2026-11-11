@@ -5,18 +5,19 @@ use Modules\Attendance\Services\Monitoring;
 
 /** Screenshot gallery and private image serving (owner, or permitted team lead). Captures arrive from the desktop tracker API. */
 final class ScreenshotController extends BaseController {
-  /** One day of screenshots grouped by hour and 10-minute slot, with the day summary, the activity chart (its bars scroll to the slot cards) and the whole-day gallery. */
+  /** One day of screenshots grouped by hour and 10-minute slot, with the device split (?device=), the day summary, the activity chart (its bars scroll to the slot cards) and the whole-day gallery. */
   public function index(): Response {
     [$target, $name, $people] = $this->member('attendance.screenshots.view', 'screenshots');
     $date = min(date('Y-m-d'), $this->dateParam('date', date('Y-m-d')));
-    $rows = HubController::dayShots($target, $date);
+    $day = self::day($target, $date);
+    [$devices, $dev] = $this->devices($target, $date, $day); $dk = $dev ? $dev['key'] : null;
+    $rows = HubController::dayShots($target, $date, $dk);
     $hours = [];
     foreach ($rows as $n => $r) { $hours[(int) substr($r['taken_at'], 11, 2)][intdiv((int) substr($r['taken_at'], 14, 2), 10)][$n] = $r; }
     [$gallery] = HubController::gallery($rows);
     if ($target !== $this->uid()) { Audit::log('monitoring.view', 'user', $target, ['date' => $date]); }
-    $day = self::day($target, $date);
     return $this->view('attendance::screenshots/index', ['title' => 'Screenshots', 'hours' => $hours, 'gallery' => $gallery, 'count' => count($rows), 'date' => $date, 'target' => $target, 'targetName' => $name, 'people' => $people,
-      'retention' => Monitoring::retention(), 'enabled' => Monitoring::enabled(), 'chart' => HubController::chart($target, $date, $day['entries']), 'styles' => ['css/attendance.css'], 'scripts' => ['js/attendance.js']] + $day); }
+      'retention' => Monitoring::retention(), 'enabled' => Monitoring::enabled(), 'chart' => HubController::chart($target, $date, $day['entries'], $dk), 'devices' => $devices, 'device' => $dev, 'styles' => ['css/attendance.css'], 'scripts' => ['js/attendance.js']] + $day); }
 
   public function image(int $id): Response {
     $u = $this->user();

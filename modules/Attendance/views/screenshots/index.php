@@ -6,10 +6,11 @@ $pj = feature_on('projects');
 $tf = (string) setting('general.time_format', 'h:i A');
 $hm = static fn (int $h, int $m): string => date($tf, mktime($h, $m, 0));
 ?>
-<?= partial('attendance::partials/hub', ['tab' => 'screenshots', 'title' => 'Time & Attendance', 'subtitle' => 'Captured only while tracking, with consent. Kept for '.$retention.' days.', 'target' => $target, 'targetName' => $targetName, 'people' => $people, 'mode' => 'date', 'date' => $date, 'base' => '/time/screenshots']) ?>
+<?= partial('attendance::partials/hub', ['tab' => 'screenshots', 'title' => 'Time & Attendance', 'subtitle' => 'Captured only while tracking, with consent. Kept for '.$retention.' days.', 'target' => $target, 'targetName' => $targetName, 'people' => $people, 'mode' => 'date', 'date' => $date, 'base' => '/time/screenshots', 'hidden' => ['device' => $device['param'] ?? null]]) ?>
 <?php if (!$enabled): ?><div class="alert warn"><?= icon('info', 'sm') ?> Screenshot monitoring is currently turned off. Existing images remain until their retention period ends.</div><?php endif ?>
 <?php $targets = []; foreach ($hours as $h => $slots) { foreach ($slots as $k => $list) { $targets[$h * 6 + $k] = true; } } ?>
-<?= partial('attendance::partials/day_summary', ['sum' => $sum, 'targetName' => $targetName, 'own' => $own, 'chart' => $chart ?? null, 'targets' => $targets]) ?>
+<?= partial('attendance::partials/devices', ['devices' => $devices ?? [], 'device' => $device ?? null, 'base' => '/time/screenshots', 'date' => $date, 'target' => $target]) ?>
+<?= partial('attendance::partials/day_summary', ['sum' => $sum, 'devName' => $device['name'] ?? null, 'targetName' => $targetName, 'own' => $own, 'chart' => $chart ?? null, 'targets' => $targets]) ?>
 <?php if (!$hours): ?><div class="card"><?= empty_state('No screenshots on this day', $own ? 'Screenshots appear here when the desktop app captures your screens while you track.' : 'Nothing was captured for '.e($targetName).' on this day.', 'security-shield') ?></div>
 <?php else: foreach ($hours as $h => $slots): ?>
 <section class="shot-hour">

@@ -10,9 +10,10 @@ if ($entries) { $h0 = intdiv($min($entries[0]['started_at']), 60); $h1 = 0; fore
 if ($h1 - $h0 < 4) { $h1 = min(24, $h0 + 4); $h0 = max(0, $h1 - 4); }
 $ph = 72; /* px per hour */
 ?>
-<?= partial('attendance::partials/hub', ['tab' => 'daily', 'title' => 'Time & Attendance', 'subtitle' => 'Every tracked block of the day, with activity and screenshots.', 'target' => $target, 'targetName' => $targetName, 'people' => $people, 'mode' => 'date', 'date' => $date, 'base' => '/time/daily',
+<?= partial('attendance::partials/hub', ['tab' => 'daily', 'title' => 'Time & Attendance', 'subtitle' => 'Every tracked block of the day, with activity and screenshots.', 'target' => $target, 'targetName' => $targetName, 'people' => $people, 'mode' => 'date', 'date' => $date, 'base' => '/time/daily', 'hidden' => ['device' => $device['param'] ?? null],
   'actions' => $canAdd ? '<button class="btn primary" data-modal="entry-dialog" data-entry-new>'.icon('plus', 'sm').' Add manual time</button>' : '']) ?>
-<?= partial('attendance::partials/day_summary', ['sum' => $sum, 'targetName' => $targetName, 'own' => $own, 'chart' => $chart ?? null, 'shots' => $shots ?? []]) ?>
+<?= partial('attendance::partials/devices', ['devices' => $devices ?? [], 'device' => $device ?? null, 'base' => '/time/daily', 'date' => $date, 'target' => $target]) ?>
+<?= partial('attendance::partials/day_summary', ['sum' => $sum, 'devName' => $device['name'] ?? null, 'targetName' => $targetName, 'own' => $own, 'chart' => $chart ?? null, 'shots' => $shots ?? []]) ?>
 <div class="card tl-day">
   <?php if (!$entries): ?><?= empty_state('Nothing tracked on this day', $own ? 'Start the Niyanta Tracker desktop app to track your time, or add time manually.' : e($targetName).' has no tracked time on this day.', 'clock-worker') ?>
   <?php else: ?>

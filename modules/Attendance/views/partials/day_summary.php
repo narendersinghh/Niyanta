@@ -1,12 +1,14 @@
 <?php /* Day summary strip: $sum (BaseController::day), $targetName; optional $chart (HubController::chart) with $targets (slot index => true: bars scroll to the
-   screenshot card #slot-H-K) or $shots (slot index => gallery index: bars open the day gallery there); $own (own day: the date heads the card, no name). With a chart: summary on the left, activity bars on the right. */
+   screenshot card #slot-H-K) or $shots (slot index => gallery index: bars open the day gallery there); $own (own day: the date heads the card, no name); $devName (one device picked: its numbers, labelled). With a chart: summary on the left, activity bars on the right. */
 $chart = $chart ?? null; $own = !empty($own);
+$only = !empty($devName) ? '<p class="ds-dev">'.icon('monitor', 'sm').'<span>Showing <b>'.e($devName).'</b> only</span></p>' : '';
 $a = (int) ($chart['avg'] ?? $sum['activity']);
 $lv = $a >= 60 ? 'hi' : ($a >= 30 ? 'mid' : 'lo');
 $span = $sum['clock_in'] ? ftime($sum['clock_in']).' - '.($sum['clock_out'] ? ftime($sum['clock_out']) : ($sum['running'] ? 'now' : '-')) : '-';
 if (!$chart): ?>
 <div class="day-sum">
   <div class="ds-who"><?= avatar($targetName, null) ?><b><?= e($targetName) ?></b></div>
+  <?= $only ?>
   <div class="ds-k"><b><?= e(fdate($sum['date'])) ?></b><span><?= e(date('l', strtotime($sum['date']))) ?></span></div>
   <div class="ds-k"><b><?= e($span) ?></b><span>Start - end</span></div>
   <div class="ds-k"><b><?= e(hours($sum['total'])) ?></b><span>Total time</span></div>
@@ -22,6 +24,7 @@ if (!$chart): ?>
 <div class="day-sum ds-wide">
   <div class="ds-side">
     <div class="ds-who"><?php if (!$own): ?><?= avatar($targetName, null) ?><?php endif ?><div class="grow"><b><?= e($own ? date('l', strtotime($sum['date'])).', '.fdate($sum['date'], 'd M') : $targetName) ?></b><span class="ds-when"><?= $own ? '' : e(date('D', strtotime($sum['date'])).', '.fdate($sum['date'], 'd M')).' · ' ?><?= e($span) ?></span></div><span class="ds-st st-<?= $stc ?>"><i aria-hidden="true"></i><?= e($stl) ?></span></div>
+    <?= $only ?>
     <div class="ds-total"><b><?= e(hours($sum['total'])) ?></b><span>total time</span></div>
     <dl class="ds-tots">
       <div><dt>Active</dt><dd><?= e(hours($sum['active'])) ?></dd></div>
