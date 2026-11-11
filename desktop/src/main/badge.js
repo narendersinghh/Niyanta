@@ -1,13 +1,13 @@
 'use strict';
 /*
- * The small green "tracking" dot on the taskbar / dock icon, drawn in memory (no image files): BGRA, premultiplied alpha,
- * the pixel format of nativeImage.toBitmap() / createFromBitmap(). Pure (no Electron), checked by scripts/status-check.js.
- * The dot is brand mint (#12B5A0) with a thin white ring so it reads on light and dark taskbars. Two frames (full and 70%
- * opacity) swapped every few seconds make a very slow, quiet pulse.
+ * The status dot on the taskbar / dock icon, drawn in memory (no image files): BGRA, premultiplied alpha, the pixel format of
+ * nativeImage.toBitmap() / createFromBitmap(). Pure (no Electron), checked by scripts/status-check.js. Steady, no blinking:
+ * green (brand mint #12B5A0) while tracking, red (#EF4444) while paused or not tracking; a thin white ring keeps it readable
+ * on light and dark taskbars.
  */
 const MINT = { r: 0x12, g: 0xB5, b: 0xA0 };
-const FRAMES = [1, 0.7];
-const PULSE_MS = 4000;
+const RED = { r: 0xEF, g: 0x44, b: 0x44 };
+const COLORS = { on: MINT, off: RED };
 
 /** A size x size dot: coverage-based anti-aliasing (4x4 samples per pixel), ring of `ring` px in white. */
 function dot(size, alpha = 1, color = MINT, ring = Math.max(1, size / 12)) {
@@ -37,8 +37,8 @@ function stamp(base, w, h, src, s, x, y) {
   return out; }
 
 /** Icon with the dot in its lower right corner (dot = 38% of the icon, inset 2%). */
-function onIcon(base, w, h, alpha = 1) {
+function onIcon(base, w, h, color = MINT) {
   const s = Math.round(Math.min(w, h) * 0.38), m = Math.round(Math.min(w, h) * 0.02);
-  return stamp(base, w, h, dot(s, alpha), s, w - s - m, h - s - m); }
+  return stamp(base, w, h, dot(s, 1, color), s, w - s - m, h - s - m); }
 
-module.exports = { MINT, FRAMES, PULSE_MS, dot, stamp, onIcon };
+module.exports = { MINT, RED, COLORS, dot, stamp, onIcon };

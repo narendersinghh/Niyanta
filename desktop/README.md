@@ -196,9 +196,9 @@ Escape closes them).
   full working period), this break countdown or *Break over*, this automatic pause, this offline spell, the Screen Recording
   and consent reminders until the next start (consent is still asked before any screenshot), and the update card for that
   version (`state.json` > `updateDismissed`; *Settings › Version* still offers it, a newer version shows again).
-- **Tracking dot**: while tracking (not paused, idle or stopped) a small mint dot sits on the taskbar / dock icon and pulses
-  very slowly (two opacity frames every 4 s): Windows taskbar overlay, macOS dock icon, Linux window icon (most taskbars
-  other than GNOME show it; the tray icon shows the state everywhere).
+- **Status dot**: a steady dot on the taskbar / dock icon (no blinking): green while tracking, red while paused or not
+  tracking, none when signed out. Windows taskbar overlay, macOS dock icon, Linux window icon (most taskbars other than
+  GNOME show it; the tray icon shows the state everywhere).
 - **Quitting with unsynced data**: Quit pauses tracking and then sends what is still in the offline queue. If that takes more
   than a moment the window shows "Syncing your data to the server. The app will close by itself when done." with progress
   and **Quit anyway**; after at most 60 s it quits, and anything left stays queued on disk for the next start. (Closing the

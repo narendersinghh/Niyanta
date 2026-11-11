@@ -167,49 +167,33 @@ function push(ui) {
   lastUi = ui;
   if (win && !win.isDestroyed()) { if (win.isVisible() && !win.isMinimized()) send(ui); else uiDirty = true; }
   updateTray(ui);
-  indicator(!!(ui && ui.screen === 'tracker' && ui.tracking)); }
+  indicator(ui && ui.screen === 'tracker' ? (ui.tracking ? 'on' : 'off') : null); }
 
 /* ---------- tracking dot on the taskbar / dock icon ---------- */
 
 /**
- * While tracking (not paused, idle or stopped) a small mint dot sits on the app icon and pulses very slowly (two frames, full
- * and 70% opacity, swapped every 4 s): Windows taskbar overlay icon, macOS dock icon, Linux window icon (shown by the
- * taskbars of KDE, Xfce, Cinnamon and others; the tray icon shows the state everywhere).
+ * Status dot on the app icon, steady (no blinking): green while tracking, red while paused / idle-paused / not tracking,
+ * none when signed out. Windows taskbar overlay icon, macOS dock icon, Linux window icon (shown by the taskbars of KDE,
+ * Xfce, Cinnamon and others; the tray icon shows the state everywhere). Images are made once per colour.
  */
-const ind = { on: false, frame: 0, timer: null, frames: null, base: null };
-function indicatorFrames() {
-  if (ind.frames) return ind.frames;
-  if (process.platform === 'win32') {
-    ind.frames = badge().FRAMES.map(a => nativeImage.createFromBitmap(badge().dot(32, a), { width: 32, height: 32, scaleFactor: 2 }));
-  } else {
-    const src = nativeImage.createFromPath(asset('renderer', 'icon.png'));
-    ind.base = src.isEmpty() ? null : src.resize({ width: 256, height: 256, quality: 'best' });
-    if (!ind.base) return (ind.frames = []);
-    const { width, height } = ind.base.getSize();
-    const bmp = ind.base.toBitmap();
-    ind.frames = badge().FRAMES.map(a => nativeImage.createFromBitmap(badge().onIcon(bmp, width, height, a), { width, height })); }
-  return ind.frames; }
+const ind = { state: undefined, imgs: {}, base: null };
+function indicatorImage(state) {
+  if (ind.imgs[state] !== undefined) return ind.imgs[state];
+  const color = badge().COLORS[state];
+  if (process.platform === 'win32') return (ind.imgs[state] = nativeImage.createFromBitmap(badge().dot(32, 1, color), { width: 32, height: 32, scaleFactor: 2 }));
+  if (ind.base === null) { const src = nativeImage.createFromPath(asset('renderer', 'icon.png')); ind.base = src.isEmpty() ? false : src.resize({ width: 256, height: 256, quality: 'best' }); }
+  if (!ind.base) return (ind.imgs[state] = null);
+  const { width, height } = ind.base.getSize();
+  return (ind.imgs[state] = nativeImage.createFromBitmap(badge().onIcon(ind.base.toBitmap(), width, height, color), { width, height })); }
 
-function showFrame(i) {
+function indicator(state) {
+  if (state === ind.state) return;
+  ind.state = state;
   try {
-    const f = indicatorFrames()[i];
-    if (!f) return;
-    if (process.platform === 'win32') { if (win && !win.isDestroyed()) win.setOverlayIcon(f, 'Tracking'); }
-    else if (process.platform === 'darwin') { if (app.dock) app.dock.setIcon(f); }
-    else if (win && !win.isDestroyed()) win.setIcon(f); }
-  catch (e) { errors.report('indicator', e, {}, 'warning'); stopIndicator(); } }
-
-function stopIndicator() { clearInterval(ind.timer); ind.timer = null; }
-
-function indicator(on) {
-  if (on === ind.on) return;
-  ind.on = on;
-  stopIndicator();
-  if (on) { ind.frame = 0; showFrame(0); ind.timer = setInterval(() => { ind.frame = 1 - ind.frame; showFrame(ind.frame); }, badge().PULSE_MS); return; }
-  try {
-    if (process.platform === 'win32') { if (win && !win.isDestroyed()) win.setOverlayIcon(null, ''); }
-    else if (process.platform === 'darwin') { if (app.dock && ind.base) app.dock.setIcon(ind.base); }
-    else if (win && !win.isDestroyed()) win.setIcon(asset('renderer', 'icon.png')); }
+    const img = state ? indicatorImage(state) : null;
+    if (process.platform === 'win32') { if (win && !win.isDestroyed()) win.setOverlayIcon(img, state === 'on' ? 'Tracking' : state ? 'Not tracking' : ''); }
+    else if (process.platform === 'darwin') { if (app.dock && (img || ind.base)) app.dock.setIcon(img || ind.base); }
+    else if (win && !win.isDestroyed()) win.setIcon(img || asset('renderer', 'icon.png')); }
   catch (e) { errors.report('indicator', e, {}, 'warning'); } }
 
 /**

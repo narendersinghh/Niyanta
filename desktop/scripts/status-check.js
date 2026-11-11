@@ -118,10 +118,10 @@ const px = (b, w, x, y) => Array.from(b.slice((y * w + x) * 4, (y * w + x) * 4 +
 eq(px(d, 32, 16, 16), [0xA0, 0xB5, 0x12, 255], 'dot centre is brand mint (BGRA)');
 eq(px(d, 32, 0, 0), [0, 0, 0, 0], 'corner transparent');
 ok(px(d, 32, 16, 0)[3] > 0 && px(d, 32, 16, 0)[3] < 255 && px(d, 32, 16, 1)[2] > 200, 'anti-aliased white ring');
-eq(px(badge.dot(32, 0.7), 32, 16, 16), [Math.round(0xA0 * 0.7), Math.round(0xB5 * 0.7), Math.round(0x12 * 0.7), Math.round(255 * 0.7)], 'second frame: 70% (premultiplied)');
-ok(badge.FRAMES.length === 2 && badge.PULSE_MS >= 3000, 'slow two-frame pulse');
+eq(px(badge.dot(32, 1, badge.COLORS.off), 32, 16, 16), [0x44, 0x44, 0xEF, 255], 'not tracking: red dot (BGRA)');
+ok(badge.COLORS.on === badge.MINT && badge.FRAMES === undefined && badge.PULSE_MS === undefined, 'steady dot: green on, red off, no blinking frames');
 const icon = Buffer.alloc(100 * 100 * 4, 0x40);
-const st = badge.onIcon(icon, 100, 100, 1);
+const st = badge.onIcon(icon, 100, 100);
 eq(px(st, 100, 10, 10), [0x40, 0x40, 0x40, 0x40], 'icon untouched away from the dot');
 eq(px(st, 100, 79, 79), [0xA0, 0xB5, 0x12, 255], 'dot in the lower right corner');
 
