@@ -27,6 +27,8 @@ return [
   'employee override uses their own Saturday rule' => function (): void {
     $u = make_user('employee', 'sat@workweek.test');
     DB::query('INSERT INTO employee_profiles (user_id, weekly_off_days, saturday_rule) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE weekly_off_days=VALUES(weekly_off_days), saturday_rule=VALUES(saturday_rule)', [$u, '7', 'alt13']);
+    /* other suites add holidays relative to today (e.g. +3 days): keep the dates below free of them */
+    DB::query("DELETE FROM holidays WHERE holiday_date IN ('2026-11-07','2026-11-14','2026-11-15')");
     LS::flush();
     assert_eq('alt13', LS::scheduleFor($u)['saturday']);
     assert_true(!LS::isWorkingDayFor($u, '2026-11-07') && LS::isWorkingDayFor($u, '2026-11-14'));
