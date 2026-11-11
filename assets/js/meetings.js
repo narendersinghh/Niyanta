@@ -1,4 +1,4 @@
-/* Niyanta Meetings: "Add transcript or notes" in the Log activity dialog (shown for type Meeting), AJAX preview with detected client/project, Fireflies picker, sort/upload client-project selects, action item options */
+/* Niyanta Meetings: "Add transcript or notes" in the Log activity dialog (shown for type Meeting), AJAX preview with detected client/project, Fireflies picker, sort/upload client-project selects, action item options, New meeting dialog */
 (()=>{"use strict";const d=document,$=(s,c=d)=>c.querySelector(s),$$=(s,c=d)=>[...c.querySelectorAll(s)],N=window.Niyanta,esc=s=>N.esc(s);
 const conf={high:["mint","High confidence"],medium:["lemon","Medium confidence"],low:["peach","Low confidence"],none:["gray","No match"]};
 $$("[data-meeting-attach]").forEach(sec=>{const form=sec.closest("form");if(!form)return;const standalone=sec.hasAttribute("data-standalone"),box=$("[data-mt-result]",sec);let timer=null,seq=0;
@@ -36,6 +36,14 @@ const pair=root=>{const cs=$("[data-mt-client]",root),ps=$("[data-mt-project]",r
 const sync=()=>{const c=cs.value;$$("option[data-client]",ps).forEach(o=>{const ok=!c||o.dataset.client===c;o.hidden=!ok;o.disabled=!ok;if(!ok&&o.selected)ps.value=""})};
 cs.addEventListener("change",sync);ps.addEventListener("change",()=>{const o=ps.selectedOptions[0];if(o&&o.dataset.client&&o.dataset.client!=="0"&&cs.value!==o.dataset.client){cs.value=o.dataset.client;sync()}});sync()};
 $$("[data-mt-assign]").forEach(pair);$$("#mt-upload form").forEach(pair);
+/* New meeting / edit meeting dialog: client search, contacts of the chosen client only, team filter */
+$$("[data-mt-plan]").forEach(f=>{pair(f);const cs=$("[data-mt-client]",f),box=$("[data-mt-contacts]",f),none=box&&$("[data-mt-nocontacts]",box);
+const contacts=()=>{if(!box)return;const c=cs?cs.value:"";let n=0;$$(".mt-chk[data-client]",box).forEach(l=>{const ok=!!c&&l.dataset.client===c;l.hidden=!ok;if(!ok)l.querySelector("input").checked=false;else n++});if(none)none.hidden=n>0};
+if(cs)cs.addEventListener("change",contacts);const ps=$("[data-mt-project]",f);if(ps)ps.addEventListener("change",()=>setTimeout(contacts,0));contacts();
+$$("[data-mt-find]",f).forEach(inp=>{const sel=$(inp.dataset.mtFind,f);if(!sel)return;const all=[...sel.options];
+inp.addEventListener("input",()=>{const q=inp.value.trim().toLowerCase();let first=null;all.forEach(o=>{if(!o.value)return;const ok=!q||o.text.toLowerCase().includes(q);o.hidden=!ok;if(ok&&!first)first=o});const cur=sel.selectedOptions[0];if(q&&first&&(!cur||!cur.value||cur.hidden)){sel.value=first.value;sel.dispatchEvent(new Event("change",{bubbles:true}))}});
+inp.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();sel.focus()}})});
+$$("[data-mt-filter]",f).forEach(inp=>{const list=inp.closest(".mt-people-h").nextElementSibling;inp.addEventListener("input",()=>{const q=inp.value.trim().toLowerCase();$$(".mt-chk",list).forEach(l=>{l.hidden=!!q&&!l.dataset.name.includes(q)})});inp.addEventListener("keydown",e=>{if(e.key==="Enter")e.preventDefault()})})});
 /* action items: task or to-do picks the matching assignee list */
 d.addEventListener("change",e=>{const k=e.target.closest("[data-mt-kind]");if(!k)return;const box=k.closest(".mt-action-opts");$$("[data-mt-for]",box).forEach(s=>{const on=s.dataset.mtFor===k.value;s.disabled=!on;s.classList.toggle("hide",!on)})});
 })();

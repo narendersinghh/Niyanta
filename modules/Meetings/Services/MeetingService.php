@@ -87,9 +87,13 @@ final class MeetingService {
     $t = DB::find('meeting_transcripts', (int) $t['id']);
     if ($t['summary_status'] === 'done') { Summarizer::writeToLog($t); } elseif ($t['summary_status'] === 'skipped') { self::fillBody($t); } }
 
-  /** Create the meeting log (client_activities type meeting) for a sorted transcript. */
+  /** Create the meeting log (client_activities type meeting) for a sorted transcript, or link it to the matching scheduled meeting (Schedule::match). */
   public static function createLog(array $t): int {
     $at = $t['meeting_at'] ?: $t['created_at'];
+    if ($sid = Schedule::match($t['client_id'] ? (int) $t['client_id'] : null, $t['project_id'] ? (int) $t['project_id'] : null, $at)) {
+      self::link($t, $sid);
+      Audit::log('meetings.log.link_scheduled', 'meeting', (int) $t['id'], ['activity_id' => $sid], $t['owner_id'] ? (int) $t['owner_id'] : null);
+      return $sid; }
     $aid = DB::insert('client_activities', ['client_id' => $t['client_id'] ?: null, 'project_id' => $t['project_id'] ?: null, 'type' => 'meeting', 'title' => mb_substr((string) $t['title'], 0, 190), 'body' => self::placeholder($t), 'is_internal' => 0, 'occurred_at' => $at, 'user_id' => $t['owner_id'] ?: null, 'created_at' => date('Y-m-d H:i:s')]);
     DB::update('meeting_transcripts', ['activity_id' => $aid, 'status' => 'linked', 'updated_at' => date('Y-m-d H:i:s')], 'id=?', [$t['id']]);
     $t = DB::find('meeting_transcripts', (int) $t['id']);

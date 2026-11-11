@@ -37,7 +37,7 @@ final class LeaveService {
   public const ALLOWANCES = ['none' => 'No automatic allowance', 'yearly' => 'Yearly quota', 'monthly' => 'Monthly accrual'];
   public const CARRY = ['none' => 'Lapses at year end', 'limit' => 'Carry forward up to a limit', 'all' => 'Carry forward everything'];
   public const EMPLOYMENT = ['full_time' => 'Full-time', 'part_time' => 'Part-time', 'contract' => 'Contract', 'intern' => 'Intern', 'consultant' => 'Consultant'];
-  public const KINDS = ['opening' => 'Opening balance', 'allocation' => 'Yearly allocation', 'accrual' => 'Monthly accrual', 'adjustment' => 'Adjustment', 'usage' => 'Leave taken', 'carry_forward' => 'Carry forward', 'expiry' => 'Expired', 'shortage' => 'Hours shortage cover'];
+  public const KINDS = ['opening' => 'Opening balance', 'allocation' => 'Yearly allocation', 'accrual' => 'Monthly accrual', 'adjustment' => 'Adjustment', 'usage' => 'Leave taken', 'carry_forward' => 'Carry forward', 'expiry' => 'Expired', 'shortage' => 'Hours shortage cover', 'reversal' => 'Leave returned'];
   public const DAY_NAMES = [1 => 'Mon', 2 => 'Tue', 3 => 'Wed', 4 => 'Thu', 5 => 'Fri', 6 => 'Sat', 7 => 'Sun'];
   private static array $holidays = [];
   private static ?array $weekend = null;

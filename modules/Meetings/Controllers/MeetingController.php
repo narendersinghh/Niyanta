@@ -2,12 +2,12 @@
 namespace Modules\Meetings\Controllers;
 use Core\{Audit, Controller, DB, Gate, Notify, Response, ValidationException};
 use Modules\Crm\Services\ClientAccess;
-use Modules\Meetings\Services\{Attach, Detector, Fireflies, FirefliesError, Inbox, MeetingAccess as MA, MeetingService, Parser, Recap, Summarizer};
+use Modules\Meetings\Services\{Attach, Detector, Fireflies, FirefliesError, Inbox, MeetingAccess as MA, MeetingService, Parser, Recap, Schedule, Summarizer, Ui};
 use Modules\Projects\Services\{ProjectAccess as PA, ProjectService as PS};
 
-/** Meetings page (To review / To sort, Recent, Connections), transcript detail, upload preview, sorting, summaries, action items and connections. */
+/** Meetings page (Upcoming, To review / To sort, Recent, Connections), transcript detail, upload preview, sorting (incl. quick-assign to a planned meeting), summaries, action items and connections. */
 final class MeetingController extends Controller {
-  private const TABS = ['sort', 'recent', 'connections'];
+  private const TABS = ['upcoming', 'sort', 'recent', 'connections'];
 
   /** A visible transcript or 404. */
   private function transcript(int $id): array {
@@ -39,13 +39,19 @@ final class MeetingController extends Controller {
 
   public function index(): Response {
     $u = $this->user();
-    $tab = in_array($t = $this->request->str('tab', 'sort'), self::TABS, true) ? $t : 'sort';
     [$w, $p] = MA::scope($u, 'mt');
     $sel = "SELECT mt.id, mt.title, mt.source, mt.tool, mt.meeting_at, mt.created_at, mt.duration_min, mt.status, mt.confidence, mt.reasons, mt.summary_status, mt.summary_error, mt.client_id, mt.project_id, mt.activity_id, mt.chars, mt.owner_id, COALESCE(NULLIF(c.company,''), c.name) AS client_name, p.name AS project_name, o.name AS owner_name FROM meeting_transcripts mt LEFT JOIN clients c ON c.id=mt.client_id LEFT JOIN projects p ON p.id=mt.project_id LEFT JOIN users o ON o.id=mt.owner_id WHERE $w";
     $counts = DB::first("SELECT COALESCE(SUM(mt.status='to_sort'),0) AS sort, COALESCE(SUM(mt.status='linked' AND mt.reviewed_at IS NULL AND mt.summary_status IN ('done','failed')),0) AS review, COUNT(*) AS total FROM meeting_transcripts mt WHERE $w", $p);
-    $data = ['title' => 'Meetings', 'tab' => $tab, 'counts' => array_map('intval', $counts), 'manager' => MA::manager($u), 'ai' => Summarizer::available(), 'styles' => ['css/crm.css', 'css/meetings.css'], 'scripts' => ['js/meetings.js']] + $this->targets();
-    if ($tab === 'sort') {
+    $counts = array_map('intval', $counts);
+    $upcoming = Schedule::upcoming($u, null, null, 30);
+    $counts['upcoming'] = count($upcoming);
+    $tab = in_array($t = $this->request->str('tab'), self::TABS, true) ? $t : ($counts['sort'] + $counts['review'] ? 'sort' : 'upcoming');
+    $data = ['title' => 'Meetings', 'tab' => $tab, 'counts' => $counts, 'newDialog' => Ui::newDialog(['return' => 'meetings']), 'canPlan' => Schedule::canPlan($u), 'manager' => MA::manager($u), 'ai' => Summarizer::available(), 'styles' => ['css/crm.css', 'css/meetings.css'], 'scripts' => ['js/meetings.js']] + $this->targets();
+    if ($tab === 'upcoming') { $data['upcoming'] = $upcoming; $data['needsNotes'] = Schedule::needsNotes($u, 20); }
+    elseif ($tab === 'sort') {
       $data['toSort'] = DB::all("$sel AND mt.status='to_sort' ORDER BY mt.id DESC LIMIT 50", $p);
+      $data['planned'] = [];
+      if ($this->can('crm.clients.manage')) { foreach ($data['toSort'] as $r) { $data['planned'][(int) $r['id']] = Schedule::candidates($u, $r); } }
       $data['toReview'] = DB::all("$sel AND mt.status='linked' AND mt.reviewed_at IS NULL AND mt.summary_status IN ('done','failed') ORDER BY mt.id DESC LIMIT 30", $p); }
     elseif ($tab === 'recent') {
       $q = mb_substr($this->request->str('q'), 0, 100); $src = $this->request->str('source');
@@ -117,6 +123,15 @@ final class MeetingController extends Controller {
     $u = $this->user();
     $t = $this->editable($id);
     if ($t['status'] === 'linked' && $t['activity_id']) { $this->flash('This meeting is already logged.'); return $this->redirect('/meetings/'.$id); }
+    if ($aid = $this->request->int('activity_id')) {
+      $a = Schedule::find($aid);
+      if (!$a || !Schedule::canSee($u, $a) || !Schedule::canEdit($u, $a)) { throw new ValidationException(['client_id' => 'Choose one of your meetings.']); }
+      if ($a['transcript_id']) { throw new ValidationException(['client_id' => 'That meeting already has notes.']); }
+      MeetingService::link($t, $aid);
+      if ($t['summary_status'] === 'skipped') { MeetingService::fillBody(DB::find('meeting_transcripts', $id)); }
+      Audit::log('meetings.transcript.assign', 'meeting', $id, ['client_id' => $a['client_id'], 'project_id' => $a['project_id'], 'activity_id' => $aid, 'planned' => true]);
+      $this->flash('Notes attached to the meeting "'.$a['title'].'".');
+      return $this->redirect($this->request->str('return') === 'list' ? '/meetings?tab=sort' : '/meetings/'.$id); }
     $d = $this->validate(['client_id' => 'nullable|integer', 'project_id' => 'nullable|integer']);
     [$cid, $pid] = $this->target($d['client_id'] ?: null, $d['project_id'] ?: null, true);
     DB::update('meeting_transcripts', ['client_id' => $cid, 'project_id' => $pid, 'confidence' => 'high', 'reasons' => json_encode(['Sorted by '.$u['name']]), 'updated_at' => date('Y-m-d H:i:s')], 'id=?', [$id]);

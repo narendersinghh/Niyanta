@@ -1,7 +1,7 @@
 <?php
 namespace Modules\Hr\Controllers;
 use Core\{Audit, Controller, DB, Gate, Notify, Response, Settings, ValidationException};
-use Modules\Hr\Services\{HrAccess, LeaveService};
+use Modules\Hr\Services\{HrAccess, LeaveChanges, LeaveService};
 
 /** Leave requests, approvals, team calendar, balances and leave types. */
 final class LeaveController extends Controller {
@@ -16,13 +16,14 @@ final class LeaveController extends Controller {
     if (!$this->can('hr.leave.request')) { return $this->redirect('/hr/leave/approvals'); }
     $uid = $this->uid(); $year = (int) date('Y');
     $status = $this->request->str('status');
-    $sql = 'SELECT lr.*, t.name AS type_name, t.color, t.paid, r.name AS reviewer FROM leave_requests lr JOIN leave_types t ON t.id=lr.leave_type_id LEFT JOIN users r ON r.id=lr.reviewed_by WHERE lr.user_id=?';
+    $sql = 'SELECT lr.*, t.name AS type_name, t.color, t.paid, t.needs_approval, r.name AS reviewer FROM leave_requests lr JOIN leave_types t ON t.id=lr.leave_type_id LEFT JOIN users r ON r.id=lr.reviewed_by WHERE lr.user_id=?';
     $p = [$uid];
     if (in_array($status, ['pending', 'approved', 'rejected', 'cancelled'], true)) { $sql .= ' AND lr.status=?'; $p[] = $status; }
     $mgr = DB::first('SELECT m.name FROM users u JOIN users m ON m.id=u.manager_id WHERE u.id=?', [$uid]);
     $stats = DB::first("SELECT SUM(status='pending') AS pending, COALESCE(SUM(CASE WHEN status='approved' THEN days END),0) AS taken FROM leave_requests WHERE user_id=? AND start_date BETWEEN ? AND ?", [$uid, "$year-01-01", "$year-12-31"]);
     $next = DB::first("SELECT lr.start_date, lr.end_date, t.name AS type_name FROM leave_requests lr JOIN leave_types t ON t.id=lr.leave_type_id WHERE lr.user_id=? AND lr.status='approved' AND lr.end_date>=? ORDER BY lr.start_date LIMIT 1", [$uid, date('Y-m-d')]);
-    return $this->base('index', ['title' => 'Leave', 'year' => $year, 'balances' => LeaveService::balances($uid, $year), 'p' => DB::paginate($sql.' ORDER BY lr.start_date DESC, lr.id DESC', $p, 12), 'stats' => $stats, 'nextLeave' => $next,
+    $page = DB::paginate($sql.' ORDER BY lr.start_date DESC, lr.id DESC', $p, 12);
+    return $this->base('index', ['title' => 'Leave', 'year' => $year, 'balances' => LeaveService::balances($uid, $year), 'p' => $page, 'history' => LeaveChanges::history(array_column($page['items'], 'id')), 'today' => date('Y-m-d'), 'stats' => $stats, 'nextLeave' => $next,
       'manager' => $mgr['name'] ?? null, 'schedule' => LeaveService::scheduleFor($uid), 'optional' => LeaveService::optionalType(), 'paidType' => LeaveService::shortageType(), 'shortageOn' => \Core\Settings::bool('hr.leave.shortage_cover', true), 'upcoming' => DB::all('SELECT holiday_date, name, optional FROM holidays WHERE holiday_date>=? ORDER BY holiday_date LIMIT 4', [date('Y-m-d')])]); }
 
   /** JSON working-day preview for the request form. */
@@ -31,9 +32,11 @@ final class LeaveController extends Controller {
     if (!$this->isDate($from) || !$this->isDate($to) || $to < $from) { return $this->json(['days' => 0, 'note' => 'Choose a valid date range.']); }
     if ((strtotime($to) - strtotime($from)) / 86400 > 92) { return $this->json(['days' => 0, 'note' => 'Requests are limited to 3 months.']); }
     $hol = DB::column('SELECT name FROM holidays WHERE optional=0 AND holiday_date BETWEEN ? AND ? ORDER BY holiday_date', [$from, $to]);
-    $days = LeaveService::requestDaysFor($this->uid(), $from, $to, $half && $from === $to);
-    $sc = LeaveService::scheduleFor($this->uid()); $off = LeaveService::daysLabel($sc['off_days'], $sc['saturday']);
-    return $this->json(['days' => $days, 'note' => $days ? ($days == 1 ? '1 working day' : rtrim(rtrim(number_format($days, 1), '0'), '.').' working days').($hol ? ' (excludes '.implode(', ', $hol).')' : '') : 'No working days in this range, your weekly off: '.$off.'.']); }
+    $uid = $this->uid();
+    if (($for = $this->request->int('user')) && $for !== $uid) { $emp = DB::first('SELECT id AS user_id, manager_id FROM users WHERE id=?', [$for]); if ($emp && LeaveChanges::canManage($emp)) { $uid = $for; } }
+    $days = LeaveService::requestDaysFor($uid, $from, $to, $half && $from === $to);
+    $sc = LeaveService::scheduleFor($uid); $off = LeaveService::daysLabel($sc['off_days'], $sc['saturday']);
+    return $this->json(['days' => $days, 'note' => $days ? ($days == 1 ? '1 working day' : rtrim(rtrim(number_format($days, 1), '0'), '.').' working days').($hol ? ' (excludes '.implode(', ', $hol).')' : '') : 'No working days in this range, '.($uid === $this->uid() ? 'your' : 'their').' weekly off: '.$off.'.']); }
 
   private function isDate(string $v): bool { $d = \DateTime::createFromFormat('Y-m-d', $v); return $d && $d->format('Y-m-d') === $v; }
 
@@ -74,29 +77,93 @@ final class LeaveController extends Controller {
     $range = fdate($d['start_date']).($d['end_date'] !== $d['start_date'] ? ' – '.fdate($d['end_date']) : '').($d['half_day'] ? ' (half day)' : '');
     foreach (array_unique($to) as $u) { if ($u !== (int) $me['id']) { Notify::user($u, ($auto ? 'Leave booked by ' : 'Leave request from ').$me['name'], "$typeName · $range · $days day(s)".($d['reason'] ? "\nReason: ".$d['reason'] : ''), '/hr/leave/approvals', true, 'plane'); } } }
 
+  /** Employee: cancel an own pending request (or approved leave of a no-approval type before it starts). */
   public function cancel(int $id): Response {
-    $lr = $this->findOr404('leave_requests', $id);
-    if ((int) $lr['user_id'] !== $this->uid()) { $this->abort(403, 'You can only cancel your own requests.'); }
-    if (!DB::update('leave_requests', ['status' => 'cancelled'], "id=? AND status='pending'", [$id])) { $this->flash('Only pending requests can be cancelled.', 'error'); return $this->redirect('/hr/leave'); }
+    try { $msg = LeaveChanges::cancelOwn($id, $this->user()); }
+    catch (ValidationException $e) { $this->flash(current($e->errors) ?: 'This request cannot be cancelled.', 'error'); return $this->redirect('/hr/leave'); }
     Audit::log('hr.leave.cancel', 'leave_request', $id);
-    $this->flash('Leave request cancelled.');
+    $this->flash($msg);
     return $this->redirect('/hr/leave'); }
 
-  public function approvals(): Response {
+  /** Employee: ask the approver to cancel approved leave that has not started. */
+  public function requestCancel(int $id): Response {
+    try { LeaveChanges::requestCancel($id, $this->request->str('cancel_reason'), $this->user()); }
+    catch (ValidationException $e) { $this->flash(current($e->errors) ?: 'This leave cannot be cancelled.', 'error'); return $this->redirect('/hr/leave'); }
+    $this->flash('Cancellation requested. Your leave stays approved until your approver confirms.');
+    return $this->redirect('/hr/leave'); }
+
+  /** Approver: edit a pending or approved request (dates, half day, type, reason) with a required note. */
+  public function edit(int $id): Response {
+    $d = $this->validate(['leave_type_id' => 'required|integer', 'start_date' => 'required|date', 'end_date' => 'nullable|date', 'half_day' => 'boolean', 'reason' => 'nullable|max:1000', 'note' => 'required|max:500'], ['leave_type_id' => 'Leave type', 'start_date' => 'From date', 'end_date' => 'To date', 'note' => 'Note to the employee']);
+    $r = LeaveChanges::edit($id, $d, $d['note'], $this->user());
+    $this->flash('Leave of '.$r['lr']['name'].' updated: '.LeaveChanges::summary($r['changes']).'.');
+    return $this->back(); }
+
+  /** Approver: revoke approved leave (days return to the balance), note required. */
+  public function revoke(int $id): Response {
+    $d = $this->validate(['note' => 'required|max:500'], ['note' => 'Note to the employee']);
+    $lr = LeaveChanges::revoke($id, $d['note'], $this->user());
+    $this->flash('Leave of '.$lr['name'].' revoked. '.LeaveService::num($lr['days']).' day(s) returned to '.$lr['type_name'].'.');
+    return $this->back(); }
+
+  /** Approver: confirm or decline an employee's cancellation request. */
+  public function cancellation(int $id): Response {
+    $d = $this->validate(['decision' => 'required|in:approve,decline', 'note' => 'nullable|max:500']);
+    if ($d['decision'] === 'approve') { $lr = LeaveChanges::revoke($id, (string) $d['note'], $this->user(), 'cancel_approve'); $this->flash('Cancellation approved. '.LeaveService::num($lr['days']).' day(s) returned to '.$lr['name'].'.'); }
+    else { $lr = LeaveChanges::declineCancel($id, (string) $d['note'], $this->user()); $this->flash('Cancellation declined. The leave of '.$lr['name'].' stays approved.'); }
+    return $this->back(); }
+
+  /** Approver: book leave for an employee they approve (approved right away). */
+  public function onBehalf(): Response {
+    $d = $this->validate(['user_id' => 'required|integer', 'leave_type_id' => 'required|integer', 'start_date' => 'required|date', 'end_date' => 'nullable|date', 'half_day' => 'boolean', 'reason' => 'nullable|max:1000', 'note' => 'nullable|max:500'], ['user_id' => 'Employee', 'leave_type_id' => 'Leave type', 'start_date' => 'From date', 'end_date' => 'To date']);
+    $id = LeaveChanges::book((int) $d['user_id'], $d, $this->user());
+    $lr = LeaveChanges::find($id);
+    $this->flash(LeaveService::num($lr['days']).' day(s) of '.$lr['type_name'].' booked for '.$lr['name'].'. They have been notified.');
+    return $this->redirect('/hr/leave/approvals?status=approved'); }
+
+  /** Filters of the approvals list and its CSV export: status (incl. cancel = cancellation requested), person, type, date range. Returns [sql, params, filters]. */
+  private function listQuery(): array {
     [$w, $p] = HrAccess::reviewScope();
-    $status = $this->request->str('status', 'pending');
-    $q = $this->request->str('q');
-    $sql = "SELECT lr.*, u.name, u.avatar, u.designation, u.department, t.name AS type_name, t.color, t.paid, r.name AS reviewer FROM leave_requests lr JOIN users u ON u.id=lr.user_id JOIN leave_types t ON t.id=lr.leave_type_id LEFT JOIN users r ON r.id=lr.reviewed_by WHERE $w";
-    if (in_array($status, ['pending', 'approved', 'rejected', 'cancelled'], true)) { $sql .= ' AND lr.status=?'; $p[] = $status; }
-    if ($q !== '') { $sql .= ' AND u.name LIKE ?'; $p[] = DB::like($q); }
-    $page = DB::paginate($sql.($status === 'pending' ? ' ORDER BY lr.start_date, lr.id' : ' ORDER BY lr.id DESC'), $p, 15);
+    $f = ['status' => $this->request->str('status', 'pending'), 'q' => mb_substr($this->request->str('q'), 0, 100), 'user' => $this->request->int('user'), 'type' => $this->request->int('type'), 'from' => $this->request->str('from'), 'to' => $this->request->str('to')];
+    $sql = "SELECT lr.*, u.name, u.avatar, u.designation, u.department, u.employee_code, u.manager_id, t.name AS type_name, t.code, t.color, t.paid, r.name AS reviewer FROM leave_requests lr JOIN users u ON u.id=lr.user_id JOIN leave_types t ON t.id=lr.leave_type_id LEFT JOIN users r ON r.id=lr.reviewed_by WHERE $w";
+    if (in_array($f['status'], ['pending', 'approved', 'rejected', 'cancelled'], true)) { $sql .= ' AND lr.status=?'; $p[] = $f['status']; }
+    elseif ($f['status'] === 'cancel') { $sql .= " AND lr.status='approved' AND lr.cancel_requested_at IS NOT NULL"; }
+    else { $f['status'] = 'all'; }
+    if ($f['q'] !== '') { $sql .= ' AND (u.name LIKE ? OR u.employee_code LIKE ?)'; array_push($p, DB::like($f['q']), DB::like($f['q'])); }
+    if ($f['user']) { $sql .= ' AND lr.user_id=?'; $p[] = $f['user']; }
+    if ($f['type']) { $sql .= ' AND lr.leave_type_id=?'; $p[] = $f['type']; }
+    if (!$this->isDate($f['from'])) { $f['from'] = ''; }
+    if (!$this->isDate($f['to'])) { $f['to'] = ''; }
+    if ($f['from'] !== '') { $sql .= ' AND lr.end_date>=?'; $p[] = $f['from']; }
+    if ($f['to'] !== '') { $sql .= ' AND lr.start_date<=?'; $p[] = $f['to']; }
+    return [$sql.(in_array($f['status'], ['pending', 'cancel'], true) ? ' ORDER BY lr.start_date, lr.id' : ' ORDER BY lr.id DESC'), $p, $f]; }
+
+  /** CSV of the filtered approvals list (up to 5000 rows). */
+  public function export(): Response {
+    [$sql, $p, $f] = $this->listQuery();
+    $rows = DB::all($sql.' LIMIT 5000', $p);
+    $out = fopen('php://temp', 'w+');
+    $safe = static fn ($v) => is_string($v) && $v !== '' && strpbrk($v[0], "=+-@\t\r") !== false ? "'".$v : $v;
+    fputcsv($out, ['Employee', 'Employee code', 'Department', 'Leave type', 'From', 'To', 'Half day', 'Days', 'Status', 'Cancellation requested', 'Reason', 'Reviewed by', 'Reviewed at', 'Review note', 'Requested at'], ',', '"', '');
+    foreach ($rows as $r) { fputcsv($out, array_map($safe, [$r['name'], $r['employee_code'] ?? '', $r['department'] ?? '', $r['type_name'], $r['start_date'], $r['end_date'], (int) $r['half_day'] ? 'Yes' : 'No', LeaveService::num($r['days']), ucfirst($r['status']), $r['cancel_requested_at'] ? 'Yes' : '', (string) $r['reason'], (string) $r['reviewer'], (string) $r['reviewed_at'], (string) $r['review_note'], (string) $r['created_at']]), ',', '"', ''); }
+    rewind($out); $csv = (string) stream_get_contents($out); fclose($out);
+    Audit::log('hr.leave.export', 'leave_request', null, ['rows' => count($rows), 'filters' => array_filter($f)]);
+    return Response::download("\xEF\xBB\xBF".$csv, 'leave-'.($f['status'] ?: 'all').'-'.date('Ymd').'.csv', 'text/csv; charset=utf-8'); }
+
+  public function approvals(): Response {
+    [$sql, $p, $f] = $this->listQuery();
+    $page = DB::paginate($sql, $p, 15);
     $bal = [];
     if ($page['items']) {
       $uids = array_values(array_unique(array_map('intval', array_column($page['items'], 'user_id'))));
       foreach (DB::all('SELECT user_id, leave_type_id, year, allocated-used AS left_days FROM leave_balances WHERE user_id IN '.DB::in($uids), $uids) as $b) { $bal[$b['user_id'].'-'.$b['leave_type_id'].'-'.$b['year']] = (float) $b['left_days']; } }
     [$w2, $p2] = HrAccess::reviewScope();
-    $stats = DB::first("SELECT SUM(lr.status='approved' AND lr.reviewed_at>=?) AS approved, SUM(lr.status='rejected' AND lr.reviewed_at>=?) AS rejected, SUM(lr.status='approved' AND lr.start_date<=? AND lr.end_date>=?) AS out_today FROM leave_requests lr JOIN users u ON u.id=lr.user_id WHERE $w2", [date('Y-m-01'), date('Y-m-01'), date('Y-m-d'), date('Y-m-d'), ...$p2]);
-    return $this->base('approvals', ['title' => 'Leave approvals', 'p' => $page, 'status' => $status, 'bal' => $bal, 'all' => HrAccess::seesAllLeave(), 'stats' => $stats]); }
+    $stats = DB::first("SELECT SUM(lr.status='approved' AND lr.reviewed_at>=?) AS approved, SUM(lr.status='rejected' AND lr.reviewed_at>=?) AS rejected, SUM(lr.status='approved' AND lr.start_date<=? AND lr.end_date>=?) AS out_today, SUM(lr.status='approved' AND lr.cancel_requested_at IS NOT NULL) AS cancel_req FROM leave_requests lr JOIN users u ON u.id=lr.user_id WHERE $w2", [date('Y-m-01'), date('Y-m-01'), date('Y-m-d'), date('Y-m-d'), ...$p2]);
+    $all = HrAccess::seesAllLeave();
+    $people = $all ? DB::pairs("SELECT id, name FROM users WHERE status='active' AND id<>? ORDER BY name", [$this->uid()]) : DB::pairs("SELECT id, name FROM users WHERE status='active' AND manager_id=? AND id<>? ORDER BY name", [$this->uid(), $this->uid()]);
+    return $this->base('approvals', ['title' => 'Leave approvals', 'p' => $page, 'status' => $f['status'], 'f' => $f, 'bal' => $bal, 'all' => $all, 'stats' => $stats, 'people' => $people,
+      'types' => DB::all('SELECT id, name, code, color, paid, allow_half_day FROM leave_types WHERE active=1 ORDER BY paid DESC, id'), 'allTypes' => DB::pairs('SELECT id, name FROM leave_types ORDER BY active DESC, name'),
+      'history' => LeaveChanges::history(array_column($page['items'], 'id')), 'me' => $this->uid()]); }
 
   public function review(int $id): Response {
     $d = $this->validate(['decision' => 'required|in:approve,reject', 'review_note' => 'nullable|max:500'], ['review_note' => 'Note']);

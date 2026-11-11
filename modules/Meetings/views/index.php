@@ -1,14 +1,15 @@
 <?php
-use Modules\Meetings\Services\{Inbox, Recap, Ui};
-$tabs = ['sort' => ['To review / To sort', 'flag', $counts['sort'] + $counts['review']], 'recent' => ['Recent', 'history', null], 'connections' => ['Connections', 'link', null]];
+use Modules\Meetings\Services\{Inbox, Recap, Schedule, Ui};
+$tabs = ['upcoming' => ['Upcoming', 'calendar', $counts['upcoming']], 'sort' => ['To review / To sort', 'flag', $counts['sort'] + $counts['review']], 'recent' => ['Recent', 'history', null], 'connections' => ['Connections', 'link', null]];
 $canLog = can('crm.clients.manage');
 $when = static fn (array $r) => $r['meeting_at'] ? fdatetime($r['meeting_at']) : 'Added '.ago($r['created_at']);
 $src = static fn (array $r) => Recap::label($r['tool'], $r['source']);
-$actions = '<button type="button" class="btn primary" data-modal="mt-upload">'.icon('upload', 'sm').' Upload transcript</button>'.\Modules\Admin\Services\SettingsSchema::settingsLink('meetings');
+$actions = ($canPlan ? '<button type="button" class="btn ghost" data-modal="mt-upload">'.icon('upload', 'sm').' Upload transcript</button>'.Ui::newButton() : '<button type="button" class="btn primary" data-modal="mt-upload">'.icon('upload', 'sm').' Upload transcript</button>').\Modules\Admin\Services\SettingsSchema::settingsLink('meetings');
 ?>
 <div class="mt">
 <?= partial('partials/page_head', ['title' => 'Meetings', 'subtitle' => 'Transcripts and notes from any meeting platform become client logs, summarised by Goraiya. Niyanta never records audio.', 'actions' => $actions]) ?>
-<div class="grid g3 mb">
+<div class="grid g4 mb">
+  <a class="tile bg-sky" href="<?= e(url('/meetings?tab=upcoming')) ?>"><span class="tile-ic"><?= icon('calendar') ?></span><div><div class="num"><?= (int) $counts['upcoming'] ?></div><div class="lbl">Upcoming meetings</div></div></a>
   <a class="tile bg-lemon" href="<?= e(url('/meetings?tab=sort')) ?>"><span class="tile-ic"><?= icon('flag') ?></span><div><div class="num"><?= (int) $counts['sort'] ?></div><div class="lbl">To sort: pick a client or project</div></div></a>
   <a class="tile bg-lav" href="<?= e(url('/meetings?tab=sort#review')) ?>"><span class="tile-ic"><?= icon('sparkles') ?></span><div><div class="num"><?= (int) $counts['review'] ?></div><div class="lbl">Summaries to review</div></div></a>
   <a class="tile bg-mint" href="<?= e(url('/meetings?tab=recent')) ?>"><span class="tile-ic"><?= icon('message') ?></span><div><div class="num"><?= (int) $counts['total'] ?></div><div class="lbl">Meetings you can see</div></div></a>
@@ -16,7 +17,21 @@ $actions = '<button type="button" class="btn primary" data-modal="mt-upload">'.i
 <?php if (!$ai): ?><div class="alert info"><?= icon('info') ?><div>AI summaries are off or no AI model is set up, so transcripts are stored and attached to logs without a summary.<?= \Core\Auth::isSuperAdmin() ? ' <a href="'.e(url('/ai/settings')).'">Set up the AI assistant</a>.' : '' ?></div></div><?php endif ?>
 <nav class="tabs mb" aria-label="Meetings sections"><?php foreach ($tabs as $k => [$l, $ic, $n]): ?><a href="<?= e(url('/meetings?tab='.$k)) ?>" class="<?= $tab === $k ? 'active' : '' ?>"<?= $tab === $k ? ' aria-current="page"' : '' ?>><?= icon($ic, 'sm') ?> <?= e($l) ?><?php if ($n): ?> <span class="pill pill-lemon"><?= (int) $n ?></span><?php endif ?></a><?php endforeach ?></nav>
 
-<?php if ($tab === 'sort'): ?>
+<?php if ($tab === 'upcoming'): ?>
+<div class="grid g-main">
+  <section class="card">
+    <div class="card-head"><div><h3>Upcoming meetings</h3><p class="xs muted mb0">Planned meetings of your clients and projects, and the ones you are invited to.</p></div><?= $canPlan ? Ui::newButton([], 'btn sm soft') : '' ?></div>
+    <?= partial('meetings::partials/upcoming', ['rows' => $upcoming, 'plan' => $canPlan, 'compact' => false]) ?>
+  </section>
+  <section class="card">
+    <div class="card-head"><div><h3>Waiting for notes</h3><p class="xs muted mb0">Held in the last 30 days without a transcript or notes.</p></div><span class="crm-count"><?= count($needsNotes) ?></span></div>
+    <?php if (!$needsNotes): ?><p class="small muted mb0">All caught up.</p><?php else: ?>
+    <div class="list"><?php foreach ($needsNotes as $r): ?><div class="list-item"><span class="mt-ic"><?= icon('file-text', 'sm') ?></span><div class="grow"><a class="b small" href="<?= e(url('/meetings/event/'.(int) $r['id'])) ?>"><?= e($r['title']) ?></a><div class="meta"><?= e(fdate($r['occurred_at'], 'D d M')) ?>, <?= e(ftime($r['occurred_at'])) ?> · <?= e(Schedule::where($r)) ?></div></div><a class="btn sm soft" href="<?= e(url('/meetings/event/'.(int) $r['id'].'#notes')) ?>"><?= icon('plus', 'sm') ?> Add notes</a></div><?php endforeach ?></div>
+    <?php endif ?>
+  </section>
+</div>
+
+<?php elseif ($tab === 'sort'): ?>
 <div class="grid g-main">
   <section class="card">
     <div class="card-head"><div><h3>To sort</h3><p class="xs muted mb0">Notes that arrived without a certain client or project. Check the suggestion and save the log.</p></div><span class="crm-count"><?= count($toSort) ?></span></div>
@@ -26,10 +41,14 @@ $actions = '<button type="button" class="btn primary" data-modal="mt-upload">'.i
       <article class="mt-item">
         <div class="mt-item-h"><span class="mt-ic"><?= icon('message', 'sm') ?></span><div class="grow"><a class="b" href="<?= e(url('/meetings/'.$r['id'])) ?>"><?= e($r['title']) ?></a><div class="xs muted"><?= e($when($r)) ?> · <?= e($src($r)) ?><?= $r['owner_name'] ? ' · '.e($r['owner_name']) : '' ?><?= $r['duration_min'] ? ' · '.(int) $r['duration_min'].' min' : '' ?></div></div><?= Ui::confidence($r['confidence']) ?></div>
         <?php if ($r['client_name'] || $r['project_name'] || $why): ?><div class="mt-suggest"><?= icon('target', 'sm') ?> <span>Suggested: <b><?= e(implode(' › ', array_filter([$r['client_name'], $r['project_name']])) ?: 'nothing yet') ?></b><?= $why ? ' <span class="muted">('.e(implode('; ', $why)).')</span>' : '' ?></span></div><?php endif ?>
-        <?php if ($canLog): ?>
+        <?php if ($canLog): $plans = $planned[(int) $r['id']] ?? []; $sugg = implode(' › ', array_filter([$r['client_name'], $r['project_name']])); ?>
+        <?php if ($plans || $sugg): ?><div class="mt-quick"><span class="xs muted">Quick assign</span>
+          <?php foreach ($plans as $pl): ?><form method="post" action="<?= e(url('/meetings/'.$r['id'].'/assign')) ?>"><?= csrf_field() ?><input type="hidden" name="return" value="list"><input type="hidden" name="activity_id" value="<?= (int) $pl['id'] ?>"><button class="btn sm primary" title="Attach to this planned meeting"><?= icon('calendar', 'sm') ?> <?= e(str_limit($pl['title'], 32)) ?> · <?= e(fdate($pl['occurred_at'], 'd M')) ?> <?= e(ftime($pl['occurred_at'])) ?></button></form><?php endforeach ?>
+          <?php if ($sugg): ?><form method="post" action="<?= e(url('/meetings/'.$r['id'].'/assign')) ?>"><?= csrf_field() ?><input type="hidden" name="return" value="list"><input type="hidden" name="client_id" value="<?= (int) $r['client_id'] ?: '' ?>"><input type="hidden" name="project_id" value="<?= (int) $r['project_id'] ?: '' ?>"><button class="btn sm <?= $plans ? 'soft' : 'primary' ?>"><?= icon('check', 'sm') ?> Log on <?= e(str_limit($sugg, 40)) ?></button></form><?php endif ?>
+        </div><?php endif ?>
         <form method="post" action="<?= e(url('/meetings/'.$r['id'].'/assign')) ?>" class="mt-assign form" data-mt-assign><?= csrf_field() ?><input type="hidden" name="return" value="list">
           <div class="form-grid"><?= partial('meetings::partials/assign', ['clientOptions' => $clientOptions, 'projectRows' => $projectRows, 'selClient' => $r['client_id'], 'selProject' => $r['project_id'], 'prefix' => 'mt'.$r['id']]) ?></div>
-          <div class="flex wrap"><button class="btn sm primary"><?= icon('check', 'sm') ?> Save log</button><a class="btn sm ghost" href="<?= e(url('/meetings/'.$r['id'])) ?>"><?= icon('eye', 'sm') ?> Open</a></div>
+          <div class="flex wrap"><button class="btn sm <?= $plans || $sugg ? 'soft' : 'primary' ?>"><?= icon('check', 'sm') ?> Save log</button><a class="btn sm ghost" href="<?= e(url('/meetings/'.$r['id'])) ?>"><?= icon('eye', 'sm') ?> Open</a></div>
         </form>
         <form method="post" action="<?= e(url('/meetings/'.$r['id'].'/dismiss')) ?>" class="mt-dismiss"><?= csrf_field() ?><button class="btn sm ghost" title="Not a client meeting"><?= icon('x', 'sm') ?> Dismiss</button></form>
         <?php endif ?>
@@ -128,4 +147,5 @@ $actions = '<button type="button" class="btn primary" data-modal="mt-upload">'.i
     </div>
   </form>
 </dialog>
+<?= $newDialog ?>
 </div>

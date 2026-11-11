@@ -37,6 +37,7 @@ $moreMenu = Ui::more([
     <div class="crm-prof-acts">
       <?php if ($manage): ?><a class="btn ghost" href="<?= e(url($base.'/edit')) ?>"><?= icon('edit', 'sm') ?> Edit</a><?php endif ?>
       <?= $moreMenu ?>
+      <?php if ($manage && class_exists(\Modules\Meetings\Services\Ui::class)): ?><?= \Modules\Meetings\Services\Ui::newButton(['client_id' => $cid], 'btn soft') ?><?php endif ?>
       <?php if ($manage): ?><button type="button" class="btn primary" data-modal="activity-modal" data-activity-new><?= icon('plus', 'sm') ?> Log activity</button>
       <?php elseif ($finManage): ?><a class="btn primary" href="<?= e(url('/invoices/create?client_id='.$cid)) ?>"><?= icon('plus', 'sm') ?> New invoice</a><?php endif ?>
     </div>
@@ -127,6 +128,7 @@ $moreMenu = Ui::more([
       <div class="crm-legend"><span><i class="crm-ag-mint"></i><?= $pct ?>% collected</span><?php if ((int) $sum['overdue']): ?><span class="crm-late"><?= (int) $sum['overdue'] ?> overdue invoice<?= (int) $sum['overdue'] === 1 ? '' : 's' ?></span><?php endif ?></div>
     </div>
     <?php endif ?>
+    <?php if (class_exists(\Modules\Meetings\Services\Ui::class)): ?><?= \Modules\Meetings\Services\Ui::upcomingCard(['client_id' => $cid]) ?><?php endif ?>
     <div class="card">
       <div class="card-head"><h3>Upcoming follow-ups</h3><span class="crm-count"><?= $openFu ?></span></div>
       <?php if (!$followUps): ?><div class="list-item"><span class="crm-ic crm-c-lemon"><?= icon('clock', 'sm') ?></span><p class="small muted mb0">Nothing scheduled. Add a follow-up date when logging an activity.</p></div><?php else: ?>
@@ -247,6 +249,7 @@ $moreMenu = Ui::more([
 
 <?php if ($manage): ?>
 <?= partial('crm::partials/activity_modal', ['action' => $base.'/activities', 'projectOptions' => $projectOptions, 'clientId' => $cid]) ?>
+<?php if (class_exists(\Modules\Meetings\Services\Ui::class)): ?><?= \Modules\Meetings\Services\Ui::newDialog(['client_id' => $cid, 'return' => 'client']) ?><?php endif ?>
 <dialog class="modal" id="contact-modal">
   <form method="post" action="<?= e(url($base.'/contacts')) ?>" data-new-action="<?= e(url($base.'/contacts')) ?>" data-contact-form><?= csrf_field() ?>
     <div class="modal-head"><h3 data-modal-title data-new="Add contact" data-edit="Edit contact">Add contact</h3><button type="button" class="btn icon sm ghost" data-close aria-label="Close"><?= icon('x', 'sm') ?></button></div>

@@ -52,11 +52,17 @@ return [
     $r->post('/hr/checklists/{id}/move', [ChecklistController::class, 'move'], 'hr.employees.manage');
     $r->post('/hr/checklists/{id}/delete', [ChecklistController::class, 'destroy'], 'hr.employees.manage');
     $r->get('/hr/leave', [LeaveController::class, 'index'], $leave);
-    $r->get('/hr/leave/preview', [LeaveController::class, 'preview'], 'hr.leave.request');
+    $r->get('/hr/leave/preview', [LeaveController::class, 'preview'], $leave);
     $r->post('/hr/leave', [LeaveController::class, 'store'], ['perm' => 'hr.leave.request', 'throttle' => [20, 300]]);
     $r->post('/hr/leave/{id}/cancel', [LeaveController::class, 'cancel'], 'hr.leave.request');
     $r->get('/hr/leave/approvals', [LeaveController::class, 'approvals'], 'hr.leave.approve');
     $r->post('/hr/leave/{id}/review', [LeaveController::class, 'review'], 'hr.leave.approve');
+    $r->post('/hr/leave/{id}/edit', [LeaveController::class, 'edit'], 'hr.leave.approve');
+    $r->post('/hr/leave/{id}/revoke', [LeaveController::class, 'revoke'], 'hr.leave.approve');
+    $r->post('/hr/leave/{id}/cancellation', [LeaveController::class, 'cancellation'], 'hr.leave.approve');
+    $r->post('/hr/leave/{id}/cancel-request', [LeaveController::class, 'requestCancel'], ['perm' => 'hr.leave.request', 'throttle' => [20, 300]]);
+    $r->post('/hr/leave/on-behalf', [LeaveController::class, 'onBehalf'], ['perm' => 'hr.leave.approve', 'throttle' => [40, 300]]);
+    $r->get('/hr/leave/approvals/export', [LeaveController::class, 'export'], 'hr.leave.approve');
     $r->get('/hr/leave/calendar', [LeaveController::class, 'calendar'], $leave);
     $r->get('/hr/leave/balances', [LeaveController::class, 'balances'], 'hr.leave.manage');
     $r->post('/hr/leave/balances/allocate', [LeaveController::class, 'allocate'], 'hr.leave.manage');

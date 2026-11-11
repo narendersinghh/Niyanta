@@ -39,16 +39,17 @@ $vars = get_defined_vars();
       </div>
     </div>
   </div>
-  <?php if ($primary || $more): ?>
+  <?php $mtBtn = $logWrite && class_exists(\Modules\Meetings\Services\Ui::class) ? \Modules\Meetings\Services\Ui::newButton(['client_id' => $pr['client_id'] ? (int) $pr['client_id'] : null, 'project_id' => $id], $primary ? 'btn soft' : 'btn primary') : ''; ?>
+  <?php if ($primary || $more || $mtBtn): ?>
   <div class="head-actions">
-    <?= $primary ?>
+    <?= $mtBtn ?><?= $primary ?>
     <?php if ($more): ?><details class="dd"><summary class="btn ghost more-btn" aria-label="More project actions" title="More actions"><?= icon('more') ?></summary><div class="dd-menu"><?= $more ?></div></details><?php endif ?>
   </div>
   <?php endif ?>
 </header>
 <div class="tabs-wrap"><nav class="tabs" aria-label="Project sections"><?php foreach ($tabs as $k => [$l, $ic, $n]): ?><a href="<?= e(url('/projects/'.$id.'?tab='.$k)) ?>" class="<?= $tab === $k ? 'active' : '' ?>"<?= $tab === $k ? ' aria-current="page"' : '' ?>><?= icon($ic, 'sm') ?> <?= e($l) ?><?php if ($n): ?><span class="tab-n<?= $k === 'changes' ? ' hot' : '' ?>"><?= (int) $n ?></span><?php endif ?></a><?php endforeach ?></nav></div>
 <?= partial('projects::projects/tabs/'.$tab, $vars) ?>
-<?php if ($logWrite): ?><div class="crm"><?= partial('crm::partials/activity_modal', ['action' => '/projects/'.$id.'/activities', 'fixedProject' => ['id' => $id, 'name' => $pr['name']], 'clientId' => $pr['client_id'] ? (int) $pr['client_id'] : null]) ?></div><?php endif ?>
+<?php if ($logWrite): ?><div class="crm"><?= partial('crm::partials/activity_modal', ['action' => '/projects/'.$id.'/activities', 'fixedProject' => ['id' => $id, 'name' => $pr['name']], 'clientId' => $pr['client_id'] ? (int) $pr['client_id'] : null]) ?></div><?= class_exists(\Modules\Meetings\Services\Ui::class) ? \Modules\Meetings\Services\Ui::newDialog(['client_id' => $pr['client_id'] ? (int) $pr['client_id'] : null, 'project_id' => $id, 'return' => 'project']) : '' ?><?php endif ?>
 <?php if ($canTasks && $taskTab): ?>
 <?= partial('partials/task_dialog', ['project' => $id, 'return' => '/projects/'.$id.'?'.(($q = (string) ($_SERVER['QUERY_STRING'] ?? '')) !== '' ? $q : 'tab='.$tab)]) ?>
 <?php endif ?>

@@ -1,5 +1,5 @@
 <?php use Modules\Hr\Services\LeaveService as LS;
-$kindPill = ['opening' => 'gray', 'allocation' => 'mint', 'accrual' => 'mint', 'adjustment' => 'lav', 'usage' => 'peach', 'carry_forward' => 'sky', 'expiry' => 'red', 'shortage' => 'lemon'];
+$kindPill = ['opening' => 'gray', 'allocation' => 'mint', 'accrual' => 'mint', 'adjustment' => 'lav', 'usage' => 'peach', 'carry_forward' => 'sky', 'expiry' => 'red', 'shortage' => 'lemon', 'reversal' => 'mint'];
 $q = static fn (array $x) => url('/hr/leave/ledger').'?'.http_build_query(array_filter($x + ['user' => $manage && !$self ? $emp['id'] : null, 'year' => $year, 'type' => $typeId], static fn ($v) => $v !== null && $v !== ''));
 $paid = array_values(array_filter($balances, static fn ($b) => (int) $b['paid'] === 1));
 ?>

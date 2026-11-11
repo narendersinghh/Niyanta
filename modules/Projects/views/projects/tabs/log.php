@@ -4,6 +4,7 @@ $base = '/projects/'.(int) $pr['id'];
 $mt = feature_on('meetings') && can('meetings.use') && class_exists(\Modules\Meetings\Services\Ui::class);
 ?>
 <div class="crm">
+<?php if ($mt && $canLog): ?><?= \Modules\Meetings\Services\Ui::upcomingCard(['client_id' => $pr['client_id'] ? (int) $pr['client_id'] : null, 'project_id' => (int) $pr['id']]) ?><?php endif ?>
 <div class="card">
   <div class="card-head"><div><h3>Client log</h3><p class="xs muted mb0"><?= $clientLabel ? 'Meetings, calls and requirements with <a href="'.e(url('/clients/'.(int) $pr['client_id'])).'">'.e($clientLabel).'</a> for this project. They also show on the client\'s Journey.' : 'Internal project: meetings, calls and decisions for this project.' ?></p></div>
     <?php if ($canLog): ?><button type="button" class="btn primary sm" data-modal="activity-modal" data-activity-new><?= icon('plus', 'sm') ?> Log activity</button><?php endif ?></div>

@@ -59,3 +59,53 @@
 .mt-tools{margin:0;padding-left:18px;display:grid;gap:8px}
 .mt-drop-log ul{margin:6px 0 0;padding-left:16px;display:grid;gap:3px}
 @media (max-width:560px){.mt-dismiss{margin-top:0;justify-self:start}.mt-addr code{width:100%}}
+/* New meeting dialog, upcoming lists, meeting page, quick assign */
+dialog.mt-plan{width:min(720px,calc(100vw - 24px));max-height:calc(100dvh - 32px)}
+.mt-plan-form{margin:0}
+.mt-plan .modal-head p{margin-top:2px}
+
+.mt-plan .form-grid{align-items:start}
+.mt-fixed{display:flex;align-items:center;gap:6px;min-height:42px;padding:9px 14px;border-radius:12px;background:var(--surface-2);border:1px solid var(--border);font-weight:600;font-size:.88rem}
+.mt-fixed .ic{width:14px;height:14px;color:var(--primary)}
+.mt-find{margin-bottom:6px;border-radius:99px!important;padding:7px 14px!important;font-size:.82rem}
+.mt-find.sm{margin:0 0 0 auto;width:130px;padding:4px 12px!important;font-size:.76rem}
+.mt-people{border:1px solid var(--border);border-radius:16px;padding:10px 12px 12px;margin:0;min-width:0}
+.mt-people legend{font-size:.82rem;font-weight:650;padding:0 6px}
+.mt-people-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.mt-people-h{display:flex;align-items:center;gap:6px;font-size:.78rem;font-weight:700;color:var(--muted);margin-bottom:6px;min-height:28px}
+.mt-people-h .ic{width:13px;height:13px}
+.mt-pick{display:flex;flex-direction:column;gap:2px;max-height:150px;overflow:auto;overscroll-behavior:contain;padding-right:4px}
+.mt-chk{display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:10px;font-size:.84rem;cursor:pointer}
+.mt-chk:hover{background:var(--surface-2)}
+.mt-chk:has(input:checked){background:var(--lav-s);color:var(--lav-d);font-weight:600}
+.mt-chk input{accent-color:var(--primary);flex:none}
+.mt-chk small{font-weight:500}
+.mt-chk[hidden],.mt-none[hidden]{display:none}
+.mt-none{margin:4px 8px}
+.mt-later{align-items:flex-start;padding:10px 12px;border-radius:14px;background:var(--surface-2);margin-top:22px}
+.mt-later input{margin-top:3px;accent-color:var(--primary)}
+.mt-later span{display:flex;flex-direction:column;gap:2px;font-size:.84rem}
+.mt-later small{font-size:.74rem;font-weight:500}
+.mt-up{display:grid;gap:8px}
+.mt-up-item{display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--border);border-radius:14px;color:var(--text);text-decoration:none;background:var(--surface)}
+.mt-up-item:hover{border-color:color-mix(in srgb,var(--primary) 45%,var(--border))}
+.mt-up-item .grow{display:flex;flex-direction:column;gap:2px;min-width:0}
+.mt-up-item b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mt-up-item .meta{font-size:.76rem;color:var(--muted);display:flex;align-items:center;gap:3px;flex-wrap:wrap}
+.mt-up-item .meta .ic{width:12px;height:12px}
+.mt-up-date{width:44px;height:48px;border-radius:12px;flex:none;display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1.1;background:var(--sky-s);color:var(--sky-d)}
+.mt-up-date b{font-size:1.05rem}.mt-up-date small{font-size:.66rem;font-weight:700;text-transform:uppercase}
+.mt-up-card{margin-bottom:16px}
+.crm .mt-up-card .card-head,.mt-up-card .card-head{margin-bottom:10px}
+.mt-quick{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.mt-quick form{margin:0}
+.mt-quick .btn{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mt-kv dd a{font-weight:600}
+.mt-sub{margin:14px 0 4px;font-size:.86rem}
+.mt-body{white-space:normal;margin:0 0 10px}
+@media (max-width:640px){.mt-people-grid{grid-template-columns:1fr}dialog.mt-plan{width:100vw;max-width:100vw;max-height:100dvh;margin:0;border-radius:0;height:100dvh}.mt-later{margin-top:0}.mt-up-item b{white-space:normal}}
+.mt-lrow{display:flex;align-items:center;gap:8px;min-height:30px;margin-bottom:6px}
+.mt-lrow label,.mt-lrow .lbl{font-size:.82rem;font-weight:650;color:var(--text);margin:0}
+.mt-up-n{display:inline-flex;align-items:center;gap:4px;flex:none;font-size:.76rem;font-weight:650;color:var(--muted)}
+.mt-up-n .ic{width:13px;height:13px}
+@media (max-width:640px){.mt-plan .modal-body{max-height:calc(100dvh - 96px)}}

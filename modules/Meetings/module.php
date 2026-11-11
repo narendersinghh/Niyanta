@@ -1,5 +1,5 @@
 <?php
-use Modules\Meetings\Controllers\MeetingController;
+use Modules\Meetings\Controllers\{MeetingController, PlanController};
 use Modules\Meetings\Services\{Fireflies, Inbox, MeetingAccess, MeetingService, Summarizer};
 
 return [
@@ -22,6 +22,12 @@ return [
     $r->post('/meetings/connections/fireflies/delete', [MeetingController::class, 'deleteFireflies'], $u);
     $r->post('/meetings/connections/fireflies/fetch', [MeetingController::class, 'fetchFireflies'], ['perm' => $u, 'throttle' => [6, 300]]);
     $r->post('/meetings/inbox/check', [MeetingController::class, 'checkInbox'], ['perm' => 'meetings.manage', 'throttle' => [6, 300]]);
+    $r->post('/meetings/new', [PlanController::class, 'store'], ['perm' => $u, 'throttle' => [40, 300]]);
+    /* attendees without meetings.use still open the meeting they were invited to (checked in the controller) */
+    $r->get('/meetings/event/{id}', [PlanController::class, 'show'], ['feature' => 'meetings']);
+    $r->post('/meetings/event/{id}', [PlanController::class, 'update'], $u);
+    $r->post('/meetings/event/{id}/cancel', [PlanController::class, 'cancel'], $u);
+    $r->post('/meetings/event/{id}/notes', [PlanController::class, 'notes'], ['perm' => $u, 'throttle' => [30, 300]]);
     $r->get('/meetings/{id}', [MeetingController::class, 'show'], $u);
     $r->post('/meetings/{id}/assign', [MeetingController::class, 'assign'], $u);
     $r->post('/meetings/{id}/dismiss', [MeetingController::class, 'dismiss'], $u);
