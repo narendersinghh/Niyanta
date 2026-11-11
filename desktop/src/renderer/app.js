@@ -99,6 +99,7 @@
     renderMeeting(st);
     renderBanners(st);
     setHtml('update-slot', updateCard());
+    revealNotices();
     document.querySelectorAll('[data-pc]').forEach(el => { el.style.width = el.dataset.pc + '%'; });
     renderMonitoring();
     const sync = $('sync');
@@ -165,6 +166,15 @@
     if (ui.monitoring && ui.settings.screenshots_enabled && ui.consent && ui.consent.given && ui.monitoring.permission === 'denied' && !dis.permission) b.push(banner('error', 'Screenshots need the <b>Screen Recording</b> permission.', '<button class="btn" data-open="permissions">Open settings</button>', 'permission'));
     if (ui.consent && ui.consent.needed && st.state === 'tracking' && modalKind !== 'consent' && !dis.consent) b.push(banner('warn', 'Screen monitoring is on in your workspace. Please review the notice.', '<button class="btn" data-consent>Review</button>', 'consent'));
     setHtml('banners', b.join('')); }
+
+  /* A notice that appears while Settings is open (e.g. after Check for updates) would be hidden behind the drawer: close
+     the drawer so it is seen. Keys are the notices' text without numbers, so a ticking countdown or progress is not "new". */
+  let noticeKeys = null;
+  function revealNotices() {
+    const keys = [...document.querySelectorAll('#banners .alert, #update-slot .upd-head')].map(el => el.textContent.replace(/\d+/g, '#').replace(/\s+/g, ' ').trim().slice(0, 80));
+    const fresh = noticeKeys !== null && keys.some(k => !noticeKeys.includes(k));
+    noticeKeys = keys;
+    if (fresh && !$('sheet').classList.contains('hide')) closeSheet(); }
 
   const BUSY = ['downloading', 'verifying', 'ready', 'installing'];
   /** Short steps after the installer was saved to Downloads (fallback, .deb, development builds). */

@@ -125,6 +125,9 @@ const st = badge.onIcon(icon, 100, 100);
 eq(px(st, 100, 10, 10), [0x40, 0x40, 0x40, 0x40], 'icon untouched away from the dot');
 eq(px(st, 100, 79, 79), [0xA0, 0xB5, 0x12, 255], 'dot in the lower right corner');
 
+{ const appJs = require('fs').readFileSync(path.join(root, 'src', 'renderer', 'app.js'), 'utf8');
+  ok(/function revealNotices\(\)[\s\S]{0,600}closeSheet\(\)/.test(appJs) && /setHtml\('update-slot', updateCard\(\)\);\s*revealNotices\(\);/.test(appJs), 'a new notice closes the Settings drawer so it is seen'); }
+
 /* ---------- activity from the system idle time, the same on every platform ---------- */
 /*
  * The real Activity class (src/main/activity.js) with powerMonitor stubbed: getSystemIdleTime() (whole seconds) driven by a
