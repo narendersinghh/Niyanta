@@ -656,9 +656,12 @@ class Tracker extends EventEmitter {
     try { shots = await capture().captureAll({ thumb: notify }); }
     catch (e) {
       this.permission = capture().screenPermission();
+      /* macOS says "granted" but capture fails: the permission belongs to an older signature of the app (see capture.js) */
+      this.captureStale = process.platform === 'darwin' && this.permission === 'granted';
       if (Date.now() - this.lastCaptureError > 10 * 60000) { this.lastCaptureError = Date.now(); this.report('capture', e, { permission: this.permission, displays: require('electron').screen.getAllDisplays().length }); }
       this.changed();
       return; }
+    this.captureStale = false;
     const at = new Date().toISOString();
     for (const s of shots) this.queue.addScreenshot(s.jpeg, { activity_pct: activity, meeting: slot.meeting ? 1 : 0, display: s.index, captured_at: at });
     if (notify && this.notifyOn()) { toast().show({ title: 'Screenshot taken', body: `${shots.length > 1 ? shots.length + ' screens · ' : ''}${clock(Date.now())} · ${slot.meeting ? 'meeting' : 'activity ' + activity + '%'}`, thumb: shots[0].thumb }); }
@@ -912,7 +915,7 @@ class Tracker extends EventEmitter {
       dayActivity: this.dayAct && this.dayAct.day === this.dayKey() && this.dayAct.tracked ? Math.round(100 * this.dayAct.active / this.dayAct.tracked) : null,
       projectsEnabled: !!this.settings.projects_enabled, projects: this.boot ? this.boot.projects : [], projectsRev: this.boot ? this.projectsRev || 0 : -2, selection: this.selection,
       settings: this.settings, consent: this.boot ? { given: !!this.boot.consent, needed: this.consentNeeded(), policy: this.boot.policy } : null,
-      monitoring: { on: !!this.settings.screenshots_enabled && !!(this.boot && this.boot.consent), interval: this.settings.screenshot_interval_seconds, permission: this.permission },
+      monitoring: { on: !!this.settings.screenshots_enabled && !!(this.boot && this.boot.consent), interval: this.settings.screenshot_interval_seconds, permission: this.captureStale && this.permission === 'granted' ? 'stale' : this.permission },
       idlePause: this.idlePause, activity: { source: this.activity.source, slot: this.slotPct(), last: this.lastSlot }, update: this.updateUi(),
       tracking: st === 'tracking' && !idle, idleSince: idle ? this.idleFrom : null,
       prefs: { launchAtLogin: store.get('launchAtLogin', true), notify: this.notifyOn(), notifyAllowed: this.notifyChoice(), tone: store.get('alertTone', true), tokenProtected: store.tokenProtected() },

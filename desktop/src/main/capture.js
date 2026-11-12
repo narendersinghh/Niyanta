@@ -17,6 +17,16 @@ function screenPermission() {
   if (process.platform !== 'darwin') return 'granted';
   try { return systemPreferences.getMediaAccessStatus('screen'); } catch (e) { return 'unknown'; } }
 
+/**
+ * macOS ties the Screen Recording permission to the app's code signature. Builds without an Apple Developer ID are signed
+ * ad hoc, so every update has a new signature: the switch in System Settings can stay on while macOS no longer applies it
+ * to this version. Resetting the app's own entry (tccutil, no admin rights) makes macOS ask again for the current version.
+ */
+const BUNDLE_ID = 'app.niyanta.tracker';
+function resetPermission() {
+  if (process.platform !== 'darwin') return Promise.resolve(false);
+  return new Promise(res => require('child_process').execFile('/usr/bin/tccutil', ['reset', 'ScreenCapture', BUNDLE_ID], { timeout: 10000 }, err => res(!err))); }
+
 function openPermissionSettings() {
   if (process.platform === 'darwin') return shell.openExternal(SETTINGS_PANE);
   return Promise.resolve(); }
@@ -42,4 +52,4 @@ async function captureAll({ thumb = true } = {}) {
   if (!out.length) throw new Error('Screen capture returned empty images (permission missing?)');
   return out; }
 
-module.exports = { captureAll, screenPermission, openPermissionSettings, MAX_DISPLAYS };
+module.exports = { resetPermission, BUNDLE_ID, captureAll, screenPermission, openPermissionSettings, MAX_DISPLAYS };

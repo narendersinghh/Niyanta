@@ -332,6 +332,12 @@ function openTarget(what) {
   const base = (ws && ws.url) || store.get('workspaceUrl');
   const urls = { web: base, time: ws && ws.time_page, screenshots: ws && ws.screenshots_page, download: (tracker.update && tracker.update.url) || (ws && ws.time_page ? ws.time_page + '#desktop' : null) };
   if (what === 'permissions') return capture().openPermissionSettings();
+  /* macOS kept an old Screen Recording entry (unsigned builds get a new signature with each update): clear it and restart,
+     so macOS asks again for this version on the next capture. Packaged macOS builds only. */
+  if (what === 'fix-permission') {
+    if (process.platform !== 'darwin' || !app.isPackaged) return false;
+    capture().resetPermission().then(ok => { errors.log(`screen permission reset: ${ok ? 'ok' : 'failed'}`); app.relaunch(); app.quit(); });
+    return true; }
   if (what === 'logs') return shell.showItemInFolder(errors.logFile());
   const url = urls[what];
   if (!guard.allowedLink(url, tracker.api.base || base)) { if (url) errors.log(`open: refused link outside the workspace (${what})`); return false; }
