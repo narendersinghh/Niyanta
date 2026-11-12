@@ -8,6 +8,9 @@
  *   quit (durable pause written to disk before the app exits), system shutdown, sleep (closed where the sleep began, on
  *   every platform, also without the suspend event), wake-up behind the lock screen, sign-out with a busy queue, idle
  *   auto-pause, locked screen where the system idle time stays 0, meeting mode and the pomodoro break.
+ * Two computers, one login: the computer that does not run the entry (state running.here = false) never samples activity,
+ * sends heartbeats or activity, captures, auto-pauses or turns meeting mode on, shows no timer; Start asks and takes over;
+ * the computer that was tracking stops locally on the first answer that says the entry moved; offline queues stay right.
  */
 const fs = require('fs');
 const os = require('os');
@@ -32,17 +35,17 @@ const flush = async () => { for (let i = 0; i < 8; i++) await wait(0); await wai
 
 /* ---------- stubs ---------- */
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ny-tracker-'));
-const sys = { idle: 0, locked: false };
+const sys = { idle: 0, locked: false, captures: 0 };
 const memStore = {};
 const store = { get: (k, d) => (memStore[k] === undefined ? d : memStore[k]), set: (k, v) => { if (v === undefined) delete memStore[k]; else memStore[k] = JSON.parse(JSON.stringify(v)); }, getToken: () => memStore.token || null, setToken: t => { memStore.token = t; }, tokenProtected: () => true, getQueueKey: () => Buffer.alloc(32, 7), resetQueueKey: () => {} };
 class Updater extends EventEmitter { constructor() { super(); this.state = {}; this.auto = false; } configure() {} check() {} }
 const stubs = {
   electron: { app: { getPath: () => tmp, getVersion: () => '1.4.1' }, powerMonitor: { getSystemIdleTime: () => sys.idle, getSystemIdleState: () => (sys.locked ? 'locked' : 'active') }, screen: { getAllDisplays: () => [] } },
-  './store': store, './capture': { screenPermission: () => 'granted', captureAll: async () => [] }, './toast': { show() {} },
+  './store': store, './capture': { screenPermission: () => 'granted', captureAll: async () => { sys.captures++; return []; } }, './toast': { show() {} },
   './updater': { Updater }, './selfupdate': { cmpVersion: () => 0, macAppPath: () => null }, './errors': { log() {}, report() {} } };
 class ApiError extends Error { constructor(m, status, body) { super(m); this.status = status || 0; this.body = body || {}; this.offline = !status; } get retryable() { return this.offline || this.status >= 500; } }
 /* the server: records every request; offline / failing paths answer like the network or a 500 would */
-const server = { online: true, fail: new Set(), log: [], state: null };
+const server = { online: true, fail: new Set(), log: [], state: null, answer: null };
 class Api {
   constructor() { this.base = 'https://ws.test'; this.token = null; }
   configure(b, t) { this.base = b; this.token = t; }
@@ -50,7 +53,8 @@ class Api {
     if (!server.online) throw new ApiError('offline', 0);
     if (server.fail.has(p)) throw new ApiError('server error', 500);
     server.log.push({ path: p, json: o.json ? JSON.parse(JSON.stringify(o.json)) : null, sentAt: clock });
-    return { ok: true, state: server.state ? JSON.parse(JSON.stringify(server.state)) : undefined }; }
+    const st = server.answer ? server.answer(p, o.json) : server.state;
+    return { ok: true, state: st ? JSON.parse(JSON.stringify(st)) : undefined }; }
   get(p, o) { return this.request('GET', p, o); }
   post(p, json, o = {}) { return this.request('POST', p, Object.assign({}, o, { json })); } }
 stubs['./api'] = { Api, ApiError };
@@ -60,7 +64,7 @@ Module._load = function (req, parent, ...rest) {
   if (parent && parent.filename && parent.filename.startsWith(path.join(root, 'src', 'main')) && stubs[req] && req !== 'electron') return stubs[req];
   return load.call(this, req, parent, ...rest); };
 const { Tracker, UPDATE_EVERY_MS } = require(path.join(root, 'src', 'main', 'tracker.js'));
-Module._load = load;
+/* the stubs stay in place: tracker.js loads capture.js and toast.js on first use (the first screenshot) */
 
 /* ---------- helpers ---------- */
 function tracking(t, since = clock - 1800000) {
@@ -72,7 +76,7 @@ let prev = null;
 function make(settings = {}) {
   /* the previous scenario's tracker is silenced (its queue would send into this one) */
   if (prev) { prev.stop(); prev.queue.paused = true; clearTimeout(prev.queue.timer); clearTimeout(prev._autoResume); }
-  server.online = true; server.fail = new Set(); server.log = []; server.state = null; sys.idle = 0; sys.locked = false;
+  server.online = true; server.fail = new Set(); server.log = []; server.state = null; server.answer = null; sys.idle = 0; sys.locked = false; sys.captures = 0;
   for (const k of Object.keys(memStore)) delete memStore[k];
   try { fs.rmSync(path.join(tmp, 'queue.json'), { force: true }); } catch (e) { /* none */ }
   const t = new Tracker(() => {});
@@ -232,10 +236,68 @@ async function main() {
   ok(!t.updateCheckDue(clock + 60000) && t.updateCheckDue(clock + 15 * 60000), 'after unlock or wake: skipped when the last check is less than 15 minutes old');
   await t.checkUpdates(true); await flush();
   eq(versions(), 3, 'Check for updates in Settings is immediate');
+  t.stop();
+
+  /* 13. two computers, one login: B (the entry runs on "Office PC") is read-only and sends nothing */
+  const shots = { screenshots_enabled: true, screenshot_interval_seconds: 60, auto_pause_on_lock: true };
+  const remoteSt = (device = 'Office PC', since = clock - 1800000) => { const st = { state: 'tracking', label: 'Tracking', server_time: iso(clock), day: { date: '2026-11-09', clock_in: iso(since), clock_out: null, paused_since: null },
+    running: { id: 9, started_at: iso(since), elapsed: Math.round((clock - since) / 1000), idle_seconds: 0, project_id: 3, task_id: 4, project: 'Alpha', device, here: false }, last: null,
+    totals: { tracked: 7200, active: 7000, idle: 200, paused: 0, entries: 3 } }; return st; };
+  const hereSt = () => { const st = remoteSt(os.hostname(), clock); st.running.here = true; st.running.elapsed = 0; return st; };
+  const sent = (...paths) => server.log.filter(r => paths.includes(r.path));
+  t = make(shots); t.boot.consent = { policy_version: 'x' };
+  server.state = remoteSt(); t.setSnap(server.state);
+  let samples = 0; const sample = t.activity.sample.bind(t.activity); t.activity.sample = (...a) => { samples++; return sample(...a); };
+  eq([t.state, t.remote, t.ui().remote && t.ui().remote.device, t.ui().tracking], ['remote', true, 'Office PC', false], 'B: remote, read-only');
+  c0 = counter(t);
+  eq([c0.kind, c0.ticking, c0.seconds, c0.label], ['remote', false, 7200 - 1800, 'Not tracking'], 'B: no timer of the other computer (frozen, without its session)');
+  run(t, 600); run(t, 20 * 60, false); await flush();
+  eq([counter(t).seconds, samples, sys.captures, sent('heartbeat', 'activity', 'screenshot', 'pause', 'resume', 'day/start').length], [c0.seconds, 0, 0, 0], 'B, 30 minutes (input, then idle): no sampling, heartbeats, activity, captures or idle pause');
+  sys.locked = true; t.onPower('lock-screen'); t.onPower('suspend'); clock += 3600000; t.tick(); t.onPower('resume'); sys.locked = false; t.onPower('unlock-screen'); await wait(600); await flush();
+  await t.beforeQuit(100); t.onShutdown(); await flush();
+  eq([t.state, sent('pause', 'resume', 'heartbeat').length], ['remote', 0], 'B: lock, sleep, quit and shutdown send nothing');
+  eq([(await t.setMeeting(true)).ok, t.meeting], [false, null], 'B: meeting mode stays off');
+  let r = await t.action('start', {}); await flush();
+  eq([r.ok, r.remote && r.remote.device, sent('day/start').length], [false, 'Office PC', 0], 'B: Start is not sent, the window asks first');
+  /* takeover: the server moves the entry here; B tracks from now on */
+  server.answer = p => (p === 'takeover' ? (server.state = hereSt()) : server.state);
+  r = await t.takeover(); await flush();
+  eq([r.ok, t.state, t.selection, sent('takeover').length], [true, 'tracking', { project_id: 3, task_id: 4 }, 1], 'Track on this computer instead: tracking here on the same project');
+  samples = 0; run(t, 130); await flush();
+  ok(samples >= 120 && sent('heartbeat').reduce((n, x) => n + x.json.active_seconds + x.json.idle_seconds, 0) >= 100 && sent('activity').length >= 1 && sys.captures >= 1, `B tracks after the takeover (samples ${samples}, beats ${JSON.stringify(sent('heartbeat').map(x => x.json.active_seconds))}, captures ${sys.captures})`);
+  t.stop();
+
+  /* 14. A was tracking: the first answer that says the entry moved stops it locally, and it stays quiet afterwards */
+  t = make(shots); t.boot.consent = { policy_version: 'x' };
+  run(t, 30); await t.setMeeting(true); run(t, 20);
+  server.answer = p => (p === 'heartbeat' ? remoteSt('Home laptop') : null);
+  run(t, 15); await flush();
+  eq([t.state, t.meeting, t.notice && t.notice.text], ['remote', null, 'Tracking moved to Home laptop. This computer stopped tracking.'], 'A: moved away, meeting off, told');
+  const mark = server.log.length, caps = sys.captures;
+  run(t, 600); run(t, 20 * 60, false); await t.beforeQuit(100); await flush();
+  eq([server.log.slice(mark).map(x => x.path), sys.captures - caps], [[], 0], 'A: nothing sent or captured after the move (no heartbeat, activity, screenshot, idle or quit pause)');
+  t.stop();
+
+  /* 15. offline: B's Pause (wherever it runs) is queued with anywhere and replayed; A replays its queued beats and stops on the answer */
+  t = make(); server.state = remoteSt(); t.setSnap(server.state);
+  server.online = false;
+  r = await t.pauseRemote(); await flush();
+  eq([r.ok, r.queued, t.state, onDisk().filter(j => j.path === 'pause').map(j => j.json.anywhere)], [true, true, 'paused', [true]], 'B offline: Pause queued with anywhere');
+  server.online = true; t.queue.kick(0); await flush();
+  eq(sent('pause').map(x => x.json.anywhere), [true], 'replayed with anywhere');
+  t.stop();
+  t = make(); run(t, 10);
+  server.online = false; run(t, 130); await flush();
+  ok(t.queue.jobs.some(j => j.type === 'heartbeat') && t.state === 'tracking', 'A offline: heartbeats queued, still tracking');
+  server.answer = p => (p === 'heartbeat' ? remoteSt('Home laptop') : null);
+  server.online = true; t.queue.kick(0); await flush();
+  eq(t.state, 'remote', 'A back online: the replayed beat says the entry moved, A stops');
+  const m2 = server.log.length; run(t, 300); await flush();
+  eq(server.log.slice(m2).map(x => x.path), [], 'and sends nothing more');
   t.stop(); }
 
 main().catch(e => { bad++; console.error('FAIL ' + (e && e.stack || e)); }).then(() => {
   global.Date = RealDate;
   try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (e) { /* temp */ }
-  console.log(`tracker off checks (pause, offline, quit, shutdown, sleep, lock, sign-out, idle, meeting, pomodoro, update schedule): ${n - bad}/${n} OK`);
+  console.log(`tracker off checks (pause, offline, quit, shutdown, sleep, lock, sign-out, idle, meeting, pomodoro, update schedule, two computers): ${n - bad}/${n} OK`);
   process.exit(bad ? 1 : 0); });

@@ -77,7 +77,7 @@ final class AgentController extends Controller {
       'workspace' => ['name' => company_name(), 'url' => absolute_url('/'), 'time_page' => absolute_url('/time'), 'screenshots_page' => absolute_url('/time/screenshots'), 'timezone' => date_default_timezone_get(), 'clock' => str_contains((string) Settings::get('general.time_format', 'h:i A'), 'H') ? 24 : 12],
       'permissions' => ['track' => true, 'manual_entries' => true, 'view_team' => Gate::allows('attendance.view_all', $u)],
       'settings' => self::settings(), 'consent' => $c ? ['policy_version' => $c['policy_version'], 'consented_at' => date('c', strtotime($c['consented_at']))] : null, 'policy' => Monitoring::policy(),
-      'projects' => array_values($projects), 'state' => Tracker::state($uid), 'server_time' => date('c')]; }
+      'projects' => array_values($projects), 'state' => Tracker::state($uid, isset($u['token_id']) ? (int) $u['token_id'] : null), 'server_time' => date('c')]; }
 
   /** POST /api/agent/login {email, password, device_name, os, app_version}: personal device token + bootstrap. */
   public function login(): Response {
@@ -137,7 +137,10 @@ final class AgentController extends Controller {
   public function status(): Response { return $this->bootstrap(); }
 
   public function state(): Response {
-    return $this->run(static function (int $uid): array { Tracker::settle($uid); return ['state' => Tracker::state($uid), 'settings' => self::settings(), 'consent' => (bool) Monitoring::consent($uid)]; }); }
+    return $this->run(function (int $uid): array { Tracker::settle($uid); return ['state' => Tracker::state($uid, $this->tok()), 'settings' => self::settings(), 'consent' => (bool) Monitoring::consent($uid)]; }); }
+
+  /** The asking device's token id (running.here, guards for another device's entry). */
+  private function tok(): int { return (int) $this->agent['token_id']; }
 
   public function tasks(): Response { return $this->run(fn (int $uid): array => ['tasks' => T::tasks($this->agent, (int) ($this->input()['project_id'] ?? 0))]); }
 
@@ -145,8 +148,11 @@ final class AgentController extends Controller {
   private function at(): ?string { $v = $this->input()['at'] ?? null; return is_string($v) && $v !== '' ? mb_substr($v, 0, 40) : null; }
 
   public function dayStart(): Response { return $this->run(fn (int $uid): array => ['state' => Tracker::startDay($this->agent, $this->target(), (int) $this->agent['token_id'], $this->request->ip(), $this->at())]); }
-  public function pause(): Response { return $this->run(fn (int $uid): array => ['state' => Tracker::pause($uid, $this->at())]); }
-  public function resume(): Response { return $this->run(fn (int $uid): array => ['state' => Tracker::resume($this->agent, $this->target(), (int) $this->agent['token_id'], $this->at(), $this->request->ip())]); }
+  /** anywhere=1: the app's explicit Pause on its read-only view (tracking runs on another device): pauses the person wherever it runs. */
+  public function pause(): Response { return $this->run(fn (int $uid): array => ['state' => Tracker::pause($uid, $this->at(), $this->tok(), filter_var($this->input()['anywhere'] ?? false, FILTER_VALIDATE_BOOLEAN))]); }
+  /** "Track on this computer instead": moves the running entry to this device now (see Tracker::takeover). */
+  public function takeover(): Response { return $this->run(fn (int $uid): array => ['state' => Tracker::takeover($this->agent, $this->target(), $this->tok(), $this->request->ip())]); }
+  public function resume(): Response { return $this->run(fn (int $uid): array => ['state' => Tracker::resume($this->agent, $this->target(), $this->tok(), $this->at(), $this->request->ip())]); }
   public function switchProject(): Response {
     return $this->run(function (int $uid): array {
       $d = $this->target();
@@ -158,14 +164,17 @@ final class AgentController extends Controller {
   /**
    * Activity since the previous heartbeat, sent at `at` (queued beats keep their time), plus `idle_spans` [{from, to}] the app
    * closed since (saved as idle time, time_idle_spans action 'auto'). running=false tells the app the server stopped the entry
-   * (stale: the app was not running in between, auto-close, or another device).
+   * (stale: the app was not running in between, auto-close, or another device). A beat from a device that does not run the
+   * entry (another computer tracks) changes nothing and answers 200 running_here=false (apps up to 1.4.6 ignore it and keep
+   * going on state; newer apps stop tracking locally on state.running.here = false).
    */
   public function heartbeat(): Response {
     return $this->run(function (int $uid): array {
       $in = $this->input();
-      $r = T::heartbeat($uid, min(86400, max(0, (int) ($in['active_seconds'] ?? 0))), min(86400, max(0, (int) ($in['idle_seconds'] ?? 0))), Tracker::at($uid, $this->at()));
-      if (is_array($in['idle_spans'] ?? null) && $in['idle_spans']) { T::idleSpans($uid, array_values($in['idle_spans']), 'auto'); }
-      return ['running' => (bool) $r, 'entry' => $r, 'state' => Tracker::state($uid)]; }); }
+      $r = T::heartbeat($uid, min(86400, max(0, (int) ($in['active_seconds'] ?? 0))), min(86400, max(0, (int) ($in['idle_seconds'] ?? 0))), Tracker::at($uid, $this->at()), $this->tok());
+      if (is_array($in['idle_spans'] ?? null) && $in['idle_spans']) { T::idleSpans($uid, array_values($in['idle_spans']), 'auto', $this->tok()); }
+      $st = Tracker::state($uid, $this->tok());
+      return ['running' => (bool) $r, 'running_here' => (bool) $r, 'entry' => $r, 'state' => $st]; }); }
 
   /**
    * Legacy (apps up to 1.0.2 asked "keep or discard?"): idle time is now always kept, so both answers only record the spans
@@ -175,8 +184,8 @@ final class AgentController extends Controller {
     return $this->run(function (int $uid): array {
       $in = $this->input();
       $spans = is_array($in['spans'] ?? null) ? array_values($in['spans']) : (isset($in['from'], $in['to']) ? [['from' => $in['from'], 'to' => $in['to']]] : []);
-      $r = $spans ? T::idleSpans($uid, $spans, 'keep') : ['discarded' => 0, 'kept' => 0];
-      return $r + ['state' => Tracker::state($uid)]; }); }
+      $r = $spans ? T::idleSpans($uid, $spans, 'keep', $this->tok()) : ['discarded' => 0, 'kept' => 0];
+      return $r + ['state' => Tracker::state($uid, $this->tok())]; }); }
 
   /**
    * Activity per slot (the screenshot interval): {slots: [{slot_start, slot_seconds, active_seconds, meeting?}]}
@@ -204,7 +213,9 @@ final class AgentController extends Controller {
     return $this->run(function (int $uid): array {
       $f = $this->request->file('screenshot') ?? throw new \DomainException('Send the image as multipart field "screenshot".');
       $num = fn (string $k): ?int => is_numeric($v = $this->request->input($k)) ? (int) $v : null;
-      return ['id' => Monitoring::store($uid, $f, 'desktop', $num('activity_pct'), $num('display'), $this->request->str('captured_at') ?: null, (int) $this->agent['token_id'], filter_var($this->request->input('meeting') ?? false, FILTER_VALIDATE_BOOLEAN))]; }); }
+      $id = Monitoring::store($uid, $f, 'desktop', $num('activity_pct'), $num('display'), $this->request->str('captured_at') ?: null, $this->tok(), filter_var($this->request->input('meeting') ?? false, FILTER_VALIDATE_BOOLEAN));
+      /* captured while another computer tracked: not stored; 200 so no app version retries or reports it */
+      return $id === null ? ['id' => null, 'skipped' => 'other_device', 'running_here' => false] : ['id' => $id]; }); }
 
   /** Error report from the app: works without a token (sign-in problems), then attributed to nobody. */
   public function error(): Response {

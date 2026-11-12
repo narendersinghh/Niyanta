@@ -130,7 +130,10 @@ eq(px(st, 100, 79, 79), [0xA0, 0xB5, 0x12, 255], 'dot in the lower right corner'
 
 { const capJs = require('fs').readFileSync(path.join(root, 'src', 'main', 'capture.js'), 'utf8'), trJs = require('fs').readFileSync(path.join(root, 'src', 'main', 'tracker.js'), 'utf8');
   ok(/execFile\('\/usr\/bin\/tccutil', \['reset', 'ScreenCapture', BUNDLE_ID\]/.test(capJs) && /BUNDLE_ID = 'app\.niyanta\.tracker'/.test(capJs), 'macOS permission reset: fixed tool, fixed arguments, own bundle only');
-  ok(/captureStale && this\.permission === 'granted' \? 'stale'/.test(trJs), 'capture failing while macOS says granted is reported as a stale permission'); }
+  ok(/this\.permFix\.waiting \|\| \(this\.captureStale && this\.permission === 'granted'\) \? 'reallow'/.test(trJs) && /this\.permFix\.failed\(this\.permission\)/.test(trJs) && /this\.permFix\.worked\(\)/.test(trJs), 'capture failing while macOS says granted resets the permission (once per version) and asks to allow again');
+  const mainJs = require('fs').readFileSync(path.join(root, 'src', 'main', 'main.js'), 'utf8'), appJs2 = require('fs').readFileSync(path.join(root, 'src', 'renderer', 'app.js'), 'utf8');
+  ok(!/fix-permission/.test(mainJs + appJs2 + require('fs').readFileSync(path.join(root, 'src', 'main', 'guard.js'), 'utf8')) && !/Fix permission/.test(appJs2) && !/relaunch/.test(mainJs.slice(mainJs.indexOf('function openTarget'), mainJs.indexOf('function openConnectPage'))), 'no Fix permission button or open target; no restart for the permission');
+  ok(appJs2.includes('macOS needs you to allow Screen Recording again after the update. Choose <b>Allow</b> when macOS asks (then <b>Quit &amp; Reopen</b>).'), 'the waiting notice'); }
 
 /* ---------- activity from the system idle time, the same on every platform ---------- */
 /*

@@ -331,7 +331,38 @@ async function resourceChecks() {
   ok(!global.gc || h1 - h0 < 8 * 1048576, `8 hours tracked: heap grew by ${Math.round((h1 - h0) / 1024)} KB (under 8 MB)`);
   t.stop(); global.Date = RealDate; }
 
+/* ---------- macOS Screen Recording after an update (src/main/permfix.js, pure; fake platform and store) ---------- */
+async function permChecks() {
+  const { create } = require(path.join(root, 'src', 'main', 'permfix.js'));
+  const mk = (platform, packaged, version, mem = {}) => {
+    const resets = [];
+    const st = { get: k => mem[k], set: (k, v) => { mem[k] = v; } };
+    return { f: create({ platform, packaged, version, store: st, reset: async () => { resets.push(version); return true; } }), resets, mem }; };
+  const tick = () => new Promise(r => setTimeout(r, 0));
+  /* screenshots worked on 1.4.5, then the update to 1.4.6: reset once at start, the prompt comes with the first capture */
+  let m = mk('darwin', true, '1.4.5'); m.f.worked();
+  eq(m.mem.screenOk, '1.4.5', 'macOS: the version with working screenshots is remembered');
+  let a = mk('darwin', true, '1.4.6', m.mem);
+  eq([a.f.atStart(), a.f.waiting], [true, true], 'macOS: updated from a version with working screenshots: reset at start, waiting for Allow');
+  await tick();
+  eq([a.f.failed('granted'), a.f.atStart()], [false, false], 'never more than once per version (also not after a failed capture)');
+  a.f.worked(); await tick();
+  eq([a.resets.length, a.f.waiting, a.mem.screenOk], [1, false, '1.4.6'], 'one reset; a working capture ends the wait');
+  const again = mk('darwin', true, '1.4.6', a.mem); eq(again.f.atStart(), false, 'restart of the same version: no reset');
+  /* no update, capture fails while macOS says granted: reset once for this version */
+  let b = mk('darwin', true, '1.5.0', { screenOk: '1.5.0' });
+  eq([b.f.atStart(), b.f.failed('denied'), b.f.failed('granted'), b.f.failed('granted')], [false, false, true, false], 'macOS: capture failing while granted resets once; denied never resets');
+  await tick(); eq(b.resets.length, 1, 'one reset run');
+  /* never granted before: nothing at start */
+  eq(mk('darwin', true, '1.5.0', {}).f.atStart(), false, 'macOS: screenshots never worked before: no reset after the update');
+  /* other platforms and dev runs: never */
+  for (const [p, pk] of [['win32', true], ['linux', true], ['darwin', false]]) {
+    const x = mk(p, pk, '1.5.0', { screenOk: '1.4.6' });
+    eq([x.f.atStart(), x.f.failed('granted'), x.f.waiting], [false, false, false], `no reset on ${p}${pk ? '' : ' (dev run)'}`);
+    await tick(); eq(x.resets.length, 0, `reset never runs on ${p}${pk ? '' : ' (dev run)'}`); } }
+
 (async () => {
+  await permChecks();
   await storeChecks();
   await trackerChecks();
   await noticeChecks();

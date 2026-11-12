@@ -13,8 +13,12 @@ use Core\{Audit, DB};
 final class Tracker {
   public const STATES = ['not_started' => 'Not started', 'tracking' => 'Tracking', 'paused' => 'Paused', 'stopped' => 'Not tracking', 'ended' => 'Day ended'];
 
-  /** Snapshot of today's tracker state for the desktop app and the web status card. */
-  public static function state(int $uid): array {
+  /**
+   * Snapshot of today's tracker state for the desktop app and the web status card. $tokenId (the asking app's device token):
+   * running.here tells that app whether the running entry is its own (only that device tracks; another device shows it
+   * read-only), null for the web.
+   */
+  public static function state(int $uid, ?int $tokenId = null): array {
     self::settle($uid);
     $att = AttendanceService::today($uid);
     $st = AttendanceService::state($att);
@@ -32,10 +36,16 @@ final class Tracker {
         'paused_since' => $att && !empty($att['open_break']) ? date('c', strtotime($att['open_break']['start_at'])) : null],
       'running' => $run ? ['id' => (int) $run['id'], 'started_at' => date('c', strtotime($run['started_at'])), 'elapsed' => TimeService::elapsed($run), 'idle_seconds' => (int) $run['idle_seconds'], 'discarded_seconds' => (int) $run['discarded_seconds'],
         'project_id' => $pj && $run['project_id'] ? (int) $run['project_id'] : null, 'project' => $pj ? $run['project_name'] : null, 'task_id' => $pj && $run['task_id'] ? (int) $run['task_id'] : null, 'task' => $pj ? $run['task_title'] : null,
-        'description' => $run['description'], 'source' => $run['source'], 'device' => $device['name'] ?? null, 'device_os' => $device['device_os'] ?? null, 'last_heartbeat_at' => $run['last_heartbeat_at'] ? date('c', strtotime($run['last_heartbeat_at'])) : null] : null,
+        'description' => $run['description'], 'source' => $run['source'], 'device' => $device['name'] ?? null, 'device_os' => $device['device_os'] ?? null, 'here' => $tokenId === null ? null : self::owns($run, $tokenId), 'last_heartbeat_at' => $run['last_heartbeat_at'] ? date('c', strtotime($run['last_heartbeat_at'])) : null] : null,
       'last' => $last ? ['project_id' => $pj && $last['project_id'] ? (int) $last['project_id'] : null, 'project' => $pj ? $last['project_name'] : null, 'task_id' => $pj && $last['task_id'] ? (int) $last['task_id'] : null, 'task' => $pj ? $last['task_title'] : null, 'description' => $last['description']] : null,
       'totals' => ['tracked' => $tracked, 'active' => $tracked - $idle, 'idle' => $idle, 'paused' => AttendanceService::live($att)['break'], 'entries' => (int) $tot['n'],
         'activity' => $da['pct'], 'meeting' => $da['meeting']]]; }
+
+  /** Is the entry this device token's own? (time_entries.agent_token_id; a legacy entry without a token belongs to any device, the first heartbeat claims it) */
+  public static function owns(array $e, int $tokenId): bool { return $e['agent_token_id'] === null || (int) $e['agent_token_id'] === $tokenId; }
+
+  /** A running entry that belongs to another device than $tokenId (null token: the web, never foreign). */
+  public static function foreign(?array $run, ?int $tokenId): bool { return $run !== null && $tokenId !== null && !self::owns($run, $tokenId); }
 
   /**
    * Server time for an action the app queued while offline: the client's time, never in the future, never before the
@@ -99,27 +109,31 @@ final class Tracker {
       if ($st === 'out' || $st === 'done') { AttendanceService::clockIn($uid, $ip, $at); }
       elseif ($st === 'break') { AttendanceService::endBreak($uid, $at); }
       TimeService::start($user, $d, 'desktop', $tokenId, $at);
-      Audit::log('tracker.day_start', 'user', $uid, ['from' => $st, 'project_id' => $d['project_id'] ?? null], $uid); });
-    return self::state($uid); }
+      Audit::log('tracker.day_start', 'user', $uid, ['from' => $st, 'project_id' => $d['project_id'] ?? null, 'token' => $tokenId], $uid); });
+    return self::state($uid, $tokenId); }
 
   /**
    * Pause: stop the running entry and start a break. Paused already, or nothing open: nothing changes. An entry still running
    * from an earlier day (the app paused just before midnight) is stopped at the pause time and its day is closed.
+   * Two devices: a Pause from a device that does not run the entry changes nothing unless $anywhere (the app's explicit
+   * "Pause" on its read-only view), so an automatic pause (quit, sleep, lock, idle, an old queued pause) of one computer never
+   * stops tracking on the other; apps up to 1.4.6 never send it.
    */
-  public static function pause(int $uid, ?string $at = null): array {
-    DB::transaction(static function () use ($uid, $at): void {
+  public static function pause(int $uid, ?string $at = null, ?int $tokenId = null, bool $anywhere = false): array {
+    DB::transaction(static function () use ($uid, $at, $tokenId, $anywhere): void {
       AttendanceService::lock($uid);
       $now = self::at($uid, $at) ?? date('Y-m-d H:i:s');
       self::settle($uid, $now);
+      if (!$anywhere && self::foreign(TimeService::running($uid, false), $tokenId)) { return; }
       $st = AttendanceService::state(AttendanceService::today($uid));
       if ($st === 'break') { return; }
       if ($st !== 'in') {
-        if (TimeService::stop($uid, $now, 'pause')) { self::settle($uid); Audit::log('tracker.pause', 'user', $uid, ['day' => 'previous'], $uid); }
+        if (TimeService::stop($uid, $now, 'pause')) { self::settle($uid); Audit::log('tracker.pause', 'user', $uid, ['day' => 'previous', 'token' => $tokenId], $uid); }
         return; }
       TimeService::stop($uid, $now, 'pause');
       AttendanceService::startBreak($uid, $now);
-      Audit::log('tracker.pause', 'user', $uid, [], $uid); });
-    return self::state($uid); }
+      Audit::log('tracker.pause', 'user', $uid, ['token' => $tokenId], $uid); });
+    return self::state($uid, $tokenId); }
 
   /**
    * Resume after a pause (or after the server stopped a stale entry): end the break and track the given or the last project.
@@ -140,18 +154,47 @@ final class Tracker {
       if ($st === 'out' || $st === 'done') { AttendanceService::clockIn($uid, $ip, $at); }
       elseif ($st === 'break') { AttendanceService::endBreak($uid, $at); }
       TimeService::start($user, $target, 'desktop', $tokenId, $at);
-      Audit::log('tracker.resume', 'user', $uid, ['project_id' => $target['project_id'] ?? null], $uid); });
-    return self::state($uid); }
+      Audit::log('tracker.resume', 'user', $uid, ['project_id' => $target['project_id'] ?? null, 'token' => $tokenId], $uid); });
+    return self::state($uid, $tokenId); }
 
-  /** Switch project/task while tracking: no pause, no gap. */
+  /**
+   * Switch project/task while tracking: no pause, no gap. It works per person, but tracking stays on the device that runs it
+   * (a switch from another device changes the project there; the audit log records which device asked).
+   */
   public static function switchTo(array $user, array $d, ?int $tokenId, ?string $at = null): array {
     $uid = (int) $user['id'];
     DB::transaction(static function () use ($user, $uid, $d, $tokenId, $at): void {
       AttendanceService::lock($uid);
       $at = self::at($uid, $at);
       self::settle($uid, $at ?? date('Y-m-d H:i:s'));
-      TimeService::switchTo($user, $d, 'desktop', $tokenId, $at); });
-    return self::state($uid); }
+      $run = TimeService::running($uid, false);
+      $id = TimeService::switchTo($user, $d, 'desktop', $run && $run['agent_token_id'] !== null ? (int) $run['agent_token_id'] : $tokenId, $at);
+      if (self::foreign($run, $tokenId)) { Audit::log('tracker.switch_remote', 'time_entry', $id, ['token' => $tokenId], $uid); } });
+    return self::state($uid, $tokenId); }
+
+  /**
+   * "Track on this computer instead": the entry running on another device stops now and one starts for $tokenId at the same
+   * second with the same project/task/description (no gap; the other app sees running.here = false on its next answer and
+   * stops locally). Always now (never queued: a move replayed later would cut time the other device really tracked). Already
+   * here: nothing changes. Nothing running: like Resume.
+   */
+  public static function takeover(array $user, array $d, int $tokenId, string $ip = ''): array {
+    $uid = (int) $user['id'];
+    $moved = DB::transaction(static function () use ($user, $uid, $tokenId): bool {
+      AttendanceService::lock($uid);
+      $now = date('Y-m-d H:i:s');
+      self::settle($uid, $now);
+      $run = TimeService::running($uid, false);
+      if (!$run) { return false; }
+      if (self::owns($run, $tokenId)) { return true; }
+      $at = max($now, $run['started_at']);
+      TimeService::stop($uid, $at, 'takeover');
+      $t = ['project_id' => $run['project_id'], 'task_id' => $run['task_id'], 'description' => $run['description'], 'billable' => (int) $run['billable']];
+      try { $id = TimeService::start($user, $t, 'desktop', $tokenId, $at); }
+      catch (\DomainException $e) { $id = TimeService::start($user, ['description' => $run['description'], 'billable' => (int) $run['billable']], 'desktop', $tokenId, $at); }
+      Audit::log('tracker.takeover', 'time_entry', $id, ['from' => (int) $run['id'], 'from_token' => $run['agent_token_id'] !== null ? (int) $run['agent_token_id'] : null, 'token' => $tokenId], $uid);
+      return true; });
+    return $moved ? self::state($uid, $tokenId) : self::resume($user, $d, $tokenId, null, $ip); }
 
   /** End the day (legacy, the app no longer offers it: days end at midnight): stop the entry and clock out. Ended already: nothing changes. */
   public static function endDay(int $uid, string $ip, ?string $at = null): array {

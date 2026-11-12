@@ -275,22 +275,23 @@ function updateTray(ui) {
   if (!tray || !ui) return;
   const st = ui.state;
   const kind = ui.screen === 'signin' ? 'signed-out' : ui.chip;
-  const label = { tracking: 'Tracking', idle: 'Idle', paused: 'Paused', offline: 'Offline', ended: 'Not started', stopped: 'Not tracking', not_started: 'Not started', 'signed-out': 'Signed out' }[kind] || 'Niyanta Tracker';
-  const proj = st && st.running ? (st.running.project || (ui.projectsEnabled ? 'No project' : '')) : '';
+  const label = { tracking: 'Tracking', idle: 'Idle', paused: 'Paused', offline: 'Offline', ended: 'Not started', stopped: 'Not tracking', not_started: 'Not started', remote: `Tracking on ${(ui.remote && ui.remote.device) || 'another computer'}`, 'signed-out': 'Signed out' }[kind] || 'Niyanta Tracker';
+  const proj = st && st.running && !ui.remote ? (st.running.project || (ui.projectsEnabled ? 'No project' : '')) : '';
   tray.setToolTip(`Niyanta Tracker · ${label}${ui.update && ui.update.available ? ' · update available' : ''}${st ? ' · ' + hm(st.totals.tracked) + ' today' : ''}${proj ? ' · ' + proj : ''}${ui.monitoring && ui.monitoring.on && st && st.state === 'tracking' ? ' · screenshots on' : ''}`);
-  if (process.platform === 'darwin') tray.setTitle(st && st.state === 'tracking' ? ' ' + hm(st.totals.tracked) : '');
+  if (process.platform === 'darwin') tray.setTitle(st && st.state === 'tracking' && !ui.remote ? ' ' + hm(st.totals.tracked) : '');
   const up = ui.update || {};
   const updating = up.want && ['downloading', 'verifying', 'ready', 'installing'].includes(up.status);
-  const key = [kind, st && st.state, proj, up.available, up.latest, up.auto, updating, ui.screen].join('|');
+  const key = [kind, st && st.state, proj, ui.remote && ui.remote.device, up.available, up.latest, up.auto, updating, ui.screen].join('|');
   if (key === trayKey) return;
   trayKey = key;
   tray.setImage(trayImage(kind));
-  const s = st ? st.state : 'signed-out';
+  const s = ui.remote ? 'remote' : (st ? st.state : 'signed-out');
   const items = [{ label: `${label}${proj ? ' · ' + proj : ''}`, enabled: false }, { type: 'separator' }, { label: 'Show Niyanta Tracker', click: showWindow }];
   if (ui.screen === 'tracker') {
     if (['not_started', 'ended'].includes(s)) items.push({ label: 'Start', click: () => tracker.action('start', tracker.selection) });
     if (s === 'tracking') items.push({ label: 'Pause', click: () => tracker.action('pause') });
     if (s === 'paused' || s === 'stopped') items.push({ label: 'Resume', click: () => tracker.action('resume', {}) });
+    if (s === 'remote') items.push({ label: 'Track on this computer instead', click: () => tracker.takeover() });
     items.push({ type: 'separator' }, { label: 'Open Niyanta in browser', click: () => openTarget('web') });
     if (up.available && updating) items.push({ label: `Updating to ${up.latest}...`, enabled: false });
     else if (up.available && up.auto) items.push({ label: `Update now to ${up.latest}`, click: () => { showWindow(); tracker.updateNow(); } });
@@ -332,12 +333,6 @@ function openTarget(what) {
   const base = (ws && ws.url) || store.get('workspaceUrl');
   const urls = { web: base, time: ws && ws.time_page, screenshots: ws && ws.screenshots_page, download: (tracker.update && tracker.update.url) || (ws && ws.time_page ? ws.time_page + '#desktop' : null) };
   if (what === 'permissions') return capture().openPermissionSettings();
-  /* macOS kept an old Screen Recording entry (unsigned builds get a new signature with each update): clear it and restart,
-     so macOS asks again for this version on the next capture. Packaged macOS builds only. */
-  if (what === 'fix-permission') {
-    if (process.platform !== 'darwin' || !app.isPackaged) return false;
-    capture().resetPermission().then(ok => { errors.log(`screen permission reset: ${ok ? 'ok' : 'failed'}`); app.relaunch(); app.quit(); });
-    return true; }
   if (what === 'logs') return shell.showItemInFolder(errors.logFile());
   const url = urls[what];
   if (!guard.allowedLink(url, tracker.api.base || base)) { if (url) errors.log(`open: refused link outside the workspace (${what})`); return false; }
@@ -357,7 +352,7 @@ function openConnectPage(url, ws) {
  * validates its arguments (types, ranges, lengths: guard.js) and is rate limited per channel. Errors never leak stacks to
  * the page, only the message.
  */
-const limiter = new guard.RateLimiter({ state: 240, select: 120, action: 60, error: 10, signIn: 10, connect: 20, dismiss: 60, copy: 30, updates: 10, refresh: 10, uninstall: 3 }, 60000, 60);
+const limiter = new guard.RateLimiter({ state: 240, select: 120, action: 60, remote: 20, error: 10, signIn: 10, connect: 20, dismiss: 60, copy: 30, updates: 10, refresh: 10, uninstall: 3 }, 60000, 60);
 function validSender(e) {
   if (!win || win.isDestroyed() || e.sender !== win.webContents) return false;
   const f = e.senderFrame;
@@ -396,6 +391,8 @@ function registerIpc() {
   h('installUpdate', () => tracker.updateNow());
   h('updatePrompted', v => tracker.updatePrompted(guard.str(v, 40)));
   h('meeting', on => tracker.setMeeting(!!on));
+  /* tracking runs on another computer: move it here, or pause it there (the window asks first) */
+  h('remote', op => { op = guard.str(op, 10); return op === 'takeover' ? tracker.takeover() : op === 'pause' ? tracker.pauseRemote() : { ok: false }; });
   h('dismiss', id => { id = guard.str(id, 20); return guard.DISMISS_IDS.includes(id) ? tracker.dismiss(id) : { ok: false }; });
   h('quitAnyway', () => tracker.quitAnyway());
   h('downloadInstaller', () => tracker.downloadInstaller());

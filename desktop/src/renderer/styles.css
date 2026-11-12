@@ -77,7 +77,7 @@ input:focus,select:focus{border-color:var(--primary);box-shadow:0 0 0 3px color-
 /* status card */
 .hero{--a:var(--on-lav);border-radius:22px;padding:14px 16px 13px;color:#fff;background:radial-gradient(120% 90% at 100% 0,color-mix(in srgb,var(--a) 26%,transparent),transparent 60%),linear-gradient(160deg,var(--sidebar-2),var(--sidebar));box-shadow:0 18px 34px -22px rgba(19,18,43,.9);position:relative;overflow:hidden}
 @media (prefers-color-scheme:dark){.hero{border:1px solid var(--border)}}
-.hero[data-kind=tracking]{--a:var(--on-mint)}.hero[data-kind=idle],.hero[data-kind=paused]{--a:var(--on-lemon)}.hero[data-kind=meeting]{--a:var(--on-sky)}.hero[data-kind=stopped],.hero[data-kind=ended]{--a:var(--sidebar-text)}.hero[data-kind=offline]{--a:var(--on-peach)}
+.hero[data-kind=tracking]{--a:var(--on-mint)}.hero[data-kind=idle],.hero[data-kind=paused]{--a:var(--on-lemon)}.hero[data-kind=meeting]{--a:var(--on-sky)}.hero[data-kind=stopped],.hero[data-kind=ended],.hero[data-kind=remote]{--a:var(--sidebar-text)}.hero[data-kind=offline]{--a:var(--on-peach)}
 .hero[data-frozen='1'] .clock{opacity:.62}
 .hero-top{display:flex;justify-content:space-between;align-items:center;gap:8px}
 .chip{display:inline-flex;align-items:center;gap:7px;border-radius:99px;padding:4px 11px 4px 9px;font-size:.76rem;font-weight:750;color:var(--a);background:color-mix(in srgb,var(--a) 16%,transparent);border:1px solid color-mix(in srgb,var(--a) 30%,transparent)}

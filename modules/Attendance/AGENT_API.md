@@ -126,15 +126,16 @@ screenshots 240/min, error reports 60/min, version 30/min, update files 60/min p
 | `GET /api/agent/state` | | `state, settings, consent` (cheap refresh) |
 | `GET /api/agent/tasks?project_id=` | | open tasks of a visible project |
 | `POST /api/agent/day/start` | `project_id?, task_id?, description?` | `state` |
-| `POST /api/agent/pause` | | `state` |
+| `POST /api/agent/pause` | `anywhere?` (1 = the app's explicit Pause on its read-only view: pauses the person wherever it runs) | `state` |
 | `POST /api/agent/resume` | `project_id?, task_id?, description?` | `state` |
+| `POST /api/agent/takeover` | | `state` (Track on this computer instead, see Two computers) |
 | `POST /api/agent/switch` | `project_id (null = no project), task_id?, description?` | `state` |
 | `POST /api/agent/day/end` | | `state` (legacy, not used by the app) |
-| `POST /api/agent/heartbeat` | `active_seconds, idle_seconds` since the previous beat, `at?` (time of the beat), `idle_spans?: [{from, to}]` | `running, entry, state` |
-| `POST /api/agent/activity` | `slots: [{slot_start, slot_seconds, active_seconds, meeting}]` (1 to 500) | `saved, skipped` |
+| `POST /api/agent/heartbeat` | `active_seconds, idle_seconds` since the previous beat, `at?` (time of the beat), `idle_spans?: [{from, to}]` | `running, running_here, entry, state` |
+| `POST /api/agent/activity` | `slots: [{slot_start, slot_seconds, active_seconds, meeting}]` (1 to 500) | `saved, skipped, other_device` |
 | `POST /api/agent/idle` | legacy (apps up to 1.0.2): `action: keep|discard, spans: [{from, to}]` (or `seconds`); always kept | `discarded: 0, kept, state` |
 | `POST /api/agent/consent` | `agree: true, policy_version` | `consent` |
-| `POST /api/agent/screenshot` | multipart `screenshot`, `activity_pct`, `meeting`, `display`, `captured_at` | `id` |
+| `POST /api/agent/screenshot` | multipart `screenshot`, `activity_pct`, `meeting`, `display`, `captured_at` | `id` (`null` + `skipped: other_device` when another computer tracked at that moment) |
 | `POST /api/agent/error` | `level, message, where, stack, file, line, os, arch, context{}` | token optional |
 | `GET /api/agent/version` | | `latest, current, update_available, released_at, download_page, updates_feed, files{windows,mac,linux,deb}[{name, arch, ext, size, version, sha512}]` |
 | `GET /api/agent/updates/{file}` | | electron-updater feed (not JSON): `latest.yml`, `latest-mac.yml`, `latest-linux.yml`, `latest-linux-arm64.yml`, `latest-linux-armv7l.yml` as `text/yaml`, or a mirrored installer / `.blockmap` (streamed). `404` when the file is not in the mirrored release |
@@ -149,9 +150,21 @@ again on every call.
 
 `state` object: `state` (`not_started | tracking | paused | stopped | ended`; `stopped` = day open but no running entry, e.g. after
 the server stopped a stale entry; `ended` only after a legacy `day/end`), `label`, `day{date, clock_in, clock_out, paused_since}`, `running{id, started_at, elapsed,
-project_id, project, task_id, task, description, device, …}` or `null`, `last{project_id, task_id, description}`,
+project_id, project, task_id, task, description, device, device_os, here, …}` or `null` (`here`: the entry is the asking device's own; `null` for the web), `last{project_id, task_id, description}`,
 `totals{tracked, active, idle, paused, entries}` in seconds for today, plus `activity` (today's activity %, meeting slots
 excluded, `null` when there is nothing to average) and `meeting` (seconds tracked in meeting mode today).
+
+**Two computers, one login.** Only the device that started (resumed, took over) tracking tracks: the running entry belongs
+to its token (`time_entries.agent_token_id`) and every state answer says `running.here` for the asking token. The other app
+(after 1.4.6) shows a notice "Tracking on <device>" without a timer and samples, sends and captures nothing; "Track on this computer
+instead" calls `takeover` (the other entry stops now and one starts for this token at the same second with the same
+project/task; nothing running: like `resume`; never queued); Start there asks first, then takes over. Server guards (also for
+apps 1.3.x / 1.4.x, which ignore `here`): a heartbeat, activity slot, idle span or screenshot from a token never extends,
+changes or attaches to another device's entry (answers stay 200: `running_here: false`, `other_device`, `id: null`); `pause`
+from such a token changes nothing unless `anywhere=1`, so a quit, sleep, lock or idle pause of one computer never stops the
+other; `day/start` and `resume` change nothing while another device tracks; `switch` changes the project but tracking stays on
+the device that runs it. The audit log records the token of every pause, start, resume, switch and takeover. A legacy entry
+without a token is claimed by the first device that sends a heartbeat for it.
 
 `settings`: `heartbeat_seconds` (15 to 60, default 60), `idle_minutes`, `idle_auto_pause_minutes` (2 to 240, default 15,
 always at least `idle_minutes` + 1), `auto_pause_on_lock`, `screenshots_enabled`,

@@ -19,6 +19,8 @@ contextBridge.exposeInMainWorld('tracker', {
   pause: () => call('action', { name: 'pause', body: {} }),
   resume: (s) => call('action', { name: 'resume', body: sel(s) }),
   switchProject: (s) => call('action', { name: 'switch', body: sel(s) }),
+  takeOver: () => call('remote', 'takeover'),
+  pauseRemote: () => call('remote', 'pause'),
   select: (s) => call('select', sel(s)),
   acceptConsent: () => call('consent'),
   setPref: (key, value) => call('pref', { key: text(key, 40), value: !!value }),

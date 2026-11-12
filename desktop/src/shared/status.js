@@ -7,12 +7,14 @@
  *     tracker is off); `since` = when the pause began (day.paused_since, on the server's clock) for the caption
  * The day total (tracked seconds today) is returned separately (`total`); it grows only while tracking. `ticking` tells the
  * renderer whether the counter moves (frozen counters are shown dimmed).
+ *   remote (ui.remote: tracking runs on another computer with the same login): this computer is not tracking and shows no
+ *     timer of the other one: the normal not-tracking look, today's time without the session running elsewhere, frozen.
  */
 (function (root, factory) { if (typeof module === 'object' && module.exports) module.exports = factory(); else root.NyStatus = factory(); }(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
   /* meeting mode turns off by itself after 30 minutes (people are asked to turn it off when the meeting is done) */
   const MEETING_MS = 30 * 60000;
-  const LABELS = { tracking: 'Tracking', idle: 'Idle', meeting: 'In a meeting', paused: 'Paused', offline: 'Offline', stopped: 'Not tracking', ended: 'Not tracking', not_started: 'Not started' };
+  const LABELS = { remote: 'Not tracking', tracking: 'Tracking', idle: 'Idle', meeting: 'In a meeting', paused: 'Paused', offline: 'Offline', stopped: 'Not tracking', ended: 'Not tracking', not_started: 'Not started' };
 
   /**
    * ui: {state (the tracker's view(): state, running, day, totals, server_time), at (ms the view is valid for), idle (bool),
@@ -23,12 +25,16 @@
     now = now === undefined ? Date.now() : now;
     const st = (ui && ui.state) || { state: 'not_started', totals: {}, day: {} };
     const live = Math.max(0, (now - ((ui && ui.at) || now)) / 1000);
-    const tracking = st.state === 'tracking';
+    const remote = !!(ui && ui.remote) && st.state === 'tracking';
+    const tracking = st.state === 'tracking' && !remote;
     const totals = st.totals || {};
     const total = Math.max(0, Math.floor((+totals.tracked || 0) + (tracking ? live : 0)));
     const meeting = tracking && ui.meeting && +ui.meeting.until > now ? ui.meeting : null;
     const out = { kind: st.state || 'not_started', seconds: total, since: null, total, ticking: tracking, meetingLeft: meeting ? +meeting.until - now : null };
-    if (tracking) {
+    if (remote) {
+      out.kind = 'remote';
+      out.seconds = out.total = Math.max(0, Math.floor((+totals.tracked || 0) - (+(st.running || {}).elapsed || 0))); }
+    else if (tracking) {
       const r = st.running || {};
       out.kind = meeting ? 'meeting' : (ui.idle ? 'idle' : 'tracking');
       out.seconds = Math.max(0, Math.floor((+r.elapsed || 0) + live));

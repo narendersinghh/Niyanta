@@ -66,7 +66,7 @@ final class TimeService {
    * web pages and the top bar never show it as running; $settle = false inside the tracker's own actions (settled already).
    */
   public static function running(int $uid, bool $settle = true): ?array {
-    $sql = 'SELECT te.*, p.name AS project_name, p.color AS project_color, t.title AS task_title FROM time_entries te LEFT JOIN projects p ON p.id=te.project_id LEFT JOIN tasks t ON t.id=te.task_id WHERE te.user_id=? AND te.is_running=1 ORDER BY te.id DESC LIMIT 1';
+    $sql = 'SELECT te.*, p.name AS project_name, p.color AS project_color, t.title AS task_title, ag.name AS device_name FROM time_entries te LEFT JOIN projects p ON p.id=te.project_id LEFT JOIN tasks t ON t.id=te.task_id LEFT JOIN agent_tokens ag ON ag.id=te.agent_token_id WHERE te.user_id=? AND te.is_running=1 ORDER BY te.id DESC LIMIT 1';
     $r = DB::first($sql, [$uid]);
     if ($r && $settle && self::stale($r)) { Tracker::settle($uid); $r = DB::first($sql, [$uid]); }
     return $r; }
@@ -167,13 +167,15 @@ final class TimeService {
    * app was not running in between (switched off, killed, asleep), so the entry is stopped at its last heartbeat instead of
    * being stretched over the gap. Otherwise the entry's last heartbeat moves to $at (crossing midnight starts the new day, see
    * Tracker::settle()). Idle is capped to the time since the last beat (+ the idle threshold, reported retroactively) and to
-   * the elapsed time.
+   * the elapsed time. $tokenId: the beat of a device that does not run the entry (another computer tracks) never extends,
+   * stops or changes it (null: nothing running here).
    */
-  public static function heartbeat(int $uid, int $active, int $idle, ?string $at = null): ?array {
-    return DB::transaction(static function () use ($uid, $active, $idle, $at): ?array {
+  public static function heartbeat(int $uid, int $active, int $idle, ?string $at = null, ?int $tokenId = null): ?array {
+    return DB::transaction(static function () use ($uid, $active, $idle, $at, $tokenId): ?array {
       AttendanceService::lock($uid);
       $e = DB::first('SELECT * FROM time_entries WHERE user_id=? AND is_running=1 ORDER BY id DESC LIMIT 1', [$uid]);
-      if (!$e) { Tracker::settle($uid); return null; }
+      if (!$e || Tracker::foreign($e, $tokenId)) { Tracker::settle($uid); return null; }
+      if ($tokenId !== null && $e['agent_token_id'] === null) { DB::update('time_entries', ['agent_token_id' => $tokenId], 'id=?', [$e['id']]); }
       $hb = strtotime($e['last_heartbeat_at'] ?: $e['started_at']);
       $end = max($hb, $at ? (int) strtotime($at) : time());
       if ($end - max(0, $active) - max(0, $idle) - $hb > self::STALE_SECONDS) { self::stop($uid, null, 'stale', true); Tracker::settle($uid); return null; }
@@ -194,10 +196,11 @@ final class TimeService {
    * span is recorded per overlapping entry in time_idle_spans with $action ('auto' from the app, 'keep' for the
    * legacy keep/discard answers of older apps). The seconds themselves reach time_entries.idle_seconds through heartbeats;
    * nothing is ever removed from tracked time. Spans already recorded for the same entry and times are skipped (retries).
+   * $tokenId: only that device's own entries (another computer's entries are never touched).
    */
-  public static function idleSpans(int $uid, array $spans, string $action = 'auto'): array {
+  public static function idleSpans(int $uid, array $spans, string $action = 'auto', ?int $tokenId = null): array {
     $action = $action === 'keep' ? 'keep' : 'auto';
-    return DB::transaction(static function () use ($uid, $spans, $action): array {
+    return DB::transaction(static function () use ($uid, $spans, $action, $tokenId): array {
       AttendanceService::lock($uid);
       $now = time(); $kept = 0;
       foreach (array_slice($spans, 0, 50) as $sp) {
@@ -205,8 +208,9 @@ final class TimeService {
         if (!$f || !$t) { continue; }
         $t = min($t, $now);
         if ($t <= $f || $f < $now - 7 * 86400 || $t - $f > 86400) { continue; }
-        $rows = DB::all('SELECT id, started_at, ended_at, is_running FROM time_entries WHERE user_id=? AND started_at<? AND started_at>? AND (is_running=1 OR ended_at>?) ORDER BY started_at', [$uid, date('Y-m-d H:i:s', $t), date('Y-m-d H:i:s', $f - 2 * 86400), date('Y-m-d H:i:s', $f)]);
+        $rows = DB::all('SELECT id, started_at, ended_at, is_running, agent_token_id FROM time_entries WHERE user_id=? AND started_at<? AND started_at>? AND (is_running=1 OR ended_at>?) ORDER BY started_at', [$uid, date('Y-m-d H:i:s', $t), date('Y-m-d H:i:s', $f - 2 * 86400), date('Y-m-d H:i:s', $f)]);
         foreach ($rows as $e) {
+          if ($tokenId !== null && !Tracker::owns($e, $tokenId)) { continue; }
           $s = max($f, strtotime($e['started_at'])); $en = min($t, $e['is_running'] ? $now : strtotime($e['ended_at']));
           if ($en <= $s) { continue; }
           $from = date('Y-m-d H:i:s', $s); $to = date('Y-m-d H:i:s', $en);
@@ -223,20 +227,25 @@ final class TimeService {
    * counts are no longer collected: counts an old app still sends are ignored (the columns stay NULL, older rows keep theirs). Each slot is tied to the entry that overlaps it most (null when none). A
    * repeated slot_start replaces the stored slot only when it covers at least as many seconds (retries and partial reports
    * after a restart never shrink a slot). Slots older than 7 days or in the future are skipped. Returns saved/skipped counts.
+   * Two devices ($tokenId): a slot is tied only to that device's own entries; a slot that overlaps only another device's
+   * entries is skipped (counted in other_device) and a slot of another device is never replaced by one without an entry.
    */
   public static function activitySlots(int $uid, array $slots, ?int $tokenId = null): array {
     return DB::transaction(static function () use ($uid, $slots, $tokenId): array {
       AttendanceService::lock($uid);
-      $now = time(); $out = ['saved' => 0, 'skipped' => 0];
+      $now = time(); $out = ['saved' => 0, 'skipped' => 0] + ($tokenId !== null ? ['other_device' => 0] : []);
       foreach (array_slice(array_values($slots), 0, 500) as $sl) {
         $t = is_array($sl) && is_string($sl['slot_start'] ?? null) ? strtotime($sl['slot_start']) : false;
         $sec = is_array($sl) && is_numeric($sl['slot_seconds'] ?? null) ? (int) $sl['slot_seconds'] : 0;
         $act = is_array($sl) && is_numeric($sl['active_seconds'] ?? null) ? (int) $sl['active_seconds'] : -1;
         if (!$t || $t > $now + 60 || $t < $now - 7 * 86400 || $sec < 1 || $sec > 3600 || $act < 0) { $out['skipped']++; continue; }
         $start = date('Y-m-d H:i:s', $t); $end = date('Y-m-d H:i:s', $t + $sec);
-        $old = DB::first('SELECT id, slot_seconds FROM activity_slots WHERE user_id=? AND slot_start=?', [$uid, $start]);
+        $old = DB::first('SELECT id, slot_seconds, agent_token_id FROM activity_slots WHERE user_id=? AND slot_start=?', [$uid, $start]);
         if ($old && (int) $old['slot_seconds'] > $sec) { $out['skipped']++; continue; }
-        $entry = DB::value('SELECT id FROM time_entries WHERE user_id=? AND started_at<? AND (is_running=1 OR ended_at>?) AND started_at>? ORDER BY TIMESTAMPDIFF(SECOND, GREATEST(started_at, ?), LEAST(COALESCE(ended_at, NOW()), ?)) DESC, id DESC LIMIT 1', [$uid, $end, $start, date('Y-m-d H:i:s', $t - 2 * 86400), $start, $end]);
+        $q = 'SELECT id FROM time_entries WHERE user_id=? AND started_at<? AND (is_running=1 OR ended_at>?) AND started_at>?';
+        $p = [$uid, $end, $start, date('Y-m-d H:i:s', $t - 2 * 86400)];
+        $entry = DB::value($q.($tokenId !== null ? ' AND (agent_token_id=? OR agent_token_id IS NULL)' : '').' ORDER BY TIMESTAMPDIFF(SECOND, GREATEST(started_at, ?), LEAST(COALESCE(ended_at, NOW()), ?)) DESC, id DESC LIMIT 1', array_merge($p, $tokenId !== null ? [$tokenId] : [], [$start, $end]));
+        if ($tokenId !== null && !$entry && (DB::value($q.' LIMIT 1', $p) || ($old && $old['agent_token_id'] !== null && (int) $old['agent_token_id'] !== $tokenId))) { $out['skipped']++; $out['other_device']++; continue; }
         $row = ['time_entry_id' => $entry ? (int) $entry : null, 'slot_seconds' => $sec, 'active_seconds' => min($sec, $act), 'keystrokes' => null, 'mouse_events' => null, 'meeting' => filter_var($sl['meeting'] ?? false, FILTER_VALIDATE_BOOLEAN) ? 1 : 0, 'agent_token_id' => $tokenId];
         if ($old) { DB::update('activity_slots', $row, 'id=?', [$old['id']]); }
         else { DB::insert('activity_slots', $row + ['user_id' => $uid, 'slot_start' => $start, 'created_at' => date('Y-m-d H:i:s')]); }

@@ -23,7 +23,7 @@ function selection(b) {
   return out; }
 
 /** What the renderer may ask the main process to open (tracker:open). */
-const OPEN_TARGETS = ['web', 'time', 'screenshots', 'download', 'permissions', 'fix-permission', 'logs'];
+const OPEN_TARGETS = ['web', 'time', 'screenshots', 'download', 'permissions', 'logs'];
 /** Preferences the window may change (tracker:pref). */
 const PREF_KEYS = ['launchAtLogin', 'notify', 'tone'];
 /** Pomodoro operations (tracker:pomodoro). */

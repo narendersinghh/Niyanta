@@ -39,8 +39,8 @@ final class TeamNowController extends BaseController {
     $today = date('Y-m-d'); $now = time(); $pj = feature_on('projects');
     $rows = DB::all("SELECT u.id, u.name, u.avatar, a.clock_in, a.clock_out, a.status AS att_status,"
       ." (SELECT ab.start_at FROM attendance_breaks ab WHERE ab.attendance_id=a.id AND ab.end_at IS NULL ORDER BY ab.id DESC LIMIT 1) AS break_start,"
-      ." te.started_at, te.last_heartbeat_at, te.discarded_seconds, te.description, p.name AS project_name, t.title AS task_title"
-      ." FROM users u LEFT JOIN attendance a ON a.user_id=u.id AND a.work_date=? LEFT JOIN time_entries te ON te.user_id=u.id AND te.is_running=1"
+      ." te.started_at, te.last_heartbeat_at, te.discarded_seconds, te.description, p.name AS project_name, t.title AS task_title, ag.name AS device_name"
+      ." FROM users u LEFT JOIN attendance a ON a.user_id=u.id AND a.work_date=? LEFT JOIN time_entries te ON te.user_id=u.id AND te.is_running=1 LEFT JOIN agent_tokens ag ON ag.id=te.agent_token_id"
       ." LEFT JOIN projects p ON p.id=te.project_id LEFT JOIN tasks t ON t.id=te.task_id WHERE u.status='active' AND $w ORDER BY u.name LIMIT 1000", [$today, ...$p]);
     $ids = array_values(array_unique(array_map(static fn ($r) => (int) $r['id'], $rows)));
     $leave = feature_on('leave') && $ids ? AttendanceService::leaveMap($ids, $today, $today) : [];
@@ -55,6 +55,7 @@ final class TeamNowController extends BaseController {
         $hb = strtotime($r['last_heartbeat_at'] ?: $r['started_at']);
         $row['project'] = $pj ? ($r['project_name'] ?? 'No project') : 'Tracked time';
         $row['task'] = $pj && $r['task_title'] ? str_limit($r['task_title'], 40) : ($r['description'] ? str_limit($r['description'], 40) : null);
+        $row['device'] = $r['device_name'] ?: null;
         if ($hb >= $fresh) { $out['active'][] = $row + ['status' => 'tracking', 'label' => 'Tracking', 'since' => 'since '.ftime($r['started_at']), 'dur' => self::dur($now - strtotime($r['started_at']) - (int) $r['discarded_seconds']), 't' => strtotime($r['started_at'])]; continue; }
         $out['away'][] = $row + ['status' => 'idle', 'label' => 'Idle, no signal from the app', 'since' => 'since '.ftime(date('Y-m-d H:i:s', $hb)), 'dur' => self::dur($now - $hb)];
         continue; }

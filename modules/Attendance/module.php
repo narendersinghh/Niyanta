@@ -69,6 +69,7 @@ return [
     $r->post('/api/agent/day/start', [AgentController::class, 'dayStart'], $api);
     $r->post('/api/agent/pause', [AgentController::class, 'pause'], $api);
     $r->post('/api/agent/resume', [AgentController::class, 'resume'], $api);
+    $r->post('/api/agent/takeover', [AgentController::class, 'takeover'], $api);
     $r->post('/api/agent/switch', [AgentController::class, 'switchProject'], $api);
     $r->post('/api/agent/day/end', [AgentController::class, 'dayEnd'], $api);
     $r->post('/api/agent/heartbeat', [AgentController::class, 'heartbeat'], $api);

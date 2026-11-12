@@ -406,16 +406,17 @@ return [
     trk_api('POST', '/api/agent/day/start', ['project_id' => $a], $tok);
     DB::query('UPDATE time_entries SET started_at=DATE_SUB(NOW(), INTERVAL 3600 SECOND), last_heartbeat_at=NOW() WHERE user_id=?', [$emp]);
     $entry = (int) DB::value('SELECT id FROM time_entries WHERE user_id=? AND is_running=1', [$emp]);
+    $tid = (int) DB::value('SELECT agent_token_id FROM time_entries WHERE id=?', [$entry]);
     $t0 = time() - 900; $t0 -= $t0 % 180;
     $r = TimeService::activitySlots($emp, [
       ['slot_start' => gmdate('c', $t0), 'slot_seconds' => 180, 'active_seconds' => 120, 'keystrokes' => 340, 'mouse_events' => 85],
       ['slot_start' => gmdate('c', $t0 + 180), 'slot_seconds' => 180, 'active_seconds' => 999, 'keystrokes' => null, 'mouse_events' => null],
       ['slot_start' => gmdate('c', $t0 + 360), 'slot_seconds' => 0, 'active_seconds' => 0],
       ['slot_start' => 'nonsense', 'slot_seconds' => 60, 'active_seconds' => 1],
-      ['slot_start' => gmdate('c', time() + 3600), 'slot_seconds' => 60, 'active_seconds' => 1]], 7);
-    assert_eq(['saved' => 2, 'skipped' => 3], $r);
+      ['slot_start' => gmdate('c', time() + 3600), 'slot_seconds' => 60, 'active_seconds' => 1]], $tid);
+    assert_eq(['saved' => 2, 'skipped' => 3, 'other_device' => 0], $r);
     $s = DB::first('SELECT * FROM activity_slots WHERE user_id=? AND slot_start=?', [$emp, date('Y-m-d H:i:s', $t0)]);
-    assert_true($s && (int) $s['time_entry_id'] === $entry && (int) $s['active_seconds'] === 120 && $s['keystrokes'] === null && $s['mouse_events'] === null && (int) $s['agent_token_id'] === 7, 'stored without counts: '.json_encode($s));
+    assert_true($s && (int) $s['time_entry_id'] === $entry && (int) $s['active_seconds'] === 120 && $s['keystrokes'] === null && $s['mouse_events'] === null && (int) $s['agent_token_id'] === $tid, 'stored without counts: '.json_encode($s));
     $s2 = DB::first('SELECT * FROM activity_slots WHERE user_id=? AND slot_start=?', [$emp, date('Y-m-d H:i:s', $t0 + 180)]);
     assert_true((int) $s2['active_seconds'] === 180 && $s2['keystrokes'] === null, 'active clamped to the slot, counts stay null');
     TimeService::activitySlots($emp, [['slot_start' => gmdate('c', $t0), 'slot_seconds' => 180, 'active_seconds' => 120, 'keystrokes' => 340, 'mouse_events' => 85]]);
@@ -587,4 +588,80 @@ return [
     http('POST', '/time/tokens/'.$tid.'/revoke');
     assert_eq(0, (int) DB::value('SELECT COUNT(*) FROM time_entries WHERE user_id=? AND is_running=1', [$emp]), 'disconnected from the web: stopped');
     assert_eq(401, trk_api('GET', '/api/agent/state', [], $tok)[0], 'token revoked'); },
+  'two devices, one login: only the device that started tracks; the other is told so, cannot touch the entry and can take it over' => function () {
+    ['a' => $a, 't1' => $t1, 'emp' => $emp] = trk_fixture();
+    $login = static function (string $dev) use ($emp): array {
+      [$code, $j] = trk_api('POST', '/api/agent/login', ['email' => 'emp@trkunit.test', 'password' => 'Passw0rd123', 'device_name' => $dev, 'os' => 'linux']);
+      assert_eq(200, $code, 'login '.$dev);
+      return [$j['token'], (int) DB::value('SELECT id FROM agent_tokens WHERE user_id=? AND name=? AND revoked_at IS NULL', [$emp, $dev])]; };
+    DB::query('UPDATE agent_tokens SET revoked_at=NOW() WHERE user_id=?', [$emp]);
+    [$ta, $ia] = $login('Office PC'); [$tb, $ib] = $login('Home laptop');
+    DB::query('DELETE FROM attendance WHERE user_id=?', [$emp]); DB::query('DELETE FROM attendance_breaks'); DB::query('DELETE FROM time_entries WHERE user_id=?', [$emp]); DB::query('DELETE FROM activity_slots WHERE user_id=?', [$emp]); DB::query('DELETE FROM screenshots WHERE user_id=?', [$emp]); DB::query('DELETE FROM time_idle_spans WHERE user_id=?', [$emp]);
+    $now = time();
+    if (date('Y-m-d', $now - 900) !== date('Y-m-d')) { return; }
+    [$code, $j] = trk_api('POST', '/api/agent/day/start', ['project_id' => $a, 'task_id' => $t1], $ta);
+    assert_true($code === 200 && $j['state']['running']['here'] === true && $j['state']['running']['device'] === 'Office PC', 'A started here: '.json_encode($j['state']['running'] ?? null));
+    DB::query('UPDATE time_entries SET started_at=?, last_heartbeat_at=?, created_at=? WHERE user_id=?', [date('Y-m-d H:i:s', $now - 600), date('Y-m-d H:i:s', $now - 30), date('Y-m-d H:i:s', $now - 600), $emp]);
+    DB::query('UPDATE attendance SET clock_in=? WHERE user_id=?', [date('Y-m-d H:i:s', $now - 600), $emp]);
+    $ea = DB::first('SELECT * FROM time_entries WHERE user_id=? AND is_running=1', [$emp]);
+    // B is told the entry is not its own (old fields kept for apps 1.3.x / 1.4.x)
+    foreach (['GET /api/agent/state', 'GET /api/agent/bootstrap'] as $r) {
+      [$m, $path] = explode(' ', $r);
+      [$code, $j] = trk_api($m, $path, [], $tb);
+      $run = $j['state']['running'] ?? null;
+      assert_true($code === 200 && $j['state']['state'] === 'tracking' && $run['here'] === false && $run['device'] === 'Office PC' && (int) $run['id'] === (int) $ea['id'] && isset($run['elapsed'], $run['started_at']), "$r for B: not here: ".json_encode($run)); }
+    assert_true(trk_api('GET', '/api/agent/state', [], $ta)[1]['state']['running']['here'] === true, 'A: here');
+    // B's heartbeat (with idle spans), activity, screenshot and pause never touch A's entry; answers are 200 for old apps
+    [$code, $j] = trk_api('POST', '/api/agent/heartbeat', ['active_seconds' => 50, 'idle_seconds' => 400, 'at' => date('c', $now), 'idle_spans' => [['from' => date('c', $now - 300), 'to' => date('c', $now - 200)]]], $tb);
+    assert_true($code === 200 && $j['ok'] === true && $j['running_here'] === false && $j['state']['state'] === 'tracking' && $j['state']['running']['here'] === false, 'B heartbeat: 200, not here: '.json_encode($j));
+    $e = DB::first('SELECT * FROM time_entries WHERE id=?', [$ea['id']]);
+    assert_true($e['is_running'] == 1 && $e['last_heartbeat_at'] === $ea['last_heartbeat_at'] && (int) $e['idle_seconds'] === (int) $ea['idle_seconds'], 'A entry not extended or changed by B: '.json_encode($e));
+    assert_eq(0, (int) DB::value('SELECT COUNT(*) FROM time_idle_spans WHERE user_id=?', [$emp]), 'B idle spans not attached to A');
+    $slot = ['slot_start' => date('c', $now - 360), 'slot_seconds' => 180, 'active_seconds' => 20];
+    [$code, $j] = trk_api('POST', '/api/agent/activity', ['slots' => [$slot]], $tb);
+    assert_true($code === 200 && $j['saved'] === 0 && $j['other_device'] === 1, 'B activity skipped: '.json_encode($j));
+    [$code, $j] = trk_api('POST', '/api/agent/activity', ['slots' => [['active_seconds' => 150] + $slot]], $ta);
+    assert_eq(1, $j['saved'] ?? null, 'A activity saved');
+    [$code, $j] = trk_api('POST', '/api/agent/activity', ['slots' => [['slot_seconds' => 180, 'active_seconds' => 0] + $slot]], $tb);
+    $as = DB::first('SELECT * FROM activity_slots WHERE user_id=?', [$emp]);
+    assert_true((int) $as['agent_token_id'] === $ia && (int) $as['time_entry_id'] === (int) $ea['id'] && (int) $as['active_seconds'] === 150, 'A slot kept, B never replaces it: '.json_encode($as));
+    Settings::set('attendance.screenshots_enabled', '1');
+    \Modules\Attendance\Services\Monitoring::giveConsent($emp, '127.0.0.1');
+    [$code, $j] = trk_api('POST', '/api/agent/screenshot', ['activity_pct' => 50, 'display' => 0, 'captured_at' => date('c', $now - 5)], $tb, trk_jpeg());
+    assert_true($code === 200 && $j['ok'] === true && $j['id'] === null && $j['skipped'] === 'other_device', 'B screenshot: 200, not stored: '.json_encode($j));
+    assert_eq(0, (int) DB::value('SELECT COUNT(*) FROM screenshots WHERE user_id=?', [$emp]), 'no screenshot attached to A');
+    [$code, $j] = trk_api('POST', '/api/agent/screenshot', ['activity_pct' => 50, 'display' => 0, 'captured_at' => date('c', $now - 5)], $ta, trk_jpeg());
+    assert_true($code === 200 && $j['id'], 'A screenshot stored: '.json_encode($j));
+    [$code, $j] = trk_api('POST', '/api/agent/pause', ['at' => date('c', $now)], $tb);
+    assert_true($code === 200 && $j['state']['state'] === 'tracking' && (int) DB::value('SELECT is_running FROM time_entries WHERE id=?', [$ea['id']]) === 1, 'an automatic / old-app pause from B does not stop A');
+    foreach (['day/start', 'resume'] as $act) { [$code, $j] = trk_api('POST', '/api/agent/'.$act, [], $tb); assert_true($code === 200 && $j['state']['running']['here'] === false, "$act from B changes nothing"); }
+    assert_eq(1, (int) DB::value('SELECT COUNT(*) FROM time_entries WHERE user_id=?', [$emp]), 'still one entry');
+    // B takes over: A's entry ends now, B's starts at the same second on the same project/task
+    [$code, $j] = trk_api('POST', '/api/agent/takeover', [], $tb);
+    assert_true($code === 200 && $j['state']['running']['here'] === true && $j['state']['running']['device'] === 'Home laptop' && (int) $j['state']['running']['project_id'] === $a && (int) $j['state']['running']['task_id'] === $t1, 'B tracks here now: '.json_encode($j['state']['running'] ?? null));
+    $rows = DB::all('SELECT * FROM time_entries WHERE user_id=? ORDER BY id', [$emp]);
+    assert_true(count($rows) === 2 && !$rows[0]['is_running'] && $rows[1]['is_running'] == 1 && $rows[0]['ended_at'] === $rows[1]['started_at'] && abs(strtotime($rows[1]['started_at']) - time()) <= 2 && (int) $rows[1]['agent_token_id'] === $ib, 'moved without a gap: '.json_encode($rows));
+    assert_true((bool) DB::value("SELECT 1 FROM audit_logs WHERE action='tracker.takeover' AND user_id=?", [$emp]), 'takeover audited');
+    assert_eq(1, (int) DB::value('SELECT COUNT(*) FROM time_entries WHERE user_id=? AND is_running=1', [$emp]), 'never two running entries');
+    assert_eq(200, trk_api('POST', '/api/agent/takeover', [], $tb)[0], 'takeover again: no-op');
+    assert_eq(2, (int) DB::value('SELECT COUNT(*) FROM time_entries WHERE user_id=?', [$emp]), 'idempotent');
+    // A learns it within one answer and cannot touch B's entry (queued heartbeat and pause from before it knew)
+    [$code, $j] = trk_api('POST', '/api/agent/heartbeat', ['active_seconds' => 60, 'idle_seconds' => 0, 'at' => date('c')], $ta);
+    assert_true($j['running_here'] === false && $j['state']['running']['here'] === false && $j['state']['running']['device'] === 'Home laptop', 'A: not here any more');
+    trk_api('POST', '/api/agent/pause', ['at' => date('c')], $ta);
+    assert_eq(1, (int) DB::value('SELECT is_running FROM time_entries WHERE id=?', [$rows[1]['id']]), 'A queued pause does not stop B');
+    // switch from A works per person but tracking stays on B
+    [$code, $j] = trk_api('POST', '/api/agent/switch', ['project_id' => 0], $ta);
+    assert_true($code === 200 && $j['state']['running']['device'] === 'Home laptop' && $j['state']['running']['project_id'] === null, 'switch from A keeps B: '.json_encode($j['state']['running'] ?? null));
+    // Pause from A's read-only view pauses the person; Resume from A then tracks on A
+    [$code, $j] = trk_api('POST', '/api/agent/pause', ['anywhere' => 1], $ta);
+    assert_true($code === 200 && $j['state']['state'] === 'paused', 'explicit pause anywhere: paused');
+    assert_true((bool) DB::value("SELECT 1 FROM audit_logs WHERE action='tracker.pause' AND user_id=? AND meta LIKE ?", [$emp, '%"token":'.$ia.'%']), 'pause records the device');
+    [$code, $j] = trk_api('POST', '/api/agent/takeover', [], $ta);
+    assert_true($code === 200 && $j['state']['state'] === 'tracking' && $j['state']['running']['here'] === true && $j['state']['running']['device'] === 'Office PC', 'takeover with nothing running resumes here');
+    assert_eq(1, (int) DB::value('SELECT COUNT(*) FROM time_entries WHERE user_id=? AND is_running=1', [$emp]), 'one running entry');
+    act_as($emp);
+    $st = json_decode(http('GET', '/time/status')->body(), true);
+    assert_true($st['running']['device'] === 'Office PC' && $st['running']['here'] === null, 'web: device shown, no here: '.json_encode($st['running'] ?? null));
+    Settings::set('attendance.screenshots_enabled', '0'); },
 ];

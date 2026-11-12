@@ -49,15 +49,17 @@ final class Monitoring {
 
   /**
    * Store an uploaded capture. It is linked to the time entry that covered the capture moment (running now, or for
-   * captures queued while offline, a stopped entry), so captures outside tracked time are refused.
+   * captures queued while offline, a stopped entry), so captures outside tracked time are refused. With $tokenId only that
+   * device's own entries count: a capture made while another computer tracked is not stored (null).
    */
-  public static function store(int $uid, array $file, string $source, ?int $activity, ?int $display = null, ?string $capturedAt = null, ?int $tokenId = null, bool $meeting = false): int {
+  public static function store(int $uid, array $file, string $source, ?int $activity, ?int $display = null, ?string $capturedAt = null, ?int $tokenId = null, bool $meeting = false): ?int {
     if (!self::enabled()) { throw new \DomainException('Screenshot monitoring is turned off.'); }
     if (!self::consent($uid)) { throw new \DomainException('Monitoring consent is required before capturing.'); }
     $now = time();
     $at = $capturedAt !== null && ($t = strtotime($capturedAt)) !== false && $t <= $now + 60 && $t >= $now - 86400 * 2 ? min($t, $now) : $now;
     $taken = date('Y-m-d H:i:s', $at);
-    $e = DB::first('SELECT id FROM time_entries WHERE user_id=? AND started_at<=? AND (is_running=1 OR ended_at>?) ORDER BY is_running DESC, id DESC LIMIT 1', [$uid, $taken, $taken]);
+    $e = DB::first('SELECT id FROM time_entries WHERE user_id=? AND started_at<=? AND (is_running=1 OR ended_at>?)'.($tokenId !== null ? ' AND (agent_token_id=? OR agent_token_id IS NULL)' : '').' ORDER BY is_running DESC, id DESC LIMIT 1', array_merge([$uid, $taken, $taken], $tokenId !== null ? [$tokenId] : []));
+    if (!$e && $tokenId !== null && DB::value('SELECT 1 FROM time_entries WHERE user_id=? AND started_at<=? AND (is_running=1 OR ended_at>?) LIMIT 1', [$uid, $taken, $taken])) { return null; }
     if (!$e) { throw new \DomainException('Screenshots are only accepted while you are tracking time.'); }
     $gap = max(5, min(20, intdiv(self::intervalSeconds(), 2)));
     if (DB::value('SELECT 1 FROM screenshots WHERE user_id=? AND COALESCE(display_index,0)=? AND taken_at>? AND taken_at<? LIMIT 1', [$uid, (int) $display, date('Y-m-d H:i:s', $at - $gap), date('Y-m-d H:i:s', $at + $gap)])) { throw new \DomainException('Screenshots are arriving too quickly.'); }

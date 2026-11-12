@@ -29,6 +29,8 @@
   let wsOpen = false;
   let pwOpen = false;
   let uninstallAsk = false;
+  /* tracking runs on another computer: {kind: 'takeover' (Start here) | 'pause', device} while the window asks first */
+  let remoteAsk = null;
   const hostOf = u => { try { return u ? new URL(/^https?:\/\//i.test(u) ? u : 'https://' + u).host : ''; } catch (e) { return ''; } };
 
   window.addEventListener('error', e => T.reportError({ message: e.message, stack: e.error && e.error.stack }));
@@ -92,10 +94,13 @@
     $('today').textContent = new Date().toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' });
     renderPickers(st);
     const s = st.state;
+    const remote = !!ui.remote;
     const show = (id, on) => $(id).classList.toggle('hide', !on);
-    show('btn-start', ['not_started', 'ended'].includes(s));
-    show('btn-pause', s === 'tracking');
+    /* tracking on another computer: the normal not-tracking look here; Start asks, then moves tracking to this computer */
+    show('btn-start', ['not_started', 'ended'].includes(s) || remote);
+    show('btn-pause', s === 'tracking' && !remote);
     show('btn-resume', s === 'paused' || s === 'stopped');
+    show('meet', !remote);
     renderMeeting(st);
     renderBanners(st);
     setHtml('update-slot', updateCard());
@@ -119,7 +124,7 @@
       fillTasks(sel.task_id); }
     const run = st.running;
     const differs = run && ((run.project_id || null) !== (sel.project_id || null) || (run.task_id || null) !== (sel.task_id || null));
-    $('switch').classList.toggle('hide', !(st.state === 'tracking' && differs)); }
+    $('switch').classList.toggle('hide', !(st.state === 'tracking' && !ui.remote && differs)); }
 
   function fillTasks(taskId) {
     const p = ui.projects.find(x => String(x.id) === $('project').value);
@@ -159,13 +164,14 @@
   function renderBanners(st) {
     const b = [];
     const dis = ui.dismissed || {};
+    if (ui.remote) b.push(stackBanner('info', `${icon('monitor', 'sm')} <span><b>Tracking on ${esc(ui.remote.device || 'another computer')}</b><br>Not recording activity or screenshots on this computer.</span>`, '<button class="btn" data-takeover>Track on this computer instead</button><button class="btn" data-remote-pause>Pause</button>'));
     if (ui.notice && ui.notice.id !== noticeShown) b.push(banner(ui.notice.kind === 'error' ? 'error' : 'info', esc(ui.notice.text), ui.notice.action === 'meeting-on' ? `<button class="btn" data-meeting-on="${ui.notice.id}">Turn back on</button>` : '', 'notice'));
     b.push(...pomodoroBanners(st));
     if (ui.idlePause && ui.idlePause.back && !ui.idlePause.dismissed && st.state === 'paused') b.push(banner('info', `${icon('coffee', 'sm')} Tracking paused after ${+ui.idlePause.minutes} min idle. Resume when you are back.`, '<button class="btn" data-resume>Resume</button>', 'idle'));
     if (ui.offline && !dis.offline) b.push(banner('warn', `${icon('cloud-off', 'sm')} <span><b>Offline.</b> Your actions are saved and sync automatically. Without a connection for 10 minutes, time is not counted.</span>`, '', 'offline'));
     const perm = ui.monitoring && ui.monitoring.permission;
-    if (ui.monitoring && ui.settings.screenshots_enabled && ui.consent && ui.consent.given && (perm === 'denied' || perm === 'stale') && !dis.permission) b.push(banner('error', perm === 'stale' ? '<span><b>Screenshots are not working.</b> macOS still has Screen Recording switched on for an older version of the app. Click <b>Fix permission</b>: the app restarts and macOS asks again, then choose <b>Allow</b> (and <b>Quit &amp; Reopen</b> if asked).</span>' : '<span>Screenshots need the <b>Screen Recording</b> permission. If it is already on in System Settings, click <b>Fix permission</b>.</span>', '<button class="btn" data-open="fix-permission">Fix permission</button><button class="btn" data-open="permissions">Open settings</button>', 'permission'));
-    if (ui.consent && ui.consent.needed && st.state === 'tracking' && modalKind !== 'consent' && !dis.consent) b.push(banner('warn', 'Screen monitoring is on in your workspace. Please review the notice.', '<button class="btn" data-consent>Review</button>', 'consent'));
+    if (ui.monitoring && ui.settings.screenshots_enabled && ui.consent && ui.consent.given && (perm === 'denied' || perm === 'reallow') && !dis.permission) b.push(banner(perm === 'reallow' ? 'warn' : 'error', perm === 'reallow' ? '<span>macOS needs you to allow Screen Recording again after the update. Choose <b>Allow</b> when macOS asks (then <b>Quit &amp; Reopen</b>).</span>' : '<span>Screenshots need the <b>Screen Recording</b> permission. Turn it on for Niyanta Tracker in System Settings.</span>', '<button class="btn" data-open="permissions">Open settings</button>', 'permission'));
+    if (ui.consent && ui.consent.needed && st.state === 'tracking' && !ui.remote && modalKind !== 'consent' && !dis.consent) b.push(banner('warn', 'Screen monitoring is on in your workspace. Please review the notice.', '<button class="btn" data-consent>Review</button>', 'consent'));
     setHtml('banners', b.join('')); }
 
   /* A notice that appears while Settings is open (e.g. after Check for updates) would be hidden behind the drawer: close
@@ -215,7 +221,7 @@
   function renderMonitoring() {
     const m = ui.monitoring || {};
     const last = ui.activity && ui.activity.last;
-    const a = last && ui.state && ui.state.state === 'tracking' ? (last.meeting ? `Last ${esc(every(last.seconds))}: meeting` : `Activity ${+last.pct}% (last ${esc(every(last.seconds))})`) : '';
+    const a = last && ui.state && ui.state.state === 'tracking' && !ui.remote ? (last.meeting ? `Last ${esc(every(last.seconds))}: meeting` : `Activity ${+last.pct}% (last ${esc(every(last.seconds))})`) : '';
     const mon = !ui.settings.screenshots_enabled ? '' : (m.on ? `Screenshots every ${esc(every(m.interval))}${a ? '' : ' while tracking'}` : 'Screen monitoring is on: please review the notice');
     const line = [mon, a].filter(Boolean).join(' · ');
     setHtml('mon-info', line ? `${icon(mon ? 'camera' : 'check', 'sm')} <span>${line}</span>` : ''); }
@@ -293,7 +299,8 @@
     if (uninstallAsk) return 'uninstall-ask';
     if (ui.connect && ui.connect.phase === 'confirm') return 'connect';
     if (ui.screen !== 'tracker') return null;
-    if (ui.consent && ui.consent.needed && (modalKind === 'consent' || (ui.state && ui.state.state === 'tracking' && !consentLater))) return 'consent';
+    if (remoteAsk && !(remoteAsk.kind === 'pause' && !ui.remote)) return 'remote';
+    if (ui.consent && ui.consent.needed && (modalKind === 'consent' || (ui.state && ui.state.state === 'tracking' && !ui.remote && !consentLater))) return 'consent';
     if (ui.update && ui.update.prompt && promptLater !== ui.update.latest) return 'update';
     return null; }
 
@@ -304,7 +311,7 @@
     $('modal').classList.toggle('hide', !kind);
     if (!kind) { modalKey = ''; if (was && modalReturn && document.contains(modalReturn)) modalReturn.focus(); modalReturn = null; return; }
     if (!was) modalReturn = document.activeElement;
-    const key = kind + '|' + (kind === 'update' ? ui.update.latest : kind === 'connect' ? ui.connect.host + '|' + ui.connect.switching : kind === 'uninstall' ? (ui.uninstall.step || '') + '|' + (ui.uninstall.error || '') : '');
+    const key = kind + '|' + (kind === 'remote' ? remoteAsk.kind + '|' + remoteAsk.device : kind === 'update' ? ui.update.latest : kind === 'connect' ? ui.connect.host + '|' + ui.connect.switching : kind === 'uninstall' ? (ui.uninstall.step || '') + '|' + (ui.uninstall.error || '') : '');
     const fresh = key !== modalKey;
     modalKey = key;
     if (kind === 'sync') { renderSync(fresh); return; }
@@ -326,6 +333,14 @@
       $('m-actions').innerHTML = u.error ? '<button class="btn primary" data-uninstall="ok">OK</button>' : '';
       setTimeout(() => { const b = $('m-actions').querySelector('button'); if (b) b.focus(); }, 0);
       return; }
+    if (kind === 'remote') {
+      const dev = esc(remoteAsk.device || 'another computer');
+      const pause = remoteAsk.kind === 'pause';
+      $('m-art').innerHTML = `<div class="bubble">${icon(pause ? 'pause' : 'monitor')}</div>`;
+      $('m-title').textContent = pause ? 'Pause tracking?' : 'Track on this computer?';
+      $('m-body').className = 'm-body center';
+      $('m-body').innerHTML = pause ? `<p>Tracking runs on <b>${dev}</b>. Pausing stops it there.</p>` : `<p>Tracking runs on <b>${dev}</b>. It stops there and continues here on the same project.</p>`;
+      $('m-actions').innerHTML = `<button class="btn ghost" data-remote-ask="cancel">Cancel</button><button class="btn primary" data-remote-ask="ok">${pause ? 'Pause' : 'Track here'}</button>`; }
     if (kind === 'consent') {
       const p = ui.consent.policy || { points: [] };
       $('m-art').innerHTML = `<div class="bubble">${icon('shield')}</div>`;
@@ -384,7 +399,7 @@
     if (!ui || ui.screen !== 'tracker' || !ui.state) return;
     const st = ui.state;
     const cur = S.current(ui);
-    const live = st.state === 'tracking' ? Math.max(0, (Date.now() - ui.at) / 1000) : 0;
+    const live = cur.ticking ? Math.max(0, (Date.now() - ui.at) / 1000) : 0;
     const kind = ui.offline && st.state === 'tracking' ? 'offline' : cur.kind;
     if ($('hero').dataset.kind !== kind) $('hero').dataset.kind = kind;
     /* tracker off: the counter shows today's tracked time, frozen and dimmed; the "Today" line would only repeat it */
@@ -395,7 +410,7 @@
     const aria = cur.ticking ? `${cur.label}: ${hm(cur.seconds)}` : `${cur.label}. Tracked today: ${hm(cur.seconds)}`;
     if (shown.get('clock-aria') !== aria) { shown.set('clock-aria', aria); $('clock').setAttribute('aria-label', aria); }
     setText('day-total', hms(cur.total));
-    const r = st.running;
+    const r = ui.remote ? null : st.running;
     const proj = r && ui.projectsEnabled ? (r.project || 'No project') + (r.task ? ' · ' + r.task : '') : '';
     setText('hero-proj', proj);
     /* nothing under the divider (tracker off, no project): no empty strip */
@@ -412,13 +427,14 @@
       meeting: `Meeting mode, ends in <b>${mmss(cur.meetingLeft || 0)}</b>`,
       paused: pomo ? `On a break, <b>${mmss(pomo.breakUntil - Date.now())}</b> left. Not counting.` : (since ? `Paused since ${since}. Not counting.` : 'Paused. Not counting.'),
       stopped: 'Not tracking, not counting. Press Resume.',
+      remote: 'Not tracking on this computer.',
       ended: 'Not tracking. Press Start to track again.',
       not_started: 'Press Start when you begin working.' }[cur.kind] || '');
     if (ui.meeting) setText('meet-left', mmss(cur.meetingLeft || 0));
     document.querySelectorAll('[data-countdown]').forEach(el => { const v = mmss(+el.dataset.countdown - Date.now()); if (el.textContent !== v) el.textContent = v; });
     const t = st.totals || {};
     setText('t-total', hm(cur.total));
-    setText('t-active', hm((+t.active || 0) + (ui.idle ? 0 : live)));
+    setText('t-active', hm(ui.remote ? Math.min(+t.active || 0, cur.total) : (+t.active || 0) + (ui.idle ? 0 : live)));
     setText('t-idle', hm((+t.idle || 0) + (ui.idle ? live : 0)));
     const act = Number.isFinite(t.activity) ? t.activity : (Number.isFinite(ui.dayActivity) ? ui.dayActivity : null);
     setText('t-act', act === null ? '-' : act + '%');
@@ -454,9 +470,12 @@
   $('project').addEventListener('change', () => { fillTasks(null); T.select(currentSel()); });
   $('task').addEventListener('change', () => T.select(currentSel()));
   $('switch').addEventListener('click', () => T.switchProject(currentSel()));
-  $('btn-start').addEventListener('click', () => T.startDay(currentSel()));
+  /* Start / Resume while tracking runs on another computer (known, or the server says so): ask, then move it here */
+  const askRemote = (kind, r) => { remoteAsk = { kind, device: (r && r.device) || (ui.remote && ui.remote.device) || null }; renderModal(); };
+  const started = p => Promise.resolve(p).then(r => { if (r && r.remote) askRemote('takeover', r.remote); });
+  $('btn-start').addEventListener('click', () => { if (ui && ui.remote) askRemote('takeover'); else started(T.startDay(currentSel())); });
   $('btn-pause').addEventListener('click', () => T.pause());
-  $('btn-resume').addEventListener('click', () => T.resume(currentSel()));
+  $('btn-resume').addEventListener('click', () => started(T.resume(currentSel())));
   $('meet-on').addEventListener('change', async e => {
     meetBusy = true; e.target.disabled = true;
     try { await T.setMeeting(e.target.checked); } finally { meetBusy = false; e.target.disabled = false; } });
@@ -501,6 +520,7 @@
     if (modalKind === 'update') { laterPrompt(); return; }
     if (modalKind === 'connect') { T.connect('decline'); return; }
     if (modalKind === 'uninstall-ask') { uninstallAsk = false; renderModal(); return; }
+    if (modalKind === 'remote') { remoteAsk = null; renderModal(); return; }
     closeSheet(); });
 
   function laterPrompt() { const v = ui.update && ui.update.latest; promptLater = v || ''; T.updatePrompted(v); renderModal(); }
@@ -516,7 +536,10 @@
     if ('installer' in t.dataset) T.openInstaller();
     if ('restartApp' in t.dataset) { t.disabled = true; T.restartApp(); }
     if (t.dataset.copyText) { T.copy(t.dataset.copyText); t.textContent = 'Copied'; }
-    if ('resume' in t.dataset) T.resume(currentSel());
+    if ('resume' in t.dataset) started(T.resume(currentSel()));
+    if ('takeover' in t.dataset) { t.disabled = true; T.takeOver().then(r => { if (!r || !r.ok) t.disabled = false; }); }
+    if ('remotePause' in t.dataset) askRemote('pause');
+    if (t.dataset.remoteAsk) { const a = remoteAsk; remoteAsk = null; renderModal(); if (a && t.dataset.remoteAsk === 'ok') { if (a.kind === 'pause') T.pauseRemote(); else T.takeOver(); } }
     if (t.dataset.pomo === 'break') { t.disabled = true; T.takeBreak(); }
     if (t.dataset.pomo === 'snooze') T.snoozeBreak();
     if (t.dataset.pomo === 'dismiss') T.dismissBreakOver();

@@ -20,6 +20,11 @@
  * countdown, "Break over" offers Resume) or a 10-minute snooze.
  * Heartbeats (at most every 60 s) keep the running entry alive on the server; the local session (tracking or not, last alive
  * time, the open slot) is saved every 15 s so a crash or power cut is recovered on the next start (see recover()).
+ * Two computers, one login: only the device that started (resumed, took over) tracking tracks; the server says so in every
+ * state answer (running.here; older servers do not send it and nothing changes). On the other computer the state is 'remote': no timer, no activity sampling,
+ * heartbeats, screenshots, idle auto-pause or meeting mode; a notice "Tracking on <device>" offers "Track on this computer
+ * instead" (takeover()) and Pause (pauseRemote(), pauses the person wherever it runs). Start there asks first (renderer).
+ * The computer that was tracking stops locally as soon as an answer says the entry moved (movedAway()).
  */
 const os = require('os');
 const path = require('path');
@@ -37,6 +42,7 @@ const { Activity } = require('./activity');
 const meter = require('./meter');
 const { Pomodoro } = require('./pomodoro');
 const errors = require('./errors');
+const permfix = require('./permfix');
 const { MEETING_MS } = require('../shared/status');
 
 const ACTIONS = { start: 'day/start', pause: 'pause', resume: 'resume', switch: 'switch' };
@@ -100,6 +106,9 @@ class Tracker extends EventEmitter {
     this.updater.on('restart', () => this.emit('update-restart'));
     this.autoPaused = false;
     this.permission = process.platform === 'darwin' ? capture().screenPermission() : 'granted';
+    /* macOS: Screen Recording is reset once per version after an update or a capture failing while "granted" (permfix.js) */
+    this.permFix = permfix.create({ platform: process.platform, packaged: app.isPackaged, version: app.getVersion(), store, reset: () => capture().resetPermission(), log: errors.log });
+    this.permFix.atStart();
     this.loops = [];
     this.lastCaptureError = 0;
     this.selection = { project_id: null, task_id: null };
@@ -261,6 +270,7 @@ class Tracker extends EventEmitter {
   newDay(day) {
     const s = this.snap;
     if (!s) return;
+    if (this.remote) { this.refreshState(); return; }
     const into = this.secondsIntoDay();
     const zero = { tracked: 0, active: 0, idle: 0, paused: 0, entries: 0 };
     if (s.state === 'tracking') {
@@ -282,13 +292,32 @@ class Tracker extends EventEmitter {
     this.snap = JSON.parse(JSON.stringify(state));
     this.snapAt = cached ? Date.parse(state.server_time || '') || Date.now() : Date.now();
     if (this.state !== 'tracking' && this.idleFrom) this.closeIdle(Date.now());
+    if (was === 'tracking' && this.state === 'remote') this.movedAway(this.quietMove);
     if (was !== 'tracking' && this.state === 'tracking') { this.trackingSince = Date.now(); this.pomo.resumed(); }
     else if (was === 'tracking' && this.state !== 'tracking') this.pomo.rest();
     if (this.state !== 'paused') this.idlePause = null;
     if (was !== this.state) this.saveSession(true);
     this.changed(); }
 
-  get state() { return this.snap ? this.snap.state : 'not_started'; }
+  get state() { return this.snap ? (this.remote ? 'remote' : this.snap.state) : 'not_started'; }
+
+  /** The running entry is on another computer (the server said running.here = false): this one only shows it. */
+  get remote() { const s = this.snap; return !!(s && s.state === 'tracking' && s.running && s.running.here === false); }
+  remoteInfo() { const r = this.remote && this.snap.running; return r ? { device: r.device ? String(r.device).slice(0, 100) : null, os: r.device_os || null, project: r.project || null, task: r.task || null } : null; }
+
+  /**
+   * The server says tracking runs on another computer while this one was tracking (it was moved there): stop everything
+   * local at once (meeting mode, the open activity slot, idle) and say so. quiet: a Start this computer sent while the entry
+   * was already elsewhere (nothing was tracked here, the slot of that moment is dropped).
+   */
+  movedAway(quiet) {
+    this.meeting = null; this.idlePause = null; this.autoPaused = false; clearTimeout(this._autoResume);
+    if (quiet) this.slot = null; else this.closeSlot(false);
+    this.hb = { a: 0, i: 0 };
+    this.localTracking = false;
+    const r = this.remoteInfo();
+    errors.log(`tracking runs on another device${quiet ? ' (start refused)' : ''}`);
+    if (!quiet) this.flash(`Tracking moved to ${r && r.device ? r.device : 'another computer'}. This computer stopped tracking.`, 'info'); }
 
   /**
    * The snapshot rolled forward to `until` (default now; tracking time keeps counting locally, also while idle). A pause with
@@ -330,6 +359,10 @@ class Tracker extends EventEmitter {
    */
   async action(name, body = {}, { quiet = false, at = null, durable = 0 } = {}) {
     if (!ACTIONS[name] || !this.signedIn) return { ok: false };
+    /* tracking runs on another computer: Start / Resume ask first and move it here (takeover), a switch belongs to that
+       computer, an automatic pause of this one (quit, sleep, lock) must not stop it; only pauseRemote() pauses there */
+    if (this.remote && name !== 'pause') return { ok: false, remote: this.remoteInfo() };
+    if (this.remote && !body.anywhere) return { ok: true, skipped: true };
     body = Object.assign({}, body, { at: at || new Date().toISOString() });
     const atMs = Math.min(Date.now(), Date.parse(body.at) || Date.now());
     if (name === 'pause' && this.idleFrom) this.closeIdle(Math.max(this.idleFrom, atMs));
@@ -337,6 +370,7 @@ class Tracker extends EventEmitter {
     if (name === 'pause') this.flushHeartbeat(atMs, !!durable);
     const before = this.snap;
     this.project(name, body);
+    this.localTracking = this.state === 'tracking';
     if (name !== 'pause') { this.autoPaused = false; this.idlePause = null; }
     if ((name === 'start' || name === 'resume') && this.consentNeeded()) this.emit('consent-needed');
     const job = { type: 'action', path: ACTIONS[name], json: body };
@@ -345,7 +379,9 @@ class Tracker extends EventEmitter {
     try {
       const res = await this.api.post(job.path, body);
       this.offline = false;
-      if (res.state) this.setSnap(res.state);
+      if (res.state) { this.quietMove = name !== 'pause'; try { this.setSnap(res.state); } finally { this.quietMove = false; } }
+      /* Start / Resume while the entry was already on another computer (this one did not know yet): nothing changed there */
+      if (this.remote && name !== 'pause') return { ok: false, remote: this.remoteInfo() };
       return { ok: true }; }
     catch (e) {
       if (e.retryable) { this.offline = !!e.offline; this.queue.add(job); this.changed(); return { ok: true, queued: true }; }
@@ -401,6 +437,7 @@ class Tracker extends EventEmitter {
       this.localTracking = false;
       this.action('resume', {}, { quiet: true }); }
     else if (this.localTracking && this.state === 'ended') this.flash('Your day was closed on another device. Press Start to track again.', 'info');
+    else if (this.localTracking && this.state === 'paused') this.flash('Tracking was paused from another device. Press Resume to track on this computer.', 'info');
     this.localTracking = this.state === 'tracking'; }
 
   /* ---------- crash / power-off resilience ---------- */
@@ -429,7 +466,8 @@ class Tracker extends EventEmitter {
       else { this.slot = sl; this.closeSlot(false); } }
     if (!s.tracking || s.user !== this.boot.user.id) { this.saveSession(true); return; }
     const run = this.snap && this.snap.running;
-    if (this.state === 'tracking' && run && run.device && s.device && run.device !== s.device) { this.saveSession(true); return; }
+    /* tracking runs on another computer (older servers without running.here: judged by the device name) */
+    if (this.remote || (this.state === 'tracking' && run && run.here === undefined && run.device && s.device && run.device !== s.device)) { this.saveSession(true); return; }
     const gap = Date.now() - (+s.aliveAt || 0);
     if (gap <= this.staleMs) {
       if (this.state === 'tracking') this.action('pause', {}, { quiet: true, at: iso(s.aliveAt) }).then(() => this.action('resume', {}, { quiet: true })).then(() => this.restoreMeeting(s.meeting));
@@ -491,6 +529,8 @@ class Tracker extends EventEmitter {
     this.day = day;
     this.localTracking = this.state === 'tracking';
     if (this.localTracking) this.saveSession();
+    /* tracking on another computer: nothing is sampled, counted or sent here */
+    if (this.remote) { this.idleFrom = 0; this.pomo.tick(now, 0); return; }
     const thr = this.idleThreshold();
     const input = this.activity.sample(now);
     this.locked = !!input.locked;
@@ -656,12 +696,14 @@ class Tracker extends EventEmitter {
     try { shots = await capture().captureAll({ thumb: notify }); }
     catch (e) {
       this.permission = capture().screenPermission();
-      /* macOS says "granted" but capture fails: the permission belongs to an older signature of the app (see capture.js) */
+      /* macOS says "granted" but capture fails: the permission belongs to an older signature of the app: reset it (once per
+         version), the next capture makes macOS ask again */
       this.captureStale = process.platform === 'darwin' && this.permission === 'granted';
+      this.permFix.failed(this.permission);
       if (Date.now() - this.lastCaptureError > 10 * 60000) { this.lastCaptureError = Date.now(); this.report('capture', e, { permission: this.permission, displays: require('electron').screen.getAllDisplays().length }); }
       this.changed();
       return; }
-    this.captureStale = false;
+    this.captureStale = false; this.permFix.worked();
     const at = new Date().toISOString();
     for (const s of shots) this.queue.addScreenshot(s.jpeg, { activity_pct: activity, meeting: slot.meeting ? 1 : 0, display: s.index, captured_at: at });
     if (notify && this.notifyOn()) { toast().show({ title: 'Screenshot taken', body: `${shots.length > 1 ? shots.length + ' screens · ' : ''}${clock(Date.now())} · ${slot.meeting ? 'meeting' : 'activity ' + activity + '%'}`, thumb: shots[0].thumb }); }
@@ -673,6 +715,40 @@ class Tracker extends EventEmitter {
     if (job.type === 'action') { this.flash(err.message, 'error'); this.refreshState(); return; }
     if (job.type !== 'error' && !/too quickly|only accepted while/i.test(err.message)) this.report('sync', err, { path: job.path, status: err.status }, 'warning'); }
 
+  /* ---------- tracking on another computer ---------- */
+
+  /**
+   * "Track on this computer instead": the server stops the other computer's entry now and starts one here with the same
+   * project/task (POST takeover). Only online (never queued: a move replayed later would cut time the other computer really
+   * tracked); with nothing running any more it resumes here.
+   */
+  async takeover() {
+    if (!this.signedIn) return { ok: false };
+    if (!this.remote) return this.state === 'tracking' ? { ok: true } : this.action(['not_started', 'ended'].includes(this.state) ? 'start' : 'resume', this.selection);
+    this.busy = true; this.changed();
+    try {
+      const res = await this.api.post('takeover', { at: new Date().toISOString() }, { timeout: 20000 });
+      this.offline = false;
+      this.autoPaused = false; this.idlePause = null;
+      if (res.state) this.setSnap(res.state);
+      const r = this.snap && this.snap.running;
+      if (r && this.state === 'tracking') this.setSelection({ project_id: r.project_id || null, task_id: r.task_id || null });
+      this.localTracking = this.state === 'tracking';
+      this.nextHeartbeat = Date.now() + this.beatMs;
+      if (this.state === 'tracking' && this.consentNeeded()) this.emit('consent-needed');
+      errors.log('tracking moved to this computer');
+      return { ok: this.state === 'tracking' }; }
+    catch (e) {
+      if (e.status === 401) { this.signedOutRemotely(); return { ok: false }; }
+      this.offline = !!e.offline;
+      const msg = e.retryable ? 'No connection to your workspace. Tracking can move to this computer only while online.' : e.message;
+      this.flash(msg, 'error');
+      return { ok: false, error: msg }; }
+    finally { this.busy = false; this.changed(); } }
+
+  /** Pause on the read-only view: pauses the person wherever tracking runs (queued like any pause when offline). */
+  pauseRemote() { return this.remote ? this.action('pause', { anywhere: true }) : (this.state === 'tracking' ? this.action('pause') : { ok: false }); }
+
   /* ---------- meeting mode ---------- */
 
   /**
@@ -682,6 +758,7 @@ class Tracker extends EventEmitter {
   async setMeeting(on) {
     if (!this.signedIn) return { ok: false };
     if (!on) { this.endMeeting('off'); return { ok: true }; }
+    if (this.remote) return { ok: false, remote: this.remoteInfo() };
     if (this.state !== 'tracking') {
       const r = await this.action(['not_started', 'ended'].includes(this.state) ? 'start' : 'resume', this.selection);
       if (!r.ok || this.state !== 'tracking') return { ok: false }; }
@@ -909,13 +986,13 @@ class Tracker extends EventEmitter {
       busy: this.busy, error: this.error, notice: this.notice,
       login: { url: store.get('workspaceUrl') || '', email: store.get('email') || '' }, connect: this.connectUi ? this.connectUi() : null,
       account: this.boot ? { name: this.boot.user.name, email: this.boot.user.email, initials: this.boot.user.initials, workspace: this.boot.workspace } : null,
-      state: v, chip, idle, offline: this.offline, pending: this.queue.size, pendingShots: this.queue.pendingShots,
+      state: v, chip, idle, offline: this.offline, remote: this.remoteInfo(), pending: this.queue.size, pendingShots: this.queue.pendingShots,
       skew: this.snap && this.snap.server_time ? Date.parse(this.snap.server_time) - this.snapAt : 0,
       meeting: this.meeting && this.state === 'tracking' ? this.meeting : null, quitSync: this.quitSync && this.quitSync.shown ? Object.assign({ offline: this.offline }, this.quitSync) : null,
       dayActivity: this.dayAct && this.dayAct.day === this.dayKey() && this.dayAct.tracked ? Math.round(100 * this.dayAct.active / this.dayAct.tracked) : null,
       projectsEnabled: !!this.settings.projects_enabled, projects: this.boot ? this.boot.projects : [], projectsRev: this.boot ? this.projectsRev || 0 : -2, selection: this.selection,
       settings: this.settings, consent: this.boot ? { given: !!this.boot.consent, needed: this.consentNeeded(), policy: this.boot.policy } : null,
-      monitoring: { on: !!this.settings.screenshots_enabled && !!(this.boot && this.boot.consent), interval: this.settings.screenshot_interval_seconds, permission: this.captureStale && this.permission === 'granted' ? 'stale' : this.permission },
+      monitoring: { on: !!this.settings.screenshots_enabled && !!(this.boot && this.boot.consent), interval: this.settings.screenshot_interval_seconds, permission: this.permFix.waiting || (this.captureStale && this.permission === 'granted') ? 'reallow' : this.permission },
       idlePause: this.idlePause, activity: { source: this.activity.source, slot: this.slotPct(), last: this.lastSlot }, update: this.updateUi(),
       tracking: st === 'tracking' && !idle, idleSince: idle ? this.idleFrom : null,
       prefs: { launchAtLogin: store.get('launchAtLogin', true), notify: this.notifyOn(), notifyAllowed: this.notifyChoice(), tone: store.get('alertTone', true), tokenProtected: store.tokenProtected() },
