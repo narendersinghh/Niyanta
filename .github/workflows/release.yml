@@ -29,18 +29,18 @@ concurrency:
 jobs:
   bump:
     name: Bump versions and tag
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       app_tag: ${{ steps.tag.outputs.app_tag }}
       tracker_tag: ${{ steps.tag.outputs.tracker_tag }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: main
           fetch-depth: 0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 22
       - id: tag
         shell: bash
         env:

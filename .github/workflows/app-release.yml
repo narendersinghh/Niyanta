@@ -23,9 +23,9 @@ env:
 
 jobs:
   package:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.tag || github.ref }}
       - name: Check versions match the tag
@@ -57,13 +57,14 @@ jobs:
           (cd build && sha256sum "$name.zip" > checksums.txt)
           ls -la build; cat build/checksums.txt
       - name: Attach to the GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ inputs.tag || github.ref_name }}
-          name: Niyanta ${{ inputs.tag || github.ref_name }}
-          draft: false
-          prerelease: false
-          fail_on_unmatched_files: true
-          files: |
-            build/niyanta-${{ env.VERSION }}.zip
-            build/checksums.txt
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          files=("build/niyanta-$VERSION.zip" build/checksums.txt)
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" "${files[@]}" --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$TAG" "${files[@]}" --title "Niyanta $TAG" --notes "" --verify-tag --repo "$GITHUB_REPOSITORY"
+          fi

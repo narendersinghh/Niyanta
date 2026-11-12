@@ -38,11 +38,11 @@ concurrency:
 jobs:
   version:
     name: Check version
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.v.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.tag || github.ref }}
       - id: v
@@ -72,19 +72,19 @@ jobs:
       fail-fast: true
       matrix:
         include:
-          - { os: windows-latest, name: Windows, script: 'dist:win' }
-          - { os: macos-latest, name: macOS, script: 'dist:mac' }
-          - { os: ubuntu-latest, name: Linux, script: 'dist:linux' }
+          - { os: windows-2025, name: Windows, script: 'dist:win' }
+          - { os: macos-15, name: macOS, script: 'dist:mac' }
+          - { os: ubuntu-24.04, name: Linux, script: 'dist:linux' }
     defaults:
       run:
         working-directory: desktop
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.tag || github.ref }}
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
           cache-dependency-path: desktop/package-lock.json
       - run: npm ci
@@ -134,7 +134,7 @@ jobs:
           [ ${#files[@]} -gt 0 ] || { echo "::error::No installers in dist"; exit 1; }
           for i in 1 2 3; do gh release upload "$TAG" "${files[@]}" --repo "$GITHUB_REPOSITORY" --clobber && exit 0; echo "Upload failed, retrying"; sleep $((i * 10)); done
           exit 1
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         if: ${{ !startsWith(env.TAG, 'tracker-v') }}
         with:
           name: niyanta-tracker-${{ matrix.name }}
@@ -153,7 +153,7 @@ jobs:
     name: GitHub Release
     needs: [version, build]
     if: startsWith(github.ref, 'refs/tags/tracker-v') || startsWith(inputs.tag, 'tracker-v')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Check the update files and publish
         shell: bash
