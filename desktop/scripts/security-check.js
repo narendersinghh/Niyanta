@@ -72,7 +72,8 @@ has('src/main/main.js', /guard\.POMODORO_OPS\.includes\(op\)/, 'pomodoro ops all
 has('src/main/main.js', /guard\.OPEN_TARGETS\.includes\(what\)/, 'open targets allowlisted');
 has('src/main/main.js', /guard\.str\(d\.url, 300\), email: guard\.str\(d\.email, 200\), password: guard\.str\(d\.password, 1000\)/, 'sign-in fields typed and bounded');
 has('src/main/main.js', /clipboard\.writeText\(guard\.str\(text, 2000\)\)/, 'clipboard text bounded');
-eq((code.match(/shell\.openExternal\(/g) || []).length, 3, 'shell.openExternal appears exactly three times (openTarget, the connect page and the macOS settings pane)');
+eq((code.match(/shell\.openExternal\(/g) || []).length, 4, 'shell.openExternal appears exactly four times (openTarget, the connect page, the macOS settings pane and the Microsoft Store page)');
+has('src/main/updater.js', /shell\.openExternal\('ms-windows-store:\/\/downloadsandupdates'\)/, 'the Store link is a constant');
 has('src/main/main.js', /function openConnectPage\(url, ws\) \{\n  if \(!guard\.allowedLink\(url, ws\)\) \{[^\n]*return false; \}\n  shell\.openExternal\(url/, 'the connect page opens only on the workspace host');
 has('src/main/main.js', /if \(!guard\.allowedLink\(url, [^)]*\)\) \{[^]*?return false; \}\n  shell\.openExternal\(url/, 'links go to the browser only after the allowlist');
 has('src/main/capture.js', /shell\.openExternal\(SETTINGS_PANE\)/, 'settings pane is a constant');
@@ -166,6 +167,14 @@ ok(fuseConfig('darwin', true).resetAdHocDarwinSignature === true && fuseConfig('
 eq(pkg.build.protocols, [{ name: 'Niyanta Tracker', schemes: ['niyanta-tracker'], role: 'Viewer' }], 'package.json build.protocols (macOS CFBundleURLTypes, Linux MimeType x-scheme-handler)');
 eq(pkg.build.nsis.include, 'build/installer.nsh', 'NSIS include wired');
 has('build/installer.nsh', /!macro customInstall[^]*WriteRegStr SHCTX "Software\\Classes\\niyanta-tracker" "URL Protocol" ""[^]*shell\\open\\command" "" '"\$appExe" "%1"'[^]*!macroend/, 'Windows registry: URL Protocol and open command');
+/* antivirus behaviour rules: nothing is downloaded or run in the background, nothing silent, no input hooks */
+has('src/main/updater.js', /autoUpdater\.autoDownload = false;\n\s*autoUpdater\.autoInstallOnAppQuit = false;/, 'updates are downloaded and installed only on the Update now click');
+not('src/main/uninstall.js', /'\/S'/, 'the Windows uninstaller is never run silently');
+not('src/main/main.js', /\bexecSync\b|powershell|wscript|cscript|reg(\.exe)? add|schtasks/i, 'no shell, PowerShell, scripting host, reg.exe or scheduled tasks');
+ok(!/uiohook|iohook|node-global-key|robotjs|keytar/.test(src['package.json']), 'no native input hook or keychain modules in package.json');
+ok(Object.keys(JSON.parse(src['package.json']).dependencies || {}).join() === 'electron-updater', 'one runtime dependency: electron-updater');
+has('package.json', /"afterSign": "scripts\/after-sign\.js"/, 'afterSign fills the Windows version resource (OriginalFilename)');
+has('src/main/errors.js', /tracker\.signedIn\) tracker\.queue\.add/, 'error reports are queued only while signed in');
 has('build/installer.nsh', /!macro customUnInstall[^]*\$\{ifNot\} \$\{isUpdated\}[^]*DeleteRegKey SHCTX "Software\\Classes\\niyanta-tracker"/, 'Windows uninstall removes the scheme (not on updates)');
 has('src/main/main.js', /app\.on\('open-url', \(e, url\) => \{ e\.preventDefault\(\); deepLink\(url\); \}\);/, 'macOS open-url handled (registered before ready)');
 ok(main.indexOf("app.on('open-url'") < main.indexOf('app.whenReady()'), 'open-url listener exists before ready');
@@ -439,7 +448,7 @@ function uninstallChecks() {
   for (const bad of [{ pid: 0 }, { dir: '/tmp' }, { log: '/etc/x' }]) { try { un.shScript(Object.assign({ pid: 1, remove: [], dir: '/tmp/ny-uninstall-AbC1', log: '/tmp/ny-uninstall-AbC1/l', platform: 'linux' }, bad)); } catch (e) { threw++; } }
   eq(threw, 3, 'sh helper refuses a bad pid or helper folder');
   /* Windows: no helper script at all, the NSIS uninstaller itself with electron-builder's documented arguments */
-  ok(!('cmdScript' in un) && JSON.stringify(un.NSIS_ARGS) === JSON.stringify(['/S', '--delete-app-data']), 'Windows: no .cmd helper; the NSIS uninstaller runs with /S --delete-app-data');
+  ok(!('cmdScript' in un) && JSON.stringify(un.NSIS_ARGS) === JSON.stringify(['--delete-app-data']), 'Windows: no .cmd helper; the NSIS uninstaller runs visibly (no /S) with --delete-app-data');
   /* the sh helper for real (Linux/macOS): removes what it lists, and its own folder */
   if (process.platform !== 'win32') {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ny-home-'));

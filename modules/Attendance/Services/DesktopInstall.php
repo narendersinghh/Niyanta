@@ -3,12 +3,15 @@ namespace Modules\Attendance\Services;
 use Core\{Crypto, DB, Gate, Modules};
 
 /**
- * One-line installs of Niyanta Tracker without browser or OS blockers. Files a browser downloads get the Mark-of-the-Web
- * (Windows SmartScreen "Windows protected your PC", Chrome "uncommon download") or the quarantine flag (macOS "damaged and
- * can't be opened" for an ad-hoc signed app); curl and PowerShell's Invoke-WebRequest add neither. The Time Tracking page
- * shows per OS:
- *   macOS / Linux: curl -fsSL "<workspace>/time/desktop/install.sh?k=<key>" | bash
- *   Windows:       irm "<workspace>/time/desktop/install.ps1?k=<key>" | iex   (saves the setup to Downloads and opens it)
+ * Installing Niyanta Tracker from the Time Tracking page.
+ *   macOS / Linux: one command, curl -fsSL "<workspace>/time/desktop/install.sh?k=<key>" | bash. Files a browser downloads
+ *     get the quarantine flag (macOS "damaged and can't be opened" for an app without an Apple Developer ID); curl does not.
+ *   Windows: the installer is downloaded with the browser (the main way; the page explains SmartScreen's "More info", "Run
+ *     anyway"), or with a short, readable PowerShell command (windowsCommand): Invoke-WebRequest saves the setup to
+ *     Downloads, Get-FileHash checks its sha512, Start-Process opens it. No `irm | iex`: piping a downloaded script into
+ *     Invoke-Expression is the classic download cradle that AMSI, Defender and EDR products flag, whatever the script does.
+ *     The older install.ps1 route still answers for commands copied before (it refuses an administrator window that is not
+ *     the signed-in Windows user, since the per-user setup would land in the administrator's profile).
  * The scripts are generated here with this workspace's URL, the mirrored file names and their sha512 (from latest*.yml), and
  * fetch the installers from /time/desktop/get/{file}?k=<key>. No browser session is needed there, so the key is the only
  * credential: "<user id>-<expiry>-<signature>", the signature being an HMAC (app key, purpose-bound subkey) of the purpose,
@@ -51,11 +54,23 @@ final class DesktopInstall {
     $u = parse_url(absolute_url('/'));
     return ($u['scheme'] ?? '') === 'https' || in_array($u['host'] ?? '', ['localhost', '127.0.0.1', '::1'], true); }
 
-  /** ['mac' => ..., 'linux' => ..., 'windows' => ...] commands to paste into a terminal / PowerShell. */
-  public static function commands(string $key): array {
+  /** ['mac' => ..., 'linux' => ..., 'windows' => ...|null] commands to paste into a terminal / PowerShell. */
+  public static function commands(string $key, ?array $f = null): array {
     $sh = absolute_url('/time/desktop/install.sh').'?k='.$key;
     $cmd = 'curl -fsSL "'.$sh.'" | bash';
-    return ['windows' => 'irm "'.absolute_url('/time/desktop/install.ps1').'?k='.$key.'" | iex', 'mac' => $cmd, 'linux' => $cmd]; }
+    $f ??= self::files();
+    return ['windows' => !empty($f['windows']) ? self::windowsCommand($key, $f['windows']) : null, 'mac' => $cmd, 'linux' => $cmd]; }
+
+  /**
+   * Windows, two visible steps in one paste (PowerShell 5.1+): save the setup to Downloads, check its sha512, open it. Nothing
+   * is piped into Invoke-Expression, nothing is hidden or silent; the person clicks through the setup as with a download.
+   */
+  public static function windowsCommand(string $key, array $w): string {
+    $name = (string) preg_replace('/[^A-Za-z0-9._-]/', '', (string) $w['name']);
+    $url = self::fileBase().rawurlencode($name).'?k='.$key;
+    $get = '$f = "$env:USERPROFILE\\Downloads\\'.$name.'"; Invoke-WebRequest -Uri '.self::pq($url).' -OutFile $f -UseBasicParsing; ';
+    $sha = strtoupper((string) ($w['sha512'] ?? ''));
+    return $get.(preg_match('/^[0-9A-F]{128}$/', $sha) ? 'if ((Get-FileHash -Algorithm SHA512 -LiteralPath $f).Hash -eq '.self::pq($sha).') { Start-Process -FilePath $f } else { Write-Host '.self::pq('The download is damaged. Run the command again.').' }' : 'Start-Process -FilePath $f'); }
 
   /* ---------- what the scripts download ---------- */
 
@@ -189,7 +204,8 @@ SH;
       ."set -euo pipefail\n".$head."\n".$body."\n"; }
 
   /**
-   * Windows installer (PowerShell 5.1+). It does what a person would do, so antivirus behaviour rules (AMSI, Defender) see a
+   * Windows installer for commands copied earlier (`irm .../install.ps1 | iex`; the page now offers the browser download and
+   * windowsCommand). PowerShell 5.1+. It does what a person would do, so antivirus behaviour rules (AMSI, Defender) see a
    * normal user install and not a "download cradle": the installer is saved to the person's Downloads folder with a visible
    * progress bar, its sha512 is checked, and it is started normally (no /S silent switch, no hidden window, no -Wait, no
    * Unblock-File, no TLS or execution-policy tweaks, nothing in %TEMP%); the person clicks through the setup, which starts the
@@ -207,6 +223,12 @@ SH;
       '  $connect = '.self::pq($connect)]);
     $body = <<<'PS'
   $ErrorActionPreference = 'Stop'
+  $me = [Security.Principal.WindowsIdentity]::GetCurrent()
+  if ((New-Object Security.Principal.WindowsPrincipal $me).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    $console = ''
+    try { $console = [string] (Get-CimInstance -ClassName Win32_ComputerSystem).UserName } catch { }
+    if ($console -and $console -ne $me.Name) { Write-Host "This PowerShell window runs as $($me.Name), but $console is signed in to Windows. Niyanta Tracker installs for one Windows account only, so it would end up in the wrong one. Open PowerShell normally (not Run as administrator) and run the command again, or download the installer from Time Tracking in your browser." -ForegroundColor Yellow; return }
+    Write-Host 'Note: this window runs as administrator. That is not needed: Niyanta Tracker installs for your own account only.' -ForegroundColor Yellow }
   $dir = Join-Path $env:USERPROFILE 'Downloads'
   if (-not (Test-Path -LiteralPath $dir)) { $dir = [Environment]::GetFolderPath('Desktop') }
   $out = Join-Path $dir $name
@@ -228,6 +250,8 @@ SH;
       try { Start-Process -FilePath 'explorer.exe' -ArgumentList ('"' + $out + '"'); $opened = $true } catch { } } }
   if (-not $opened) {
     Write-Host "Windows did not let this window open the setup: $why" -ForegroundColor Red
+    if ($why -match 'virus|potentially unwanted') { Write-Host 'Microsoft Defender flagged the setup. Open Windows Security > Protection history and choose Allow if you trust your workspace, and ask your Niyanta administrator to report it to Microsoft as a false positive.' -ForegroundColor Yellow }
+    elseif ($why -match 'Application Control|Smart App Control|policy') { Write-Host 'Smart App Control or a company policy on this PC blocks apps without a paid code-signing certificate. Ask your IT administrator to allow Niyanta Tracker.' -ForegroundColor Yellow }
     Write-Host "Double-click $name in the folder that opens now to install it." -ForegroundColor Yellow
     try { Start-Process -FilePath 'explorer.exe' -ArgumentList ('/select,"' + $out + '"') } catch { }
     return }

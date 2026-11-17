@@ -27,6 +27,18 @@ function resetPermission() {
   if (process.platform !== 'darwin') return Promise.resolve(false);
   return new Promise(res => require('child_process').execFile('/usr/bin/tccutil', ['reset', 'ScreenCapture', BUNDLE_ID], { timeout: 10000 }, err => res(!err))); }
 
+/**
+ * The designated requirement of this app bundle ("identifier ... and certificate ... = H"..."" with the project's own
+ * certificate, "cdhash H"..."" when signed ad hoc), or null (not macOS, not a bundle, codesign failed). Read once at start
+ * (permfix.js keeps the Screen Recording grant when it did not change).
+ */
+function codeIdentity(execPath = process.execPath) {
+  const m = process.platform === 'darwin' && String(execPath || '').match(/^(.*?\.app)\/Contents\/MacOS\/[^/]+$/);
+  if (!m) return Promise.resolve(null);
+  return new Promise(res => require('child_process').execFile('/usr/bin/codesign', ['-d', '-r-', m[1]], { timeout: 10000 }, (err, out, errOut) => {
+    const hit = !err && /designated => (.+)/.exec(String(out || '') + '\n' + String(errOut || ''));
+    res(hit ? hit[1].trim().slice(0, 1000) : null); })); }
+
 function openPermissionSettings() {
   if (process.platform === 'darwin') return shell.openExternal(SETTINGS_PANE);
   return Promise.resolve(); }
@@ -52,4 +64,4 @@ async function captureAll({ thumb = true } = {}) {
   if (!out.length) throw new Error('Screen capture returned empty images (permission missing?)');
   return out; }
 
-module.exports = { resetPermission, BUNDLE_ID, captureAll, screenPermission, openPermissionSettings, MAX_DISPLAYS };
+module.exports = { resetPermission, codeIdentity, BUNDLE_ID, captureAll, screenPermission, openPermissionSettings, MAX_DISPLAYS };

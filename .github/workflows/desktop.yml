@@ -6,11 +6,16 @@
 # Release builds upload straight to a draft GitHub Release (no workflow artifacts, so the Actions storage quota is never
 # used) and the last job publishes it once all three update files are there. Manual runs (workflow_dispatch) are test
 # builds: workflow artifacts only, no release.
-# Unsigned by default. Optional signing (see docs/RELEASING.md), each used only when its secrets exist:
-#   Windows, Azure Trusted Signing: secrets AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET and repository variables
-#     AZURE_TRUSTED_SIGNING_ENDPOINT, AZURE_TRUSTED_SIGNING_ACCOUNT, AZURE_TRUSTED_SIGNING_PROFILE
-#   Windows, OV/EV certificate (.pfx): WIN_CSC_LINK, WIN_CSC_KEY_PASSWORD
-#   macOS: MAC_CSC_LINK, MAC_CSC_KEY_PASSWORD, APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID
+# Signing (desktop/SIGNING.md). Works with zero spend; every step below is a no-op when its secrets are not set:
+#   macOS, free: the project's own self-signed certificate (desktop/scripts/make-mac-cert.sh, run once): secrets
+#     MAC_SELF_CERT_P12 (base64) and MAC_SELF_CERT_PASSWORD. Every build then has the same code identity, so macOS keeps
+#     the Screen Recording permission across updates. Without them: ad-hoc signature (as before).
+#   Optional, paid (not needed): Windows Azure Trusted Signing (secrets AZURE_TENANT_ID, AZURE_CLIENT_ID,
+#     AZURE_CLIENT_SECRET, variables AZURE_TRUSTED_SIGNING_ENDPOINT / _ACCOUNT / _PROFILE) or a .pfx (WIN_CSC_LINK,
+#     WIN_CSC_KEY_PASSWORD); macOS Developer ID + notarization (MAC_CSC_LINK, MAC_CSC_KEY_PASSWORD, APPLE_ID,
+#     APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID).
+#   Optional Microsoft Store package (.appx, Microsoft signs it when it is published in the Store): repository variables
+#     MS_STORE_IDENTITY_NAME and MS_STORE_PUBLISHER (from Partner Center); built after the NSIS installer, never blocks it.
 name: Desktop tracker
 
 on:
@@ -89,6 +94,32 @@ jobs:
           cache-dependency-path: desktop/package-lock.json
       - run: npm ci
       - run: npm run check
+      - name: Import the macOS signing certificate (self-signed, free)
+        if: matrix.name == 'macOS'
+        shell: bash
+        env:
+          MAC_SELF_CERT_P12: ${{ secrets.MAC_SELF_CERT_P12 }}
+          MAC_SELF_CERT_PASSWORD: ${{ secrets.MAC_SELF_CERT_PASSWORD }}
+          MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+        run: |
+          if [ -n "$MAC_CSC_LINK" ]; then echo "Developer ID certificate configured: electron-builder signs"; exit 0; fi
+          if [ -z "$MAC_SELF_CERT_P12" ]; then echo "::notice::No MAC_SELF_CERT_P12 secret: the macOS app is signed ad hoc (Screen Recording must be allowed again after each update). See desktop/SIGNING.md."; exit 0; fi
+          kc="$RUNNER_TEMP/niyanta-sign.keychain-db"; kpw="$(openssl rand -hex 16)"
+          printf '%s' "$MAC_SELF_CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$kpw" "$kc"
+          security set-keychain-settings -lut 3600 "$kc"
+          security unlock-keychain -p "$kpw" "$kc"
+          security import "$RUNNER_TEMP/cert.p12" -k "$kc" -P "$MAC_SELF_CERT_PASSWORD" -T /usr/bin/codesign
+          rm -f "$RUNNER_TEMP/cert.p12"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$kpw" "$kc" >/dev/null
+          security list-keychains -d user -s "$kc" $(security list-keychains -d user | tr -d '"')
+          security find-certificate -a -p "$kc" > "$RUNNER_TEMP/cert.pem"
+          sudo security add-trusted-cert -d -r trustRoot -p codeSign -k /Library/Keychains/System.keychain "$RUNNER_TEMP/cert.pem" || echo "::warning::could not mark the certificate as trusted on the runner (signing still works)"
+          sha="$(security find-identity -p codesigning "$kc" | awk '/[0-9A-F]{40}/ {print $2; exit}')"
+          [ -n "$sha" ] || { echo "::error::The certificate in MAC_SELF_CERT_P12 has no code-signing identity"; exit 1; }
+          echo "Signing identity $sha"
+          echo "MAC_SELF_SIGN_IDENTITY=$sha" >> "$GITHUB_ENV"
+          echo "MAC_SELF_SIGN_KEYCHAIN=$kc" >> "$GITHUB_ENV"
       - name: Build installers
         shell: bash
         env:
@@ -122,7 +153,32 @@ jobs:
           npm run ${{ matrix.script }} -- "${extra[@]}"
       - name: List output
         shell: bash
-        run: ls -la dist
+        run: |
+          ls -la dist
+          # SHA-256 of what ships: what to look up / submit at https://www.microsoft.com/en-us/wdsi/filesubmission
+          shopt -s nullglob; for f in dist/*.exe dist/*.dmg dist/*.zip dist/*.AppImage dist/*.deb; do
+            if command -v sha256sum >/dev/null; then sha256sum "$f"; else shasum -a 256 "$f"; fi; done
+      - name: Check the Windows version information
+        if: matrix.name == 'Windows'
+        shell: pwsh
+        run: |
+          $files = @(Get-ChildItem 'dist/win-unpacked/Niyanta Tracker.exe') + @(Get-ChildItem 'dist/*.exe')
+          $bad = 0
+          foreach ($f in $files) {
+            $v = $f.VersionInfo
+            "{0}: Company='{1}' Product='{2}' Description='{3}' Copyright='{4}' OriginalFilename='{5}' Version={6}" -f $f.Name, $v.CompanyName, $v.ProductName, $v.FileDescription, $v.LegalCopyright, $v.OriginalFilename, $v.ProductVersion
+            "  signature: {0}" -f (Get-AuthenticodeSignature $f.FullName).Status
+            foreach ($k in 'CompanyName', 'ProductName', 'FileDescription', 'LegalCopyright', 'ProductVersion') { if (-not $v.$k) { Write-Host "::error::$($f.Name) has no $k"; $bad++ } }
+            if ($v.CompanyName -and $v.CompanyName -ne 'Niyanta') { Write-Host "::error::$($f.Name): publisher is '$($v.CompanyName)', expected 'Niyanta'"; $bad++ } }
+          if ($bad) { exit 1 }
+      - name: Check the macOS code identity
+        if: matrix.name == 'macOS'
+        shell: bash
+        run: |
+          for app in dist/mac*/"Niyanta Tracker.app"; do
+            echo "$app"; codesign -d -r- "$app" 2>/dev/null | grep 'designated =>'
+            codesign --verify --deep --strict "$app"
+          done
       - name: Upload to the draft release
         if: startsWith(env.TAG, 'tracker-v')
         shell: bash
@@ -148,6 +204,30 @@ jobs:
             desktop/dist/*.deb
             desktop/dist/*.blockmap
             desktop/dist/latest*.yml
+      - name: Microsoft Store package (optional)
+        if: matrix.name == 'Windows' && vars.MS_STORE_IDENTITY_NAME != '' && vars.MS_STORE_PUBLISHER != ''
+        continue-on-error: true
+        shell: bash
+        env:
+          MS_STORE_IDENTITY_NAME: ${{ vars.MS_STORE_IDENTITY_NAME }}
+          MS_STORE_PUBLISHER: ${{ vars.MS_STORE_PUBLISHER }}
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: |
+          npx electron-builder --win appx --x64 --publish never "-c.appx.identityName=$MS_STORE_IDENTITY_NAME" "-c.appx.publisher=$MS_STORE_PUBLISHER" \
+            "-c.appx.publisherDisplayName=Niyanta" "-c.appx.applicationId=NiyantaTracker" "-c.appx.displayName=Niyanta Tracker"
+          ls -la dist/*.appx
+      - uses: actions/upload-artifact@v5
+        if: matrix.name == 'Windows' && vars.MS_STORE_IDENTITY_NAME != '' && vars.MS_STORE_PUBLISHER != ''
+        continue-on-error: true
+        with:
+          name: niyanta-tracker-microsoft-store
+          if-no-files-found: ignore
+          retention-days: 7
+          path: desktop/dist/*.appx
+      - name: Remove the signing keychain
+        if: always() && matrix.name == 'macOS'
+        shell: bash
+        run: if [ -n "${MAC_SELF_SIGN_KEYCHAIN:-}" ]; then security delete-keychain "$MAC_SELF_SIGN_KEYCHAIN" || true; fi
 
   release:
     name: GitHub Release

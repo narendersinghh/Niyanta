@@ -61,7 +61,8 @@ should accept the link only when `ws` is `https://` (or a local development addr
 **Flow A, started from the web.** Time Tracking › Get the desktop app › **Connect the desktop app** (`POST
 /time/desktop/connect-link`, signed in, `attendance.track`, CSRF, 10 per minute) mints a code (`purpose = web`, 2 minutes) and
 answers a small page that opens the deep link (a normal link plus an automatic `location` change in `js/tt-connect.js`). The
-personal install scripts (`install.sh`, `install.ps1`) mint a code too (`purpose = install`, 30 minutes) when they are generated
+personal install scripts (`install.sh`, and `install.ps1` for commands copied before Windows moved to the browser download)
+mint a code too (`purpose = install`, 30 minutes) when they are generated
 and open the deep link after installing: macOS `open "<link>"` after the first launch; Linux starts the AppImage with the link as
 its first argument (the `.desktop` entry also declares `MimeType=x-scheme-handler/niyanta-tracker;` with `%U`); Windows waits up
 to 25 minutes for `HKEY_CLASSES_ROOT\niyanta-tracker` (the app or its setup must register the scheme) and then
@@ -277,4 +278,11 @@ against `latest*.yml`; newest 2 versions kept). Super Admins can force it with *
   The `latest*.yml` files are served with every `url:` / `path:` rewritten to `<workspace>/api/agent/updates/<file name>`, so
   the installer and its `.blockmap` also come from the workspace (GitHub is never contacted by the app).
 - People download installers on **Time Tracking › Get the desktop app** from `GET /time/desktop/download/{file}` (signed in,
-  `attendance.track`, `Content-Disposition: attachment`).
+  `attendance.track`, `Content-Disposition: attachment`). On Windows this browser download is the main way (the page
+  explains SmartScreen's **More info**, **Run anyway**). The page also offers a short PowerShell command that saves the setup
+  to Downloads with `Invoke-WebRequest` from `GET /time/desktop/get/{file}?k=<install key>`, checks its sha512 with
+  `Get-FileHash` and opens it with `Start-Process` (`DesktopInstall::windowsCommand`). It never offers `irm ... | iex` any
+  more: piping a downloaded script into `Invoke-Expression` is the download-cradle pattern AMSI, Defender and EDR products
+  flag. `GET /time/desktop/install.ps1` still answers for commands copied earlier; in an administrator window of another
+  Windows account it stops and explains (the per-user setup would install into that account). macOS and Linux keep
+  `curl -fsSL .../install.sh?k=... | bash`.

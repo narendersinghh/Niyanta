@@ -320,7 +320,7 @@
       $('m-art').innerHTML = `<div class="bubble danger">${icon('x')}</div>`;
       $('m-title').textContent = 'Uninstall Niyanta Tracker?';
       $('m-body').className = 'm-body';
-      $('m-body').innerHTML = '<p>This is what happens:</p><ul><li>Tracking stops and your data is synced to the server first.</li><li>You are signed out on this device.</li><li>The app and all its data on this computer are removed.</li></ul><p class="note">Your tracked time, timesheets and screenshots stay in your workspace.</p>';
+      $('m-body').innerHTML = `<p>This is what happens:</p><ul><li>Tracking stops and your data is synced to the server first.</li><li>You are signed out on this device.</li><li>The app and all its data on this computer are removed.${ui && ui.platform === 'win32' ? ' Windows then shows the Niyanta Tracker uninstaller: click <b>Uninstall</b> to finish.' : ''}</li></ul><p class="note">Your tracked time, timesheets and screenshots stay in your workspace.</p>`;
       $('m-actions').innerHTML = '<button class="btn ghost" data-uninstall="cancel">Cancel</button><button class="btn danger" data-uninstall="confirm">Uninstall</button>';
       setTimeout(() => { const b = $('m-actions').querySelector('.ghost'); if (b) b.focus(); }, 0);
       return; }

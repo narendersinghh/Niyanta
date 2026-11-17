@@ -66,7 +66,13 @@ return [
       assert_true(str_contains($html, 'Install with one command') && str_contains($html, 'No security warnings') && str_contains($html, 'data-ol="windows"') && str_contains($html, 'data-ol="mac"'), 'commands on the download card');
       assert_true((bool) preg_match('#curl -fsSL &quot;http://localhost/time/desktop/install\.sh\?k=('.$emp.'-\d{10}-[A-Za-z0-9_-]{32})&quot; \| bash#', $html, $m), 'curl | bash command with a personal key');
       $k = $m[1];
-      assert_true(str_contains($html, 'irm &quot;http://localhost/time/desktop/install.ps1?k='.$k.'&quot; | iex'), 'PowerShell command');
+      // Windows: the browser download first, a readable two-step PowerShell command second, never irm | iex
+      $raw = html_entity_decode($html, ENT_QUOTES);
+      assert_true(str_contains($html, 'Download for Windows') && str_contains($html, '/time/desktop/download/niyanta-tracker-1.4.0-win-x64.exe') && str_contains($html, '<b>More info</b>, then <b>Run anyway</b>'), 'Windows: browser download with SmartScreen steps');
+      assert_true(!preg_match('/\birm\b|\biex\b|Invoke-Expression|install\.ps1/i', $raw), 'no download cradle on the page');
+      $win = '$f = "$env:USERPROFILE\\Downloads\\niyanta-tracker-1.4.0-win-x64.exe"; Invoke-WebRequest -Uri \'http://localhost/time/desktop/get/niyanta-tracker-1.4.0-win-x64.exe?k='.$k.'\' -OutFile $f -UseBasicParsing; if ((Get-FileHash -Algorithm SHA512 -LiteralPath $f).Hash -eq \''.strtoupper(hash('sha512', $bin['niyanta-tracker-1.4.0-win-x64.exe'])).'\') { Start-Process -FilePath $f }';
+      assert_true(str_contains($raw, $win), 'PowerShell: save to Downloads, check sha512, open');
+      assert_eq('$f = "$env:USERPROFILE\\Downloads\\a.exe"; Invoke-WebRequest -Uri \'http://localhost/time/desktop/get/a.exe?k=K\' -OutFile $f -UseBasicParsing; Start-Process -FilePath $f', DesktopInstall::windowsCommand('K', ['name' => "a.ex\"';e", 'sha512' => '']), 'no checksum: download and open; the file name cannot break out of the quotes');
       assert_true(!str_contains($html, 'SECRETunitTOKEN'), 'GitHub token never on the page');
 
       // bash script (macOS + Linux)
@@ -92,6 +98,8 @@ return [
       assert_true(!str_contains($ps, '/S') && !preg_match('/-Wait|-WindowStyle|Hidden|Unblock-File|SecurityProtocol|ExecutionPolicy|env:TEMP|DownloadString|FromBase64/i', $ps), 'no silent install, hidden window or download-cradle patterns antivirus flags');
       assert_true(!preg_match('/^\s*exit\b/mi', $ps) && !str_contains($ps, 'SECRETunitTOKEN') && !preg_match('/[^\x09\x0a\x20-\x7e]/', $ps), 'never exits the window, no token, ASCII only');
       assert_eq(substr_count($ps, '{'), substr_count($ps, '}'), 'balanced braces');
+      assert_true(str_contains($ps, 'WindowsBuiltInRole]::Administrator') && str_contains($ps, 'Win32_ComputerSystem') && str_contains($ps, 'not Run as administrator'), 'an administrator window of another account is refused (the per-user setup would land in its profile)');
+      assert_true(str_contains($ps, "'virus|potentially unwanted'") && str_contains($ps, 'Smart App Control'), 'Defender and Smart App Control blocks are explained');
 
       // expired or forged keys: a script that only explains
       foreach (['/time/desktop/install.sh?k=', '/time/desktop/install.sh?k='.$emp.'-'.(time() - 10).'-'.substr($k, -32)] as $p) {

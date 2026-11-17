@@ -50,7 +50,8 @@ function report(where, err, context = {}, level = 'error') {
     const frame = /\((.*):(\d+):\d+\)/.exec(e.stack || '') || /at (.*):(\d+):\d+/.exec(e.stack || '');
     const json = { level, message, where, stack: scrub(e.stack || '').slice(0, 6000), file: frame ? path.basename(frame[1]) : null, line: frame ? +frame[2] : null,
       os: `${process.platform} ${os.release()}`, arch: process.arch, app_version: app.getVersion(), context: JSON.parse(scrub(JSON.stringify(Object.assign({ electron: process.versions.electron }, context)))) };
-    if (tracker && tracker.api.base) tracker.queue.add({ type: 'error', path: 'error', json });
+    /* only while signed in: without a token the report would be refused (401) and that would read as "signed out remotely" */
+    if (tracker && tracker.api.base && tracker.signedIn) tracker.queue.add({ type: 'error', path: 'error', json });
   } catch (x) { console.error('report failed', x); }
 }
 

@@ -106,9 +106,11 @@ class Tracker extends EventEmitter {
     this.updater.on('restart', () => this.emit('update-restart'));
     this.autoPaused = false;
     this.permission = process.platform === 'darwin' ? capture().screenPermission() : 'granted';
-    /* macOS: Screen Recording is reset once per version after an update or a capture failing while "granted" (permfix.js) */
+    /* macOS: Screen Recording is reset once per version after an update that changed the app's code identity (ad-hoc
+       builds) or a capture failing while "granted" (permfix.js); builds signed with the project's own certificate keep it */
     this.permFix = permfix.create({ platform: process.platform, packaged: app.isPackaged, version: app.getVersion(), store, reset: () => capture().resetPermission(), log: errors.log });
-    this.permFix.atStart();
+    if (process.platform === 'darwin' && app.isPackaged) capture().codeIdentity().then(dr => { errors.log(`code identity: ${dr || 'unknown'}`); this.permFix.atStart(dr); }, () => this.permFix.atStart(null));
+    else this.permFix.atStart(null);
     this.loops = [];
     this.lastCaptureError = 0;
     this.selection = { project_id: null, task_id: null };
@@ -119,7 +121,7 @@ class Tracker extends EventEmitter {
     this.queue.on('change', () => this.changed());
     this.queue.on('online', on => { this.offline = !on; this.changed(); if (on) this.refreshState(); });
     this.queue.on('unauthorized', () => this.signedOutRemotely());
-    this.queue.on('done', (job, res) => { if ((job.type === 'action' || job.type === 'heartbeat' || job.type === 'idle') && res && res.state && !this.queue.jobs.some(j => j.type === 'action')) { this.setSnap(res.state); this.reconcile(); } });
+    this.queue.on('done', (job, res) => { if (this.signedIn && (job.type === 'action' || job.type === 'heartbeat' || job.type === 'idle') && res && res.state && !this.queue.jobs.some(j => j.type === 'action')) { this.setSnap(res.state); this.reconcile(); } });
     this.queue.on('rejected', (job, err) => this.onRejected(job, err));
     this.queue.on('stuck', (job, err) => this.report('queue', err, { job: job.type, path: job.path, tries: job.tries }));
     this.queue.on('dropped', (job, why) => this.report('queue', new Error(`Queued ${job.type} dropped (${why})`), { path: job.path }, 'warning')); }
@@ -148,7 +150,7 @@ class Tracker extends EventEmitter {
          (403 disabled / forbidden); never because of the website session, a proxy page or a server error */
       if (e.status === 401 || (e.status === 403 && ['disabled', 'forbidden'].includes(e.code))) { this.signOutLocal(e.message); return false; }
       const cached = store.get('bootCache');
-      if (!cached) { this.error = e.message; this.offline = !!e.offline; this.changed(); setTimeout(() => this.restore(), 15000); return false; }
+      if (!cached) { this.error = e.message; this.offline = !!e.offline; this.changed(); clearTimeout(this._restoreRetry); this._restoreRetry = setTimeout(() => { if (!this.signedIn) this.restore(); }, 15000); return false; }
       this.offline = !!e.offline;
       this.applyBoot(cached, true); }
     this.start();
@@ -227,7 +229,8 @@ class Tracker extends EventEmitter {
     this.changed();
     this.emit('signed-out'); }
 
-  signedOutRemotely() { this.signOutLocal('You were signed out (this device was disconnected or your access changed). Please sign in again.'); }
+  /** A 401 from the server: only while signed in (a job that was in flight during a sign-out must not show "signed out"). */
+  signedOutRemotely() { if (!this.signedIn) return; this.signOutLocal('You were signed out (this device was disconnected or your access changed). Please sign in again.'); }
 
   applyBoot(b, cached = false) {
     this.boot = { user: b.user, workspace: b.workspace, permissions: b.permissions, settings: b.settings, consent: b.consent, policy: b.policy, projects: b.projects || [] };

@@ -33,7 +33,9 @@ scripts/       icons.js (regenerate icons from the logo), check.js (syntax check
                prefs-check.js (preferences survive restarts, new days, refreshes, sign-out and the 1.4.3 upgrade; the
                screenshot notice decision and window; the Windows build; start-up and memory budget), security-check.js
                (security regression checks, see Security),
-               after-pack.js (afterPack: Electron fuses, then adhoc-sign.js: ad-hoc signature without a certificate)
+               after-pack.js (afterPack: Electron fuses, then adhoc-sign.js: macOS signature with the project's own
+               self-signed certificate, else ad hoc), after-sign.js (Windows: fills OriginalFilename), make-mac-cert.sh
+               (creates that certificate once, see SIGNING.md)
 ```
 
 ## Develop
@@ -111,30 +113,38 @@ quarantine flag (macOS), so SmartScreen and Gatekeeper do not interfere.
 
 Errors go to the workspace error log through the normal error reporting.
 
-### First install without warnings (one-line commands)
+### First install (one-line commands on macOS and Linux, browser download on Windows)
 
-Time Tracking › *Get the desktop app* shows, next to the download buttons, a personal command per OS (the visitor's OS
-first). They download straight from the workspace (no browser, so no Chrome or SmartScreen prompt, no quarantine flag) and
-check the sha512 from the `latest*.yml`:
+Time Tracking › *Get the desktop app* shows a panel per OS (the visitor's OS first). macOS and Linux get a personal command
+that downloads straight from the workspace (no quarantine flag) and checks the sha512 from the `latest*.yml`:
 
 ```bash
 # macOS (zip for arm64/x64 -> /Applications or ~/Applications, xattr -cr, opens it) and Linux (AppImage -> ~/.local/bin + menu entry)
 curl -fsSL "https://team.example.com/time/desktop/install.sh?k=<key>" | bash
-# Windows PowerShell (Invoke-WebRequest to Downloads, sha512 check, opens the setup normally; the person clicks Install)
-irm "https://team.example.com/time/desktop/install.ps1?k=<key>" | iex
 ```
+
+Windows gets **Download for Windows** (a normal browser download; the page explains SmartScreen's *More info*, *Run
+anyway*) and, under *Or use PowerShell*, a readable two-step command (nothing piped into `Invoke-Expression`, which
+antivirus products flag as a download cradle):
+
+```powershell
+$f = "$env:USERPROFILE\Downloads\niyanta-tracker-<v>-win-x64.exe"; Invoke-WebRequest -Uri '<workspace>/time/desktop/get/<file>?k=<key>' -OutFile $f -UseBasicParsing; if ((Get-FileHash -Algorithm SHA512 -LiteralPath $f).Hash -eq '<sha512>') { Start-Process -FilePath $f } else { Write-Host 'The download is damaged. Run the command again.' }
+```
+
+The old `irm .../install.ps1?k=<key> | iex` route still answers for commands copied earlier. What still makes Windows warn
+and what to do about it for free: [SIGNING.md](SIGNING.md).
 
 The key is signed by the server for the signed-in user (HMAC with the app key, bound to this purpose and to the user's
 session version), works for 2 hours, only for these routes and the installer files they fetch
 (`/time/desktop/get/<file>?k=<key>`), is throttled and every script/download is audit-logged. Commands are only offered
 on HTTPS workspaces (or localhost). Server side: `modules/Attendance/Services/DesktopInstall.php`.
 
-### Code signing (optional)
+### Code signing
 
-Unsigned builds work but a browser download shows warnings (Chrome "uncommon download", Windows SmartScreen "unknown
-publisher", macOS "damaged" / "unverified developer") and unsigned Windows apps are flagged by Defender far more often. The
-one-line commands and in-app updates avoid the warnings; signing removes them for the normal download buttons too. The
-workflow signs only when the secrets exist (details and costs: docs/RELEASING.md):
+**[SIGNING.md](SIGNING.md)** has the whole picture: the free macOS certificate that keeps Screen Recording through updates
+(`scripts/make-mac-cert.sh`, secrets `MAC_SELF_CERT_P12`, `MAC_SELF_CERT_PASSWORD`), the per-release Microsoft Defender
+submission for Windows, the Microsoft Store option, and what only a paid certificate fixes. Paid signing stays optional; the
+workflow uses it only when its secrets exist:
 
 | Platform | Secrets |
 |---|---|
@@ -147,22 +157,25 @@ workflow signs only when the secrets exist (details and costs: docs/RELEASING.md
 Some Windows devices deleted or quarantined the app. What the Windows build does, so heuristics have as little as possible
 to object to (checked by `scripts/prefs-check.js`):
 
-- **No scripts, shells or temporary executables.** *Settings › Uninstall* starts the app's own NSIS uninstaller (`Uninstall
-  Niyanta Tracker.exe /S --delete-app-data`, electron-builder's documented options). Up to 1.4.3 it wrote a `.cmd` file to
+- **No scripts, shells or temporary executables.** *Settings › Uninstall* opens the app's own NSIS uninstaller visibly
+  (`Uninstall Niyanta Tracker.exe --delete-app-data`, electron-builder's documented option; never `/S`). Up to 1.4.3 it wrote a `.cmd` file to
   `%TEMP%` and ran it in a hidden `cmd.exe` (waiting with `tasklist`, deleting folders and itself): the pattern of a dropper.
   No source file mentions `cmd.exe`, PowerShell, `.bat`/`.cmd`, `reg add`, `schtasks` or hidden consoles.
 - **Conventional installer.** Per-user NSIS setup, `requestedExecutionLevel: asInvoker` (no administrator rights), version
   resource with product name, company (`author`), file description "Niyanta Tracker", copyright and trademark, a stable
   file name (`niyanta-tracker-<version>-win-x64.exe`). `build/installer.nsh` only writes the `niyanta-tracker://` key and,
   on a real uninstall, removes it and the update cache; it runs no programs.
-- **Built-in mechanisms only.** Launch at startup: `app.setLoginItemSettings` (the user's Run key). Updates: electron-updater
-  (downloads into its cache and runs the new NSIS setup). No input hook, no native module (activity comes from the system
+- **Built-in mechanisms only.** Launch at startup: `app.setLoginItemSettings` (the user's Run key, switch in Settings).
+  Updates: electron-updater, only after the person clicks *Update now* (no background download, no install on quit); it
+  checks the sha512 and runs the new NSIS setup.
+- **Complete version resource.** `scripts/after-sign.js` fills `OriginalFilename` (electron-builder leaves it empty); the
+  workflow fails a Windows build whose exe or setup lacks company, product, description, copyright or version. No input hook, no native module (activity comes from the system
   idle time), Electron fuses on (no `ELECTRON_RUN_AS_NODE`, no `--inspect`, asar integrity checked).
 - **What remains** is inherent to a time tracker: starting with Windows, reading the idle time every second and, when the
   workspace enables it and the person consented, capturing the screen. On an **unsigned** app those are enough for some
-  machine-learning detections. The real fix is **code signing** (Azure Trusted Signing or an OV/EV certificate, above), plus
-  a false-positive submission at https://www.microsoft.com/wdsi/filesubmission for each release that is still flagged
-  (step by step in docs/RELEASING.md).
+  machine-learning detections. Free: a false-positive submission at https://www.microsoft.com/en-us/wdsi/filesubmission for
+  each release (SIGNING.md has the checklist) and the browser download on Time Tracking instead of `irm | iex`. Paid: code
+  signing (optional, above).
 
 ## Permissions per OS
 

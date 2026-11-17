@@ -22,25 +22,37 @@ $ver = $app['version'] ? '<span class="pill pill-lav">Latest '.e($app['version']
 ob_start(); ?>
       <?php if (!$app['ok']): $sa = user()['role_slug'] === 'super_admin'; ?><div class="alert info mb"><?= icon('info', 'sm') ?><div><?php if (!$app['connected']): ?>The desktop app isn't available yet. An administrator needs to connect GitHub in <?= $sa ? '<a href="'.e(url('/admin/updates#desktop-mirror')).'"><b>Settings › Updates</b></a>' : '<b>Settings › Updates</b>' ?>.<?php else: ?>The desktop app isn't available yet. It is being fetched in the background, please check back soon.<?= $sa ? ' Status and <b>Refresh now</b>: <a href="'.e(url('/admin/updates#desktop-mirror')).'"><b>Settings › Updates</b></a>.' : '' ?><?php endif ?></div></div><?php endif ?>
       <?php /* one panel per system (Windows, macOS, Linux), chosen with radio tabs (no JS needed; JS preselects the visitor's system) */
-      $dkOs = ['windows' => ['Windows', 'Open <b>PowerShell</b> (Start menu, type <i>PowerShell</i>), paste and press Enter. Click through the setup (Next, Install, Finish).', ['windows']],
+      $dkOs = ['windows' => ['Windows', 'Open <b>PowerShell</b> normally (Start menu, type <i>PowerShell</i>; not as administrator), paste and press Enter. It saves the setup to Downloads, checks it and opens it.', ['windows']],
         'mac' => ['macOS', 'Open <b>Terminal</b> (Spotlight, type <i>Terminal</i>), paste and press Enter. It installs to Applications and opens the app.', ['mac']],
         'linux' => ['Linux', 'Paste into a terminal and press Enter. It installs to <span class="mono">~/.local/bin</span> and adds it to your apps menu.', ['linux', 'deb']]];
-      $dkHelp = ['windows' => 'Run the .exe. If Windows says <i>Windows protected your PC</i>, click <b>More info</b>, then <b>Run anyway</b>.', 'mac' => 'Open the .dmg and drag the app to Applications. If macOS cannot verify it, open <b>System Settings › Privacy &amp; Security</b> and click <b>Open Anyway</b>.', 'linux' => 'Make the AppImage executable (<span class="mono">chmod +x</span>) and run it, or install the .deb with <span class="mono">sudo apt install ./niyanta-tracker-*.deb</span>.']; ?>
+      $dkHelp = ['windows' => 'Open the downloaded file. If Windows says <i>Windows protected your PC</i>, click <b>More info</b>, then <b>Run anyway</b>. It installs for your account only, no administrator rights needed.', 'mac' => 'Open the .dmg and drag the app to Applications. If macOS cannot verify it, open <b>System Settings › Privacy &amp; Security</b> and click <b>Open Anyway</b>.', 'linux' => 'Make the AppImage executable (<span class="mono">chmod +x</span>) and run it, or install the .deb with <span class="mono">sudo apt install ./niyanta-tracker-*.deb</span>.']; ?>
       <div class="dk" data-dk data-os="windows">
         <div class="dk-os" role="tablist" aria-label="Your computer"><?php foreach ($dkOs as $ok => [$ol]): ?><input type="radio" class="sr" name="dk-os" id="dk-<?= e($ok) ?>" value="<?= e($ok) ?>"<?= $ok === 'windows' ? ' checked' : '' ?>><label for="dk-<?= e($ok) ?>"><span class="os-ic os-<?= e($ok) ?>"><?= $osIc[$ok] ?></span><?= e($ol) ?></label><?php endforeach ?></div>
         <?php foreach ($dkOs as $ok => [$ol, $oh, $pks]): ?>
         <div class="dk-panel" data-dk-panel="<?= e($ok) ?>">
           <div class="dk-step"><span class="dk-n">1</span><div class="grow">
-            <?php if (!empty($install)): $cmd = $install['commands'][$ok]; ?>
+            <?php if ($ok === 'windows'): /* Windows: the browser download is the main way (no irm | iex: antivirus flags download cradles) */ $files = $app['platforms']['windows'] ?? []; $cmd = $install['commands']['windows'] ?? null; ?>
+            <b>Download and install</b>
+            <?php if ($files): ?>
+            <div class="os-btns"><?php foreach ($files as $f): ?><a class="btn sm primary" href="<?= e($f['url']) ?>" title="<?= e($f['name']) ?>" download><?= icon('download', 'sm') ?> Download for Windows<?= $size((int) $f['size']) ? ' <span class="muted">'.e($size((int) $f['size'])).'</span>' : '' ?></a><?php endforeach ?></div>
+            <p class="xs muted mb0">Open the downloaded file<?= $files[0]['version'] ? ' (v'.e($files[0]['version']).')' : '' ?>. If Windows says <i>Windows protected your PC</i>, click <b>More info</b>, then <b>Run anyway</b>. If your browser says the file is not commonly downloaded, choose <b>Keep</b>. It installs for your account only, no administrator rights needed.</p>
+            <?php else: ?><p class="xs muted mb0"><?= $app['ok'] ? 'Not in this release.' : 'Not available yet.' ?></p><?php endif ?>
+            <?php if ($cmd): ?>
+            <details class="dk-files"><summary class="xs"><?= icon('copy', 'sm') ?> Or use PowerShell</summary>
+              <div class="ol-cmd" data-ol="windows"><code><?= e($cmd) ?></code><button type="button" class="btn sm primary" data-copy="<?= e($cmd) ?>" aria-label="Copy the Windows install command"><?= icon('copy', 'sm') ?> Copy</button></div>
+              <p class="xs muted mb0"><?= $oh ?> Personal link, valid until <?= e(ftime(date('Y-m-d H:i:s', (int) $install['until']))) ?>.</p></details>
+            <?php endif ?>
+            <?php elseif (!empty($install)): $cmd = $install['commands'][$ok]; ?>
             <b>Install with one command</b> <span class="pill pill-mint">No security warnings</span>
             <div class="ol-cmd" data-ol="<?= e($ok) ?>"><code><?= e($cmd) ?></code><button type="button" class="btn sm primary" data-copy="<?= e($cmd) ?>" aria-label="Copy the <?= e($ol) ?> install command"><?= icon('copy', 'sm') ?> Copy</button></div>
             <p class="xs muted mb0"><?= $oh ?> Personal link, valid until <?= e(ftime(date('Y-m-d H:i:s', (int) $install['until']))) ?>.</p>
             <?php else: ?><b>Download and install</b><?php endif ?>
-            <?php $files = array_merge(...array_map(static fn ($pk) => $app['platforms'][$pk] ?? [], $pks)); if ($files): ?>
+            <?php if ($ok !== 'windows'): ?><?php $files = array_merge(...array_map(static fn ($pk) => $app['platforms'][$pk] ?? [], $pks)); if ($files): ?>
             <details class="dk-files"<?= empty($install) ? ' open' : '' ?>><summary class="xs"><?= icon('download', 'sm') ?> <?= empty($install) ? 'Installer' : 'Or download the installer' ?><?= $files[0]['version'] ? ' · v'.e($files[0]['version']) : '' ?></summary>
-              <div class="os-btns"><?php foreach ($files as $f): ?><a class="btn sm ghost" href="<?= e($f['url']) ?>" title="<?= e($f['name']) ?>" download><?= icon('download', 'sm') ?> <?= e($ok === 'mac' ? ($archLbl[$f['arch']] ?? $f['arch']).($f['ext'] === 'zip' ? ' (.zip)' : '') : ($ok === 'windows' ? '.exe' : ($f['ext'] === 'deb' ? '.deb' : 'AppImage'))) ?><?= $size((int) $f['size']) ? ' <span class="muted">'.e($size((int) $f['size'])).'</span>' : '' ?></a><?php endforeach ?></div>
+              <div class="os-btns"><?php foreach ($files as $f): ?><a class="btn sm ghost" href="<?= e($f['url']) ?>" title="<?= e($f['name']) ?>" download><?= icon('download', 'sm') ?> <?= e($ok === 'mac' ? ($archLbl[$f['arch']] ?? $f['arch']).($f['ext'] === 'zip' ? ' (.zip)' : '') : ($f['ext'] === 'deb' ? '.deb' : 'AppImage')) ?><?= $size((int) $f['size']) ? ' <span class="muted">'.e($size((int) $f['size'])).'</span>' : '' ?></a><?php endforeach ?></div>
               <p class="xs muted mb0"><?= $dkHelp[$ok] ?></p></details>
             <?php elseif (empty($install)): ?><p class="xs muted mb0"><?= $app['ok'] ? 'Not in this release.' : 'Not available yet.' ?></p><?php endif ?>
+            <?php endif ?>
           </div></div>
         </div>
         <?php endforeach ?>

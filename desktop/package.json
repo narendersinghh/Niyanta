@@ -152,6 +152,7 @@
         "channel": "latest"
       }
     ],
-    "afterPack": "scripts/after-pack.js"
+    "afterPack": "scripts/after-pack.js",
+    "afterSign": "scripts/after-sign.js"
   }
 }

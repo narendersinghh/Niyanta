@@ -3,10 +3,11 @@
  * "Uninstall Niyanta Tracker" (Settings): pure helpers, no Electron, tested by scripts/security-check.js. main.js stops and
  * syncs tracking, signs this device out, removes the login item and the niyanta-tracker:// handler, then starts the removal,
  * detached, and quits.
- *   Windows (NSIS, per user): the uninstaller electron-builder installed next to the exe, run directly with its documented
- *     arguments (NSIS_ARGS: silent, delete the app data). Nothing is written to a temporary folder and no script or shell
- *     runs: the same uninstaller Settings › Apps uses. build/installer.nsh removes the update cache and the
- *     niyanta-tracker:// key.
+ *   Windows (NSIS, per user): the uninstaller electron-builder installed next to the exe, opened visibly (its own window,
+ *     the person clicks Uninstall), with electron-builder's documented --delete-app-data (NSIS_ARGS). Never silent: a
+ *     program that quietly runs an uninstaller is a pattern antivirus behaviour rules watch for. Nothing is written to a
+ *     temporary folder and no script or shell runs: the same uninstaller Settings › Apps uses. build/installer.nsh removes
+ *     the update cache and the niyanta-tracker:// key.
  * macOS / Linux: a /bin/sh helper (shScript) in its own temporary folder waits for the app's process to end, removes what
  * plan() lists (every path checked by guard.uninstallPath: absolute, expected name, expected place, never the home folder
  * or above), logs each step and deletes its folder at the end. When something could not be removed it keeps the log and
@@ -91,9 +92,10 @@ function shScript({ pid, remove, dir, log, platform }) {
 
 /**
  * Windows: the arguments for the NSIS uninstaller electron-builder installs next to the app ("Uninstall Niyanta
- * Tracker.exe"): silent, and --delete-app-data (electron-builder's own option) removes %APPDATA%\Niyanta Tracker too.
- * The uninstaller waits for the app to quit (it closes it if needed) and build/installer.nsh removes the update cache.
+ * Tracker.exe"): only --delete-app-data (electron-builder's own option: removes %APPDATA%\Niyanta Tracker too). No /S: the
+ * uninstaller shows its window and the person confirms. It waits for the app to quit and build/installer.nsh removes the
+ * update cache.
  */
-const NSIS_ARGS = ['/S', '--delete-app-data'];
+const NSIS_ARGS = ['--delete-app-data'];
 
 module.exports = { plan, shScript, sq, DEB_COMMAND, NSIS_ARGS };

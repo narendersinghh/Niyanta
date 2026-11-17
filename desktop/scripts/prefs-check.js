@@ -355,6 +355,23 @@ async function permChecks() {
   await tick(); eq(b.resets.length, 1, 'one reset run');
   /* never granted before: nothing at start */
   eq(mk('darwin', true, '1.5.0', {}).f.atStart(), false, 'macOS: screenshots never worked before: no reset after the update');
+  /* the project's own certificate (stable designated requirement): the grant survives updates, no reset */
+  const { stableIdentity } = require(path.join(root, 'src', 'main', 'permfix.js'));
+  const SELF = 'identifier "app.niyanta.tracker" and certificate root = H"0123456789abcdef0123456789abcdef01234567"';
+  const ADHOC = 'cdhash H"a1b2c3d4e5f60718293a4b5c6d7e8f9012345678"';
+  eq([stableIdentity(SELF), stableIdentity(ADHOC), stableIdentity(null), stableIdentity('identifier "app.niyanta.tracker"')], [true, false, false, false], 'stable identity: certificate DR yes, cdhash / unknown / identifier only no');
+  let s1 = mk('darwin', true, '1.5.0'); s1.f.atStart(SELF); s1.f.worked();
+  eq([s1.mem.screenOk, s1.mem.screenId], ['1.5.0', SELF], 'macOS: version and code identity with working screenshots remembered');
+  let s2 = mk('darwin', true, '1.5.1', s1.mem);
+  eq([s2.f.atStart(SELF), s2.f.waiting], [false, false], 'macOS self-signed: updated with the same identity: no reset, grant kept');
+  await tick(); eq(s2.resets.length, 0, 'no reset run for the same identity');
+  eq(s2.f.failed('granted'), true, 'a capture failing while granted still resets once (fallback)');
+  let s3 = mk('darwin', true, '1.6.0', { screenOk: '1.5.0', screenId: SELF });
+  eq(s3.f.atStart(SELF.replace('0123', 'ffff')), true, 'macOS: another certificate: reset once');
+  let s4 = mk('darwin', true, '1.6.0', { screenOk: '1.5.0' });
+  eq(s4.f.atStart(SELF), true, 'macOS: first self-signed build after ad-hoc ones (no identity stored): reset once');
+  let s5 = mk('darwin', true, '1.6.0', { screenOk: '1.5.0', screenId: ADHOC });
+  eq(s5.f.atStart(ADHOC), true, 'macOS ad hoc: a cdhash identity never counts as kept, reset once');
   /* other platforms and dev runs: never */
   for (const [p, pk] of [['win32', true], ['linux', true], ['darwin', false]]) {
     const x = mk(p, pk, '1.5.0', { screenOk: '1.4.6' });

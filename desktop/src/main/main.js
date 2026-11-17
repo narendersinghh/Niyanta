@@ -475,9 +475,10 @@ async function uninstallApp() {
     const { spawn } = require('child_process');
     let child;
     if (win32) {
-      /* Windows: the app's own NSIS uninstaller, exactly as Settings › Apps runs it, silently and with electron-builder's
-         documented --delete-app-data (removes %APPDATA%\Niyanta Tracker; build/installer.nsh removes the update cache). It
-         waits for this process to end by itself. No script, nothing written to %TEMP%, no cmd.exe. */
+      /* Windows: the app's own NSIS uninstaller, exactly as Settings › Apps runs it: visible (the person clicks Uninstall
+         in its window, never silent), with electron-builder's documented --delete-app-data (removes %APPDATA%\Niyanta
+         Tracker; build/installer.nsh removes the update cache). It waits for this process to end by itself. No script,
+         nothing written to %TEMP%, no cmd.exe. */
       child = spawn(p.uninstaller, uninstall().NSIS_ARGS, { detached: true, stdio: 'ignore', cwd: path.dirname(p.uninstaller) }); }
     else {
       const file = path.join(dir, 'uninstall.sh');

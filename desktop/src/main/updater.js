@@ -3,15 +3,18 @@
  * In-app updates from the workspace the person signed in to (<workspace>/api/agent/updates/, device token). The workspace
  * mirrors the private GitHub release, so nothing here talks to GitHub. On start and every 6 hours the tracker asks
  * /api/agent/version; when a newer version exists the window shows "Niyanta Tracker X is available" with one button,
- * Update now, plus one OS notification per version. Nothing restarts without that click (or a normal quit, as before).
+ * Update now, plus one OS notification per version. Nothing is downloaded, installed or restarted without that click.
  * How the click updates, per install:
- * - Windows (NSIS), Linux AppImage, macOS with a Developer ID signature: electron-updater (generic provider). The update is
- *   pre-downloaded in the background; the click waits for it (progress bar), then quitAndInstall(silent, run after). Files
- *   the app downloads itself carry no Mark-of-the-Web, so SmartScreen does not prompt.
+ * - Windows (NSIS), Linux AppImage, macOS with a Developer ID signature: electron-updater (generic provider). The click
+ *   downloads the update (progress bar), electron-updater checks its sha512, then quitAndInstall(silent, run after). No
+ *   installer is fetched in the background and none runs on a normal quit (autoDownload and autoInstallOnAppQuit off): an
+ *   unsigned app that drops and silently starts an .exe on its own looks like a dropper to antivirus behaviour rules.
  * - macOS ad-hoc signed (no Developer ID, Squirrel.Mac refuses it): own updater. Downloads the zip for this Mac from
  *   latest-mac.yml, checks its sha512, extracts it with ditto and starts a detached helper (selfupdate.macHelperScript) that
  *   waits for the app to quit, swaps the bundle, runs xattr -cr and opens the new version. App downloads have no quarantine
  *   flag, so Gatekeeper does not block it.
+ * - Microsoft Store (process.windowsStore, the optional appx build): the Store updates the app; the click opens the Store's
+ *   downloads and updates page (Store policy: an app from the Store never updates itself).
  * - Linux .deb: downloads the new .deb to Downloads and opens it with the system installer (and shows the apt command).
  * - Anything failing: "Download the new version" saves the installer to Downloads (inside the app, no browser) and opens it,
  *   with short steps. Development builds only offer that manual download.
@@ -48,9 +51,11 @@ class Updater extends EventEmitter {
     this.state = { mode: this.mode, status: 'idle', version: null, notes: [], percent: 0, error: null, want: false, manual: null, bg: false };
     this.signing = this.mode === 'mac' ? this.detectMacSigning() : Promise.resolve(); }
 
-  /** electron: electron-updater; mac: own macOS updater; deb: download + system installer; manual: only "Download". */
+  /** electron: electron-updater; mac: own macOS updater; deb: download + system installer; store: the Microsoft Store
+      updates it; manual: only "Download". */
   static initialMode() {
     if (!app.isPackaged) return 'manual';
+    if (process.windowsStore) return 'store';
     if (process.platform === 'win32') return 'electron';
     if (process.platform === 'linux') return process.env.APPIMAGE ? 'electron' : 'deb';
     if (process.platform === 'darwin') return process.env.NIYANTA_MAC_UPDATER === 'squirrel' ? 'electron' : 'mac';
@@ -72,13 +77,13 @@ class Updater extends EventEmitter {
     if (this.au || this.mode !== 'electron') return this.au;
     try {
       const { autoUpdater } = require('electron-updater');
-      autoUpdater.autoDownload = true;
-      autoUpdater.autoInstallOnAppQuit = true;
+      autoUpdater.autoDownload = false;
+      autoUpdater.autoInstallOnAppQuit = false;
       autoUpdater.allowPrerelease = false;
       autoUpdater.allowDowngrade = false;
       autoUpdater.logger = { info: () => {}, warn: () => {}, debug: () => {}, error: () => {} };
       autoUpdater.on('update-not-available', () => { if (!this.state.want) this.set({ status: 'current', percent: 0, bg: false }); });
-      autoUpdater.on('update-available', info => this.available(info && info.version, info && info.releaseNotes, { bg: true }));
+      autoUpdater.on('update-available', info => this.available(info && info.version, info && info.releaseNotes, { bg: false }));
       autoUpdater.on('download-progress', p => { const pc = Math.round(p && p.percent || 0); if (pc !== this.state.percent) this.set({ percent: pc }); });
       autoUpdater.on('update-downloaded', info => { this.set({ status: 'ready', bg: false, percent: 100, version: (info && info.version) || this.state.version }); if (this.state.want) this.emit('restart'); });
       autoUpdater.on('error', err => this.onError(err));
@@ -149,6 +154,7 @@ class Updater extends EventEmitter {
 
   /** "Update now": download (progress), verify, then emit 'restart' (main.js pauses tracking and calls apply()). */
   async updateNow() {
+    if (this.mode === 'store') return this.openStore();
     if (this.state.want && this.state.status !== 'error') return { ok: true };
     if (!this.state.version && this.offer && this.offer.latest) this.state.version = this.offer.latest;
     await this.signing;
@@ -219,6 +225,7 @@ class Updater extends EventEmitter {
 
   /** Save the installer for this computer to Downloads and open it (no browser, so no browser or SmartScreen warning). */
   async manualDownload(kindIn) {
+    if (this.mode === 'store') return this.openStore();
     const kind = kindIn || ({ win32: 'windows', darwin: 'mac' }[process.platform] || (this.mode === 'deb' ? 'deb' : 'linux'));
     const arch = process.platform === 'darwin' && (process.arch === 'arm64' || app.runningUnderARM64Translation) ? 'arm64' : (process.arch === 'arm64' ? 'arm64' : 'x64');
     const f = su.pickInstaller(this.offer && this.offer.files, kind, arch);
@@ -240,6 +247,12 @@ class Updater extends EventEmitter {
     this.set({ status: 'manual', want: false, percent: 100, manual });
     this.open(kind);
     return { ok: true }; }
+
+  /** Microsoft Store install: updates come from the Store (its downloads and updates page). */
+  openStore() {
+    shell.openExternal('ms-windows-store://downloadsandupdates').catch(() => {});
+    this.set({ status: 'available', want: false, error: null });
+    return { ok: true, store: true }; }
 
   /** Open the downloaded installer again (or show it in its folder for an AppImage). */
   open(kind) {
