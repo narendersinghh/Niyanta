@@ -442,12 +442,13 @@ final class PayrollService {
     $hours = $x ? (float) $x['worked'] : ($comp['pay_type'] === 'hourly' ? (self::approvedHours([$u], $from, $to)[$u] ?? 0.0) : 0.0);
     return self::compute($comp, $wd, $comp['pay_type'] === 'hourly' ? 0.0 : (self::unpaidLeave([$u], $from, $to)[$u] ?? 0.0), $hours, [], 0.0, null, $x); }
 
-  public static function createRun(string $month): int {
+  /** New draft run for "Y-m" with its payslips generated. $auto: created by the monthly scheduler (no user). */
+  public static function createRun(string $month, bool $auto = false): int {
     $period = $month.'-01';
-    return DB::transaction(static function () use ($period): int {
+    return DB::transaction(static function () use ($period, $auto): int {
       if (DB::value('SELECT id FROM payroll_runs WHERE period_month=?', [$period])) { throw new \DomainException('A payroll run for '.self::monthLabel($period).' already exists.'); }
-      $id = DB::insert('payroll_runs', ['period_month' => $period, 'status' => 'draft', 'created_by' => Auth::id(), 'created_at' => date('Y-m-d H:i:s')]);
-      Audit::log('payroll.run.create', 'payroll_run', $id, ['month' => $period]);
+      $id = DB::insert('payroll_runs', ['period_month' => $period, 'status' => 'draft', 'created_by' => $auto ? null : Auth::id(), 'auto_created' => (int) $auto, 'created_at' => date('Y-m-d H:i:s')]);
+      Audit::log('payroll.run.create', 'payroll_run', $id, ['month' => $period] + ($auto ? ['auto' => true] : []));
       self::generate($id);
       return $id; }); }
 
@@ -511,8 +512,39 @@ final class PayrollService {
     if (DB::value('SELECT id FROM payroll_runs WHERE period_month=?', [$month])) { return 'run exists'; }
     $label = self::monthLabel($month);
     $users = \Core\Gate::usersWith('payroll.manage');
-    foreach ($users as $u) { Notify::user((int) $u['id'], "Prepare payroll for $label", "No payroll run exists for $label yet. Create the draft run so payslips are ready before month end.", '/payroll', true, 'wallet'); }
+    $body = self::autoDraftOn() ? "No payroll run exists for $label yet. A draft is created automatically on ".date('j F', strtotime($month.' +1 month')).', or create it now to review payslips earlier.' : "No payroll run exists for $label yet. Create the draft run so payslips are ready before month end.";
+    foreach ($users as $u) { Notify::user((int) $u['id'], "Prepare payroll for $label", $body, '/payroll', true, 'wallet'); }
     return 'notified '.count($users); }
+
+  public static function autoDraftOn(): bool { return Settings::bool('payroll.auto_draft', true); }
+
+  /**
+   * Cron (1st of each month): create the draft run for the previous month when none exists, generate its payslips and tell the people who may
+   * edit them (payroll.manage, plus managers with payroll.payslips.edit for the payslips of their team). Employees are not notified and cannot
+   * see the payslips until HR finalizes the run. Never touches an existing run, so HR edits are never regenerated. $today is for tests.
+   */
+  public static function autoDraft(?string $today = null): string {
+    if (!self::autoDraftOn()) { return 'off'; }
+    $period = date('Y-m-01', strtotime(date('Y-m-01', $today ? strtotime($today) : time()).' -1 month'));
+    if (DB::value('SELECT id FROM payroll_runs WHERE period_month=?', [$period])) { return 'run exists'; }
+    [$from, $to] = self::monthRange($period);
+    if (!self::effectiveCompensations($from, $to)) { return 'no compensation set up'; }
+    try { $id = self::createRun(substr($period, 0, 7), true); }
+    catch (\DomainException $e) { return $e->getMessage(); }
+    $label = self::monthLabel($period);
+    $slips = DB::pairs('SELECT id, user_id FROM payslips WHERE run_id=?', [$id]);
+    $n = count($slips); $url = '/payroll/runs/'.$id; $told = [];
+    foreach (\Core\Gate::usersWith('payroll.manage') as $u) {
+      $told[(int) $u['id']] = true;
+      Notify::user((int) $u['id'], "Draft payroll for $label is ready to review", "Payslips for $n employee".($n === 1 ? ' were' : 's were').' generated automatically. Review and edit them, then Finalize and notify employees. Employees cannot see them until then.', $url, true, 'wallet'); }
+    $mine = [];
+    foreach (DB::all('SELECT id, manager_id FROM users WHERE manager_id IS NOT NULL AND id IN '.DB::in(array_values($slips) ?: [0]), array_values($slips) ?: [0]) as $r) { if ((int) $r['manager_id'] !== (int) $r['id']) { $mine[(int) $r['manager_id']] = ($mine[(int) $r['manager_id']] ?? 0) + 1; } }
+    foreach (\Core\Gate::usersWith('payroll.payslips.edit') as $u) {
+      $k = (int) $u['id'];
+      if (isset($told[$k]) || empty($mine[$k])) { continue; }
+      $told[$k] = true;
+      Notify::user($k, "Review draft payslips of your team for $label", 'Draft payslips of '.$mine[$k].' '.($mine[$k] === 1 ? 'person' : 'people').' in your team are ready. Review and edit them before HR finalizes the run and notifies employees.', $url, true, 'wallet'); }
+    return "created $label draft with $n payslips, notified ".count($told); }
 
   /** Amount in words, e.g. "Rupees Forty-Five Thousand Two Hundred and Fifty Paise Only". Indian grouping for INR. */
   public static function inWords(float $amount): string {

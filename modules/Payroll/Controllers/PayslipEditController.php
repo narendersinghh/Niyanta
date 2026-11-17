@@ -1,13 +1,18 @@
 <?php
 namespace Modules\Payroll\Controllers;
 use Core\{Controller, DB, Response};
-use Modules\Payroll\Services\{PayrollService, PayslipEditor};
+use Modules\Payroll\Services\{PayrollAccess, PayrollService, PayslipEditor};
 
-/** HR edits of one draft payslip (payroll.manage): edit form, live server-side preview of totals, save (audit-logged) and discard edits. */
+/**
+ * Edits of one draft payslip: edit form, live server-side preview of totals, save (audit-logged) and discard edits. payroll.manage: any payslip;
+ * payroll.payslips.edit (managers): draft payslips of their direct reports only, checked per record (PayrollAccess::authorizeSlip).
+ */
 final class PayslipEditController extends Controller {
   private function slip(int $id): array {
     $s = DB::first('SELECT s.*, r.status AS run_status, r.period_month, u.name, u.avatar, u.employee_code, u.designation, u.department, e.name AS editor FROM payslips s JOIN payroll_runs r ON r.id=s.run_id JOIN users u ON u.id=s.user_id LEFT JOIN users e ON e.id=s.edited_by WHERE s.id=?', [$id]);
-    return $s ?? $this->abort(404, 'Payslip not found.'); }
+    $s ?? $this->abort(404, 'Payslip not found.');
+    PayrollAccess::authorizeSlip($s);
+    return $s; }
 
   /** Posted edit form → edits array. */
   private function posted(array $slip): array { return PayslipEditor::normalize(['hours' => $this->request->arr('hours'), 'lines' => $this->request->arr('lines'), 'manual' => $this->request->arr('manual')], $slip); }
@@ -17,7 +22,7 @@ final class PayslipEditController extends Controller {
     $edits = PayslipEditor::edits($s);
     $calc = PayslipEditor::calc($s);
     $history = DB::all("SELECT a.action, a.meta, a.created_at, u.name FROM audit_logs a LEFT JOIN users u ON u.id=a.user_id WHERE a.entity_type='payslip' AND a.entity_id=? AND a.action IN ('payroll.payslip.edit','payroll.payslip.reset','payroll.payslip.bulk_line') ORDER BY a.id DESC LIMIT 10", [$id]);
-    return $this->view('payroll::payslips/edit', ['title' => 'Edit payslip · '.$s['name'], 's' => $s, 'calc' => $calc, 'edits' => $edits, 'auto' => PayslipEditor::autoLines($s, $edits), 'history' => $history,
+    return $this->view('payroll::payslips/edit', ['title' => 'Edit payslip · '.$s['name'], 's' => $s, 'calc' => $calc, 'edits' => $edits, 'auto' => PayslipEditor::autoLines($s, $edits), 'history' => $history, 'team' => !PayrollAccess::full(),
       'styles' => ['css/payroll.css'], 'scripts' => ['js/payroll.js']]); }
 
   /** Live totals for the edit form (nothing saved, leave is not recorded). */

@@ -28,9 +28,10 @@ $side = static function (string $title, string $kind, array $auto, array $manual
   return $h.'</tbody></table></div><div class="pay-add" data-pay-add="'.e($kind).'">'.($kind === 'earning' ? '<button type="button" class="btn sm soft" data-pay-new="bonus">'.icon('gift', 'sm').' Add bonus</button><button type="button" class="btn sm ghost" data-pay-new="earning">'.icon('plus', 'sm').' Other earning</button>' : '<button type="button" class="btn sm soft" data-pay-new="one_time">'.icon('minus', 'sm').' One-time deduction</button><button type="button" class="btn sm ghost" data-pay-new="deduction">'.icon('plus', 'sm').' Other deduction</button>').'</div></section>'; };
 $mE = []; $mD = [];
 foreach (array_values($manual) as $i => $m) { if (($m['kind'] ?? '') === 'deduction') { $mD[$i] = $m; } else { $mE[$i] = $m; } }
-$actions = '<a class="btn ghost" href="'.e(url('/payroll/runs/'.$s['run_id'])).'">'.icon('arrow-left', 'sm').' Back to run</a><a class="btn ghost" href="'.e(url('/payslips/'.$s['id'])).'">'.icon('eye', 'sm').' View payslip</a>';
+$team ??= false;
+$actions = '<a class="btn ghost" href="'.e(url('/payroll/runs/'.$s['run_id'])).'">'.icon('arrow-left', 'sm').' Back to run</a>'.($team ? '' : '<a class="btn ghost" href="'.e(url('/payslips/'.$s['id'])).'">'.icon('eye', 'sm').' View payslip</a>');
 ?>
-<?= partial('partials/page_head', ['title' => 'Edit payslip · '.$s['name'], 'subtitle' => $label.' · '.trim(($s['employee_code'] ?? '').' · '.($s['designation'] ?? ''), ' ·').($s['edited_at'] ? ' · Last edited '.fdatetime($s['edited_at']).($s['editor'] ? ' by '.$s['editor'] : '') : ''), 'crumbs' => [['HR Admin'], ['Payroll', '/payroll'], [$label, '/payroll/runs/'.$s['run_id']], [$s['name']]], 'actions' => $actions]) ?>
+<?= partial('partials/page_head', ['title' => 'Edit payslip · '.$s['name'], 'subtitle' => $label.' · '.trim(($s['employee_code'] ?? '').' · '.($s['designation'] ?? ''), ' ·').($s['edited_at'] ? ' · Last edited '.fdatetime($s['edited_at']).($s['editor'] ? ' by '.$s['editor'] : '') : ''), 'crumbs' => [['HR Admin'], [$team ? 'Team payslips' : 'Payroll', '/payroll'], [$label, '/payroll/runs/'.$s['run_id']], [$s['name']]], 'actions' => $actions]) ?>
 <?php if (!$draft): ?>
   <div class="alert warn"><?= icon('lock') ?><div>This payslip is <b><?= $s['run_status'] === 'paid' ? 'paid' : 'published' ?></b> and locked. <?= $s['run_status'] === 'paid' ? 'A paid run cannot be reopened; record corrections in the next run.' : 'Reopen the run to edit it.' ?> <a class="b" href="<?= e(url('/payroll/runs/'.$s['run_id'])) ?>">Open the run</a></div></div>
 <?php elseif (!$calc): ?>
@@ -57,7 +58,7 @@ $actions = '<a class="btn ghost" href="'.e(url('/payroll/runs/'.$s['run_id'])).'
     <?= $side('Earnings', 'earning', $auto['earnings'], $mE, '') ?>
     <?= $side('Deductions', 'deduction', $auto['deductions'], $mD, ' ded') ?>
     <section class="card"><div class="field"><label for="pe-reason">Note for this change</label><textarea id="pe-reason" name="reason" rows="2" minlength="3" maxlength="500" required placeholder="Why are you changing this payslip? Saved in the audit log with the before and after figures."></textarea></div>
-      <div class="form-actions mt"><span class="xs muted grow">The employee sees the result only after you finalize the run.</span><button class="btn primary"><?= icon('check', 'sm') ?> Save payslip</button></div></section>
+      <div class="form-actions mt"><span class="xs muted grow"><?= $team ? 'The employee sees the result only after HR finalizes the run.' : 'The employee sees the result only after you finalize the run.' ?></span><button class="btn primary"><?= icon('check', 'sm') ?> Save payslip</button></div></section>
   </form>
   <div class="stack">
     <div class="card pay-live" data-pay-live aria-live="polite">

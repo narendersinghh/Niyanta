@@ -1,7 +1,7 @@
 <?php
 use Core\{DB, Gate};
 use Modules\Payroll\Controllers\{CompensationController, PayslipController, PayslipEditController, ReimbursementController, RunController};
-use Modules\Payroll\Services\PayrollService;
+use Modules\Payroll\Services\{PayrollAccess, PayrollService};
 
 return [
   'key' => 'payroll', 'name' => 'Payroll & Payments', 'icon' => 'wallet', 'order' => 50, 'version' => '1.0.0', 'requires' => ['hr'],
@@ -9,6 +9,7 @@ return [
   'permissions' => [
     'payroll.view_own' => ['label' => 'View own payslips', 'roles' => ['manager', 'hr', 'employee']],
     'payroll.manage' => ['label' => 'Run payroll & view all payslips', 'roles' => ['hr']],
+    'payroll.payslips.edit' => ['label' => 'Review and edit draft payslips of your team', 'roles' => ['manager']],
     'payroll.compensation.manage' => ['label' => 'Manage salaries, allowances & deductions', 'roles' => ['hr']],
     'payroll.reimbursements.request' => ['label' => 'Submit reimbursement claims', 'roles' => ['manager', 'hr', 'employee']],
     'payroll.reimbursements.approve' => ['label' => 'Approve reimbursement claims', 'roles' => ['hr']],
@@ -17,21 +18,22 @@ return [
     ['label' => 'My Pay', 'icon' => 'file-text', 'color' => '#7C5CFF', 'url' => '/payslips', 'also' => ['/reimbursements'], 'perm' => 'payroll.view_own', 'section' => 'me', 'order' => 5],
     ['label' => 'Reimbursements', 'icon' => 'receipt', 'color' => '#F0508A', 'url' => '/reimbursements', 'perm' => ['payroll.reimbursements.request', 'payroll.reimbursements.approve'], 'hide_if' => 'payroll.view_own', 'section' => 'me', 'order' => 6],
     ['label' => 'Payroll', 'icon' => 'wallet', 'color' => '#7C5CFF', 'url' => '/payroll', 'perm' => 'payroll.manage', 'section' => 'hr', 'order' => 4],
+    ['label' => 'Team payslips', 'icon' => 'wallet', 'color' => '#7C5CFF', 'url' => '/payroll', 'perm' => 'payroll.payslips.edit', 'hide_if' => 'payroll.manage', 'section' => 'hr', 'order' => 4, 'badge' => static fn (): int => PayrollAccess::draftRunsForTeam()],
   ],
   'routes' => function (Core\Router $r): void {
-    $m = 'payroll.manage'; $c = 'payroll.compensation.manage';
-    $r->get('/payroll', [RunController::class, 'index'], ['perm' => [$m, $c]]);
+    $m = 'payroll.manage'; $c = 'payroll.compensation.manage'; $t = [$m, 'payroll.payslips.edit'];
+    $r->get('/payroll', [RunController::class, 'index'], ['perm' => [$m, $c, 'payroll.payslips.edit']]);
     $r->post('/payroll/runs', [RunController::class, 'store'], $m);
-    $r->get('/payroll/runs/{id}', [RunController::class, 'show'], $m);
+    $r->get('/payroll/runs/{id}', [RunController::class, 'show'], ['perm' => $t]);
     $r->post('/payroll/runs/{id}/generate', [RunController::class, 'generate'], $m);
     $r->post('/payroll/runs/{id}/finalize', [RunController::class, 'finalize'], $m);
     $r->post('/payroll/runs/{id}/reopen', [RunController::class, 'reopen'], $m);
     $r->post('/payroll/runs/{id}/lines', [RunController::class, 'bulkLine'], $m);
     $r->post('/payroll/runs/{id}/notes', [RunController::class, 'notes'], $m);
-    $r->get('/payroll/payslips/{id}/edit', [PayslipEditController::class, 'edit'], $m);
-    $r->post('/payroll/payslips/{id}/edit', [PayslipEditController::class, 'update'], $m);
-    $r->post('/payroll/payslips/{id}/preview', [PayslipEditController::class, 'preview'], ['perm' => $m, 'throttle' => [240, 60]]);
-    $r->post('/payroll/payslips/{id}/reset', [PayslipEditController::class, 'reset'], $m);
+    $r->get('/payroll/payslips/{id}/edit', [PayslipEditController::class, 'edit'], ['perm' => $t]);
+    $r->post('/payroll/payslips/{id}/edit', [PayslipEditController::class, 'update'], ['perm' => $t]);
+    $r->post('/payroll/payslips/{id}/preview', [PayslipEditController::class, 'preview'], ['perm' => $t, 'throttle' => [240, 60]]);
+    $r->post('/payroll/payslips/{id}/reset', [PayslipEditController::class, 'reset'], ['perm' => $t]);
     $r->post('/payroll/runs/{id}/paid', [RunController::class, 'paid'], $m);
     $r->post('/payroll/runs/{id}/delete', [RunController::class, 'destroy'], $m);
     $r->get('/payroll/runs/{id}/export', [RunController::class, 'export'], ['perm' => $m, 'throttle' => [20, 300]]);
@@ -72,6 +74,7 @@ return [
     return ['Payslips' => array_map(static fn ($r) => ['title' => 'Payslip · '.date('F Y', strtotime($r['period_month'])), 'meta' => 'Net '.money($r['net']), 'url' => '/payslips/'.$r['id'], 'icon' => 'file-text'], $rows)]; },
   'cron' => [
     'payroll_reminder' => ['feature' => 'payroll', 'monthly' => '25 10:00', 'run' => [PayrollService::class, 'reminder']],
+    'payroll_auto_draft' => ['feature' => 'payroll', 'monthly' => '1 06:10', 'run' => [PayrollService::class, 'autoDraft']],
   ],
   'file_access' => [
     'reimbursement' => static function (array $user, int $id, array $file, string $mode): bool {

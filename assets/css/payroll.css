@@ -119,3 +119,8 @@ a.tile:hover{transform:translateY(-2px);color:var(--text)}
 .pay-changes{margin:4px 0 0;padding-left:16px}
 @media (max-width:720px){.pay-live{position:static}.pay-edit-table .pay-amt{max-width:none}}
 .pay-lnote{display:block;font-weight:500}
+.pay-edited{display:flex;align-items:center;gap:.25rem;margin-top:2px;white-space:nowrap;color:var(--lemon-d);font-weight:600}
+.pay-edited svg{width:12px;height:12px}
+.pay-table .actions{white-space:nowrap}.pay-table .pay-edit-btn{padding-inline:10px}
+.pay-team-run{align-items:center}
+@media (max-width:560px){.pay-team-run{flex-wrap:wrap}.pay-team-run .btn{margin-left:auto}}

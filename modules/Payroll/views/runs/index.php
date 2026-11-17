@@ -21,7 +21,7 @@ $claimsOn = feature_on('reimbursements');
       <thead><tr><th>Month</th><th>Status</th><th class="num">Employees</th><th class="num">Gross</th><th class="num">Deductions</th><th class="num">Net payout</th><th><span class="sr">Open</span></th></tr></thead>
       <tbody><?php foreach ($p['items'] as $r): ?>
         <tr>
-          <td class="nowrap"><a class="row-link" href="<?= e(url('/payroll/runs/'.$r['id'])) ?>"><?= e(PayrollService::monthLabel($r['period_month'])) ?></a><div class="xs muted">Created <?= e(fdate($r['created_at'])) ?><?= $r['creator'] ? ' · '.e($r['creator']) : '' ?></div></td>
+          <td class="nowrap"><a class="row-link" href="<?= e(url('/payroll/runs/'.$r['id'])) ?>"><?= e(PayrollService::monthLabel($r['period_month'])) ?></a><div class="xs muted">Created <?= e(fdate($r['created_at'])) ?><?= $r['auto_created'] ? ' · automatically' : ($r['creator'] ? ' · '.e($r['creator']) : '') ?></div></td>
           <td class="nowrap"><?= badge($r['status']) ?><?php if ((int) $r['flagged']): ?> <span class="pill pill-red" title="Deductions exceed gross"><?= icon('alert', 'sm') ?> <?= (int) $r['flagged'] ?></span><?php endif ?></td>
           <td class="num"><?= (int) $r['slips'] ?></td>
           <td class="num"><?= e(money($r['gross'])) ?></td>
@@ -38,8 +38,9 @@ $claimsOn = feature_on('reimbursements');
     <div class="card">
       <div class="card-head"><h4>How a run works</h4></div>
       <ol class="pay-steps">
-        <li><div><b>Draft</b>, payslips use each person’s own working days, <?= e(\Modules\Admin\Services\SettingsSchema::join([feature_on('leave') ? 'unpaid leave' : null, feature_on('attendance') ? 'approved hours' : null, 'components', $claimsOn ? 'approved claims' : null])) ?>. Regenerate anytime.</div></li>
-        <li><div><b>Finalize</b>, numbers are locked and every employee is notified that their payslip is ready.</div></li>
+        <li><div><b>Draft</b>, <?= $auto ? 'created automatically on the 1st for the previous month (or by you earlier). ' : '' ?>Payslips use each person’s own working days, <?= e(\Modules\Admin\Services\SettingsSchema::join([feature_on('leave') ? 'unpaid leave' : null, feature_on('attendance') ? 'approved hours' : null, 'components', $claimsOn ? 'approved claims' : null])) ?>. Employees cannot see drafts.</div></li>
+        <li><div><b>Review and edit</b> any payslip: bonus, one-time deduction, hours. Managers can edit their direct reports. Regenerating keeps manual edits.</div></li>
+        <li><div><b>Finalize &amp; notify</b>, numbers are locked and every employee is notified that their payslip is ready.</div></li>
         <li><div><b>Paid</b>, export the bank transfer sheet, pay, then mark the run as paid<?= $claimsOn ? ' to settle reimbursements' : '' ?>.</div></li>
       </ol>
     </div>
