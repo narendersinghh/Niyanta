@@ -26,7 +26,7 @@ final class Tools {
       'tasks_for' => ['Tasks assigned to a person the user may see (managers: their team).', ['person' => $person, 'range' => ['type' => 'string', 'enum' => ['open', 'overdue', 'today', 'this_week', 'next_week', 'done_this_week', 'all']]], ['person'], static fn (array $u) => Scope::can('projects.view', $u)],
       'work_summary' => ['Summary of a person\'s work in a period: tasks completed and in progress, hours tracked by project, work reports, attendance days. Managers may ask about their team; HR about anyone; employees only about themselves.', ['person' => $person, 'from' => $from, 'to' => $to], [], static fn () => true],
       'attendance' => ['Attendance (clock in/out, worked hours, status per day) of a person in a date range. Default: this month.', ['person' => $person, 'from' => $from, 'to' => $to], [], $att],
-      'timesheet' => ['Weekly timesheet: hours per project and task, per day, and review status.', ['person' => $person, 'week' => ['type' => 'string', 'description' => 'Any date inside the week (YYYY-MM-DD) or this_week / last_week. Default this week.']], [], $att],
+      'timesheet' => ['Weekly timesheet: hours per project and task, per day, and rejected entries (time is approved as logged; reviewers reject single entries or days with a reason).', ['person' => $person, 'week' => ['type' => 'string', 'description' => 'Any date inside the week (YYYY-MM-DD) or this_week / last_week. Default this week.']], [], $att],
       'leave_balance' => ['Leave balances per leave type (allocated, used, pending, available), including optional holidays (OH).', ['person' => $person, 'year' => ['type' => 'integer']], [], $leave],
       'leave_requests' => ['Leave requests of a person (dates, days, type, status).', ['person' => $person, 'status' => ['type' => 'string', 'enum' => ['pending', 'approved', 'rejected', 'cancelled', 'all']], 'year' => ['type' => 'integer']], [], $leave],
       'holidays' => ['Company holiday calendar for a year: fixed holidays and optional festival days.', ['year' => ['type' => 'integer']], [], static fn (array $u) => feature_on('leave') && ($leave($u) || Scope::can('hr.directory.view', $u))],
@@ -252,8 +252,10 @@ final class Tools {
       $lines[$k] ??= ['project' => $r['project'], 'task' => $r['task'] ? self::cut($r['task'], 70) : null, 'billable' => (bool) $r['bill'], 'hours' => 0.0];
       $lines[$k]['hours'] = round($lines[$k]['hours'] + $r['secs'] / 3600, 1);
       $days[$r['d']] = round(($days[$r['d']] ?? 0) + $r['secs'] / 3600, 1); }
-    $ts = DB::first('SELECT id, status, review_note FROM timesheets WHERE user_id=? AND week_start=?', [$p['id'], $ws]);
-    return ['person' => $p['name'], 'week_start' => $ws, 'week_end' => $we, 'total_hours' => round(array_sum(array_column($rows, 'secs')) / 3600, 1), 'status' => $ts['status'] ?? 'approved', 'review_note' => $ts && $ts['status'] === 'rejected' ? self::cut($ts['review_note'], 200) : null,
+    $rej = DB::all("SELECT DATE(te.started_at) AS d, te.duration_seconds AS secs, COALESCE(pr.name, 'No project') AS project, te.review_note, r.name AS reviewer FROM time_entries te LEFT JOIN projects pr ON pr.id=te.project_id LEFT JOIN users r ON r.id=te.reviewed_by WHERE te.user_id=? AND te.status='rejected' AND te.started_at>=? AND te.started_at<? ORDER BY te.started_at LIMIT 20", [$p['id'], $ws.' 00:00:00', date('Y-m-d', strtotime($we.' +1 day')).' 00:00:00']);
+    $total = round(array_sum(array_column($rows, 'secs')) / 3600, 1); $rh = round(array_sum(array_column($rej, 'secs')) / 3600, 1);
+    return ['person' => $p['name'], 'week_start' => $ws, 'week_end' => $we, 'total_hours' => $total, 'approved_hours' => round($total - $rh, 1), 'rejected_hours' => $rh,
+      'rejected_entries' => array_map(fn ($r) => ['date' => $r['d'], 'hours' => round($r['secs'] / 3600, 1), 'project' => $r['project'], 'reason' => self::cut((string) $r['review_note'], 200), 'by' => $r['reviewer']], $rej),
       'hours_per_day' => $days, 'lines' => array_values($lines), 'url' => $self ? '/timesheets' : '/timesheets/user/'.$p['id']]; }
 
   private static function t_leave_balance(array $u, array $a): array {

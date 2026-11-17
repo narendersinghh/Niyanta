@@ -417,9 +417,10 @@ final class DemoData {
       if ($hasTs) {
         foreach ([2, 1, 0] as $w) {
           $ws = self::d(-7 * $w, $mon);
-          $rej = $w === 1 && $k === 'meera';
-          $st = $rej ? 'rejected' : 'approved';
-          $ts[$k][$ws] = $this->add('timesheets', ['user_id' => $uid, 'week_start' => $ws, 'total_seconds' => 0, 'billable_seconds' => 0, 'status' => $st, 'submitted_at' => self::d(5, $ws).' 18:00:00', 'reviewed_by' => $rej ? $U['aarav'] : null, 'reviewed_at' => $rej ? self::d(7, $ws).' 10:00:00' : null, 'review_note' => $rej ? 'Please split Friday into the correct projects and resubmit.' : null]); } } }
+          $ts[$k][$ws] = $this->add('timesheets', ['user_id' => $uid, 'week_start' => $ws, 'total_seconds' => 0, 'billable_seconds' => 0, 'status' => 'approved', 'submitted_at' => self::d(5, $ws).' 18:00:00']); } } }
+    /* Meera's Friday of last week was rejected by Aarav (per-entry review, when the columns exist) */
+    $hasReview = $hasTe && (bool) DB::value("SELECT 1 FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='time_entries' AND column_name='review_note'");
+    $rejDay = self::d(4, self::d(-7, $mon));
     $att = []; $entries = []; $tot = [];
     $today = date('Y-m-d'); $live = (int) date('G') >= 10;
     for ($i = 21; $i >= 0; $i--) {
@@ -446,10 +447,12 @@ final class DemoData {
           $t = $mine[($i + $j) % count($mine)];
           $dur = $j === $n - 1 ? $left : (int) ($left * mt_rand(30, 55) / 100);
           $wk = $week; $tsId = $ts[$k][$wk] ?? null;
-          $status = $wk === self::d(-7, $mon) && $k === 'meera' ? 'rejected' : 'approved';
+          $rej = $hasReview && $day === $rejDay && $k === 'meera';
+          $status = $rej ? 'rejected' : 'approved';
           $row = ['user_id' => $uid, 'project_id' => $P['projects'][$t['project']]['id'], 'task_id' => $t['id'], 'description' => $t['title'], 'started_at' => date('Y-m-d H:i:s', $start), 'ended_at' => date('Y-m-d H:i:s', $start + $dur), 'duration_seconds' => $dur, 'idle_seconds' => mt_rand(0, 6) * 60,
             'last_heartbeat_at' => date('Y-m-d H:i:s', $start + $dur), 'source' => $j % 2 ? 'manual' : 'timer', 'billable' => 1, 'is_running' => 0, 'status' => $status, 'timesheet_id' => $tsId, 'created_at' => date('Y-m-d H:i:s', $start)];
           if ($hasDiscard) { $row['discarded_seconds'] = 0; }
+          if ($hasReview) { $row += ['review_note' => $rej ? 'Please split Friday into the correct projects.' : null, 'reviewed_by' => $rej ? $U['aarav'] : null, 'reviewed_at' => $rej ? self::d(7, $week).' 10:00:00' : null]; }
           $entries[] = $row;
           if ($tsId) { $tot[$tsId] = ($tot[$tsId] ?? 0) + $dur; }
           $start += $dur + ($j === 0 ? $break : 300); $left -= $dur; } } }
@@ -513,7 +516,7 @@ final class DemoData {
 
   private function notifications(array $U): void {
     /* Each sample notification is created only when the page it links to is switched on. */
-    $n = [['aarav', 'Timesheets approved automatically', 'Last week\'s timesheets were approved automatically. Reject any that need changes.', '/timesheets/approvals', 'timer', null], ['aarav', 'Leave request from Vikram Singh', 'Optional holiday on Guru Nanak Jayanti.', '/hr/leave/approvals', 'umbrella', null],
+    $n = [['aarav', 'Time approved automatically', 'Your team\'s time is approved as it is logged. Open a day to reject an entry that needs changes.', '/timesheets/review', 'timer', null], ['aarav', 'Leave request from Vikram Singh', 'Optional holiday on Guru Nanak Jayanti.', '/hr/leave/approvals', 'umbrella', null],
       ['rohan', '1 overdue invoice needs attention', 'BluePeak Fintech, Brand refresh final invoice.', '/invoices?status=overdue', 'receipt', null], ['ananya', 'New comment on "Homepage visual design"', 'Aarav: Looks good, moving to review.', '/tasks', 'message', -1],
       ['vikram', 'Task due tomorrow: Subscription box logic', 'Saffron Spice D2C Store', '/tasks', 'clock', null], ['priya', 'Reimbursement claims pending', '3 claims are waiting for review.', '/reimbursements', 'wallet', null],
       ['karan', 'Your leave was approved', 'Personal work, approved by Rohan Kapoor.', '/hr/leave', 'check', -30], ['sneha', 'Please acknowledge: Leave & Holiday Policy', 'A company document needs your acknowledgement.', '/hr/me', 'book', null]];

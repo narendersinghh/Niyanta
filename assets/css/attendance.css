@@ -645,3 +645,44 @@ a.ta-stat:focus-visible{outline:3px solid color-mix(in srgb,var(--primary) 45%,t
 
 .ta-added{padding:6px 18px;margin-bottom:16px}.ta-added .entry{border:0}.tld-src.added{background:var(--sky-s);color:var(--sky-d)}
 .ts-add{color:var(--sky-d)!important;font-weight:650}
+/* entry and day review: rejected entries in red, entry details dialog, day buttons, Review page */
+.lg-rej{background:var(--red)}
+.ts-rej{color:var(--red-d)!important;font-weight:650}
+.ts-grid .cell.rej{background:var(--red-s);color:var(--red-d);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--red) 35%,transparent)}
+.ts-grid tr.sub.rej td{color:var(--red-d);font-weight:650}
+.entry.is-click{cursor:pointer;border-radius:12px;transition:background .15s}
+.entry.is-click:hover{background:var(--surface-2)}
+.entry.is-click:focus-visible,.tld-b[data-entry-view]:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
+.entry.is-rej .bar{background:var(--red)!important}
+.entry .dur.rej{color:var(--red-d);text-decoration:line-through;text-decoration-thickness:1px}
+.rv-line{margin-top:6px;padding:6px 10px;border-radius:10px;background:var(--red-s);color:var(--red-d);font-size:.84rem;border-left:3px solid var(--red)}
+.day-head .dh-r{display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.dr-acts{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap}
+.dr-acts form{margin:0;display:inline-flex}
+.hub-actions .dr-acts{gap:8px}
+.tld-b[data-entry-view]{cursor:pointer}
+.tld-b.rej{--pc:var(--red);background:repeating-linear-gradient(135deg,color-mix(in srgb,var(--red) 12%,var(--surface)) 0 8px,color-mix(in srgb,var(--red) 6%,var(--surface)) 8px 16px);border-color:color-mix(in srgb,var(--red) 55%,transparent)}
+.tld-name .tld-rej{display:inline-flex;align-items:center;gap:3px;align-self:flex-start;margin:0 0 2px;padding:1px 7px;font-size:.68rem;color:var(--red-d);background:var(--surface)}.tld-b.slim .tld-rej{display:none}
+.tld-name .tld-why{color:var(--red-d);font-weight:600}
+.rv-modal{width:min(520px,calc(100vw - 32px))}
+.rv-modal [hidden]{display:none!important}
+.rv-top{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:16px;background:var(--surface-2);border:1px solid var(--border);margin-bottom:6px}
+.rv-top .pill{flex:none}
+.rv-bar{width:5px;align-self:stretch;border-radius:4px;background:var(--pc,var(--primary));flex:none}
+.rv-kv{margin-bottom:10px}
+.rv-kv dd{margin:0;text-align:right;font-size:.9rem}
+.rv-kv .rv-desc{align-items:flex-start}
+.rv-kv .rv-desc dd{max-width:70%;white-space:pre-wrap;overflow-wrap:anywhere}
+.rv-why{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border-radius:14px;background:var(--red-s);color:var(--red-d);margin-bottom:10px;font-size:.9rem;overflow-wrap:anywhere}
+.rv-why .xs{margin-left:6px;font-weight:500}
+.rv-reject{margin-top:4px}
+.rv-acts{flex-wrap:wrap}
+.rv-acts form{margin:0;display:inline-flex}
+.rvw-d{display:inline-flex;align-items:center;gap:6px;margin:0}
+.rvw-d input{width:auto;border-radius:99px;padding:7px 12px;background:var(--surface)}
+.rvw-table .rvw-r{max-width:320px}
+.rvw-table .rvw-r .pill{margin-bottom:4px}
+.rvw-table .rvw-e a b{color:var(--text)}
+.rvw-table td.actions{white-space:nowrap}
+.rvw-table td.actions form{display:inline-flex;margin:0}
+@media (max-width:640px){.day-head{flex-wrap:wrap;gap:6px}.day-head .dh-r{width:100%;justify-content:flex-start}.hub-actions .dr-acts{width:100%}.hub-actions .dr-acts .btn,.hub-actions .dr-acts form{flex:1}.hub-actions .dr-acts form .btn{width:100%}.rv-acts .btn,.rv-acts form{flex:1 1 auto}.rv-acts form .btn{width:100%}.rvw-d{width:100%}.rvw-d input{flex:1}.rvw-table .rvw-e,.rvw-table .rvw-r{grid-column:1/-1;max-width:none}.tld-name .tld-rej{padding:0 5px}}

@@ -145,7 +145,7 @@ final class TimeService {
       Audit::log('time.switch', 'time_entry', $id, ['from' => (int) $cur['id'], 'project_id' => $d['project_id'] ?? null], $uid);
       return $id; }); }
 
-  /** Stop the user's running entry at $at (default now). The entry is approved automatically unless its week is rejected. Returns the stopped entry or null. */
+  /** Stop the user's running entry at $at (default now). The entry is approved automatically (reviewers may reject it later, EntryReview). Returns the stopped entry or null. */
   public static function stop(int $uid, ?string $at = null, string $reason = 'user', bool $atHeartbeat = false): ?array {
     return DB::transaction(static function () use ($uid, $at, $reason, $atHeartbeat): ?array {
       AttendanceService::lock($uid);
@@ -155,7 +155,7 @@ final class TimeService {
       $end = $at ? strtotime($at) : ($atHeartbeat && $e['last_heartbeat_at'] ? strtotime($e['last_heartbeat_at']) : time());
       $end = max($start, $end);
       $dur = max(0, $end - $start - (int) $e['discarded_seconds']);
-      $status = Timesheets::entryStatus($uid, $e['started_at']);
+      $status = 'approved';
       DB::update('time_entries', ['ended_at' => date('Y-m-d H:i:s', $end), 'duration_seconds' => $dur, 'idle_seconds' => min((int) $e['idle_seconds'], $end - $start), 'is_running' => 0, 'status' => $status], 'id=?', [$e['id']]);
       Timesheets::sync($uid, self::weekStart(substr($e['started_at'], 0, 10)));
       Audit::log('time.stop', 'time_entry', (int) $e['id'], ['reason' => $reason, 'duration' => $dur, 'status' => $status], $uid);
@@ -300,7 +300,7 @@ final class TimeService {
 
   /** Week entries for a user, grouped by day. */
   public static function weekEntries(int $uid, string $ws): array {
-    $rows = DB::all('SELECT te.*, p.name AS project_name, p.color AS project_color, t.title AS task_title FROM time_entries te LEFT JOIN projects p ON p.id=te.project_id LEFT JOIN tasks t ON t.id=te.task_id WHERE te.user_id=? AND te.started_at>=? AND te.started_at<? ORDER BY te.started_at DESC', [$uid, $ws.' 00:00:00', date('Y-m-d', strtotime($ws.' +7 days')).' 00:00:00']);
+    $rows = DB::all('SELECT te.*, p.name AS project_name, p.color AS project_color, t.title AS task_title, r.name AS reviewer_name FROM time_entries te LEFT JOIN projects p ON p.id=te.project_id LEFT JOIN tasks t ON t.id=te.task_id LEFT JOIN users r ON r.id=te.reviewed_by WHERE te.user_id=? AND te.started_at>=? AND te.started_at<? ORDER BY te.started_at DESC', [$uid, $ws.' 00:00:00', date('Y-m-d', strtotime($ws.' +7 days')).' 00:00:00']);
     $days = [];
     foreach ($rows as $r) { $days[substr($r['started_at'], 0, 10)][] = $r; }
     return $days; } }

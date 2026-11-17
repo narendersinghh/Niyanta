@@ -1,6 +1,6 @@
 <?php
 use Core\DB;
-use Modules\Attendance\Services\{Timesheets, TimeService};
+use Modules\Attendance\Services\{EntryReview, Timesheets, TimeService};
 
 /** Fixture: HR, a manager with one direct report, a project member of the manager's project, and an unrelated employee. */
 function att_fixture(): array {
@@ -46,69 +46,47 @@ return [
     $old = date('Y-m-d', strtotime('-40 days'));
     http('POST', '/time/entries', ['date' => $old, 'start_time' => '01:00', 'duration' => '1:00']);
     assert_eq(0, (int) DB::value('SELECT COUNT(*) FROM time_entries WHERE user_id=? AND started_at=?', [$emp, $old.' 01:00:00']), 'closed week rejects new time'); },
-  'rejecting a week rejects its entries and approvedHours drops; resubmit restores' => function () {
+  'week review is gone: no week reject, approve or resubmit; the old approvals page opens Review' => function () {
     ['emp' => $emp, 'mgr' => $mgr] = att_fixture();
-    $ws = '2033-03-07';
     att_entry($emp, '2033-03-08 09:00:00', 3 * 3600);
-    att_entry($emp, '2033-03-09 09:00:00', 2 * 3600);
-    assert_eq(5.0, TimeService::approvedHours($emp, '2033-03-01', '2033-03-31'));
-    $t = Timesheets::find($emp, $ws);
+    $t = Timesheets::find($emp, '2033-03-07');
     act_as($mgr);
-    $res = http('POST', '/timesheets/'.$t['id'].'/reject', ['note' => 'Wednesday is wrong']);
-    assert_true(in_array($res->status(), [302, 303], true), 'reject redirects: '.$res->status());
-    assert_eq('rejected', DB::value('SELECT status FROM timesheets WHERE id=?', [$t['id']]));
-    assert_eq(2, (int) DB::value("SELECT COUNT(*) FROM time_entries WHERE timesheet_id=? AND status='rejected'", [$t['id']]));
-    assert_eq(0.0, TimeService::approvedHours($emp, '2033-03-01', '2033-03-31'), 'rejected hours excluded');
-    assert_eq(0.0, TimeService::approvedHoursMany([$emp], '2033-03-01', '2033-03-31')[$emp]);
-    assert_true((bool) DB::value("SELECT 1 FROM notifications WHERE user_id=? AND title='Timesheet rejected'", [$emp]), 'employee notified');
-    assert_true((bool) DB::value("SELECT 1 FROM audit_logs WHERE action='timesheet.reject' AND entity_id=?", [$t['id']]), 'audited');
-    // A new entry in a rejected week stays rejected until resubmitted.
-    att_entry($emp, '2033-03-10 09:00:00', 3600, Timesheets::entryStatus($emp, '2033-03-10 09:00:00'));
-    assert_eq('rejected', DB::value("SELECT status FROM time_entries WHERE user_id=? AND started_at='2033-03-10 09:00:00'", [$emp]));
-    act_as($emp);
-    Timesheets::resubmit(att_user($emp), $ws);
-    assert_eq('approved', DB::value('SELECT status FROM timesheets WHERE id=?', [$t['id']]));
-    assert_eq(6.0, TimeService::approvedHours($emp, '2033-03-01', '2033-03-31'), 'resubmitted entries approved again');
-    assert_eq(6 * 3600, (int) DB::value('SELECT total_seconds FROM timesheets WHERE id=?', [$t['id']]));
-    assert_true((bool) DB::value("SELECT 1 FROM notifications WHERE user_id=? AND title LIKE '%resubmitted%'", [$mgr]), 'reviewer notified'); },
-  'approver can re-approve a rejected week; reject needs a note' => function () {
-    ['emp' => $emp, 'hr' => $hr] = att_fixture();
-    att_entry($emp, '2033-04-05 09:00:00', 3600);
-    $t = Timesheets::find($emp, '2033-04-04');
-    assert_throws(\DomainException::class, fn () => Timesheets::reject(att_user($hr), (int) $t['id'], '  '), 'note required');
-    Timesheets::reject(att_user($hr), (int) $t['id'], 'Check task');
-    assert_eq(0.0, TimeService::approvedHours($emp, '2033-04-01', '2033-04-30'));
-    Timesheets::approve(att_user($hr), (int) $t['id']);
-    assert_eq('approved', DB::value('SELECT status FROM timesheets WHERE id=?', [$t['id']]));
-    assert_eq(1.0, TimeService::approvedHours($emp, '2033-04-01', '2033-04-30'));
-    assert_eq((int) $hr, (int) DB::value('SELECT reviewed_by FROM timesheets WHERE id=?', [$t['id']])); },
-  'manager can reject only direct reports and project members, never self' => function () {
+    foreach (['/timesheets/'.$t['id'].'/reject', '/timesheets/'.$t['id'].'/approve', '/timesheets/resubmit'] as $p) { assert_true(in_array(http('POST', $p, ['note' => 'x', 'week' => '2033-03-07'])->status(), [404, 405], true), "$p removed"); }
+    assert_eq('approved', DB::value('SELECT status FROM timesheets WHERE id=?', [$t['id']]), 'week row is only a totals cache');
+    $r = http('GET', '/timesheets/approvals');
+    assert_true(in_array($r->status(), [301, 302, 303], true) && str_contains((string) ($r->headers()['Location'] ?? ''), '/timesheets/review'), 'approvals redirects to Review');
+    $w = (string) http('GET', '/timesheets/user/'.$emp.'?week=2033-03-07')->body();
+    assert_true(!str_contains($w, 'Reject week') && !str_contains($w, 'Resubmit') && str_contains($w, 'data-entry-view') && str_contains($w, 'Reject day'), 'week page offers entry and day review only'); },
+  'manager can reject entries only of direct reports and project members, never self' => function () {
     ['emp' => $emp, 'mgr' => $mgr, 'member' => $member, 'other' => $other] = att_fixture();
-    foreach ([$emp, $member, $other, $mgr] as $u) { att_entry($u, '2033-05-03 09:00:00', 3600); }
-    $id = static fn (int $u): int => (int) Timesheets::find($u, '2033-05-02')['id'];
+    $id = [];
+    foreach ([$emp, $member, $other, $mgr] as $u) { $id[$u] = att_entry($u, '2033-05-03 09:00:00', 3600); }
+    $st = static fn (int $u): string => (string) DB::value('SELECT status FROM time_entries WHERE id=?', [$id[$u]]);
     act_as($mgr);
-    assert_eq(403, http('POST', '/timesheets/'.$id($other).'/reject', ['note' => 'Nope'])->status(), 'unrelated employee');
-    assert_eq('approved', DB::value('SELECT status FROM timesheets WHERE id=?', [$id($other)]));
-    assert_eq(403, http('POST', '/timesheets/'.$id($mgr).'/reject', ['note' => 'Self'])->status(), 'own week');
-    http('POST', '/timesheets/'.$id($member).'/reject', ['note' => 'Project member']);
-    assert_eq('rejected', DB::value('SELECT status FROM timesheets WHERE id=?', [$id($member)]), 'project member in scope');
+    assert_eq(403, http('POST', '/time/entries/'.$id[$other].'/reject', ['note' => 'Nope'])->status(), 'unrelated employee');
+    assert_eq('approved', $st($other));
+    assert_eq(403, http('POST', '/time/entries/'.$id[$mgr].'/reject', ['note' => 'Self'])->status(), 'own entry');
+    http('POST', '/time/entries/'.$id[$member].'/reject', ['note' => 'Project member']);
+    assert_eq('rejected', $st($member), 'project member in scope');
     act_as($emp);
-    assert_eq(403, http('POST', '/timesheets/'.$id($other).'/reject', ['note' => 'x'])->status(), 'employees cannot review');
-    assert_eq(403, http('GET', '/timesheets/approvals')->status(), 'no approvals page for employees');
+    assert_eq(403, http('POST', '/time/entries/'.$id[$other].'/reject', ['note' => 'x'])->status(), 'employees cannot review');
+    assert_eq(403, http('GET', '/timesheets/review')->status(), 'no Review page for employees');
     act_as($mgr);
-    assert_eq(200, http('GET', '/timesheets/approvals?week=2033-05-02')->status());
+    $rv = http('GET', '/timesheets/review');
+    assert_eq(200, $rv->status());
+    assert_true(str_contains((string) $rv->body(), 'Project member'), 'rejected entry listed with its reason');
     assert_eq(200, http('GET', '/timesheets/user/'.$member.'?week=2033-05-02')->status());
     assert_eq(403, http('GET', '/timesheets/user/'.$other.'?week=2033-05-02')->status()); },
-  'finalized payroll month freezes the week' => function () {
+  'finalized payroll month freezes review' => function () {
     ['emp' => $emp, 'hr' => $hr] = att_fixture();
     $e = att_entry($emp, '2033-08-10 09:00:00', 3600);
     DB::insert('payroll_runs', ['period_month' => '2033-08-01', 'status' => 'finalized', 'created_at' => date('Y-m-d H:i:s')]);
     Timesheets::flush();
     assert_true(Timesheets::payrollLocked('2033-08-10') && !Timesheets::payrollLocked('2033-09-10'));
     assert_true(!Timesheets::entryEditable(DB::first('SELECT * FROM time_entries WHERE id=?', [$e])), 'entry locked');
-    $t = Timesheets::find($emp, '2033-08-08');
-    assert_throws(\DomainException::class, fn () => Timesheets::reject(att_user($hr), (int) $t['id'], 'Too late'));
-    assert_eq('approved', DB::value('SELECT status FROM timesheets WHERE id=?', [$t['id']])); },
+    assert_throws(\DomainException::class, fn () => EntryReview::reject(att_user($hr), $e, 'Too late'));
+    assert_throws(\DomainException::class, fn () => EntryReview::day(att_user($hr), $emp, '2033-08-10', 'rejected', 'Too late'));
+    assert_eq('approved', DB::value('SELECT status FROM time_entries WHERE id=?', [$e])); },
   'timesheet pages render' => function () {
     ['emp' => $emp] = att_fixture();
     act_as($emp);

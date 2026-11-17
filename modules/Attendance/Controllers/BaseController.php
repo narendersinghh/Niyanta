@@ -59,7 +59,7 @@ abstract class BaseController extends Controller {
    */
   protected static function day(int $uid, string $date, ?array $dev = null): array {
     $next = date('Y-m-d', strtotime($date.' +1 day'));
-    $rows = \Core\DB::all('SELECT te.*, p.name AS project_name, p.color AS project_color, t.title AS task_title FROM time_entries te LEFT JOIN projects p ON p.id=te.project_id LEFT JOIN tasks t ON t.id=te.task_id WHERE te.user_id=? AND te.started_at>=? AND te.started_at<? ORDER BY te.started_at', [$uid, $date.' 00:00:00', $next.' 00:00:00']);
+    $rows = \Core\DB::all('SELECT te.*, p.name AS project_name, p.color AS project_color, t.title AS task_title, r.name AS reviewer_name FROM time_entries te LEFT JOIN projects p ON p.id=te.project_id LEFT JOIN tasks t ON t.id=te.task_id LEFT JOIN users r ON r.id=te.reviewed_by WHERE te.user_id=? AND te.started_at>=? AND te.started_at<? ORDER BY te.started_at', [$uid, $date.' 00:00:00', $next.' 00:00:00']);
     $att = \Core\DB::first('SELECT clock_in, clock_out, break_seconds FROM attendance WHERE user_id=? AND work_date=? LIMIT 1', [$uid, $date]);
     if ($dev) { $rows = array_values(array_filter($rows, static fn ($r) => \Modules\Attendance\Services\Devices::owns($r, $dev['key']))); $att = ['break_seconds' => $att['break_seconds'] ?? 0]; }
     $da = $dev ? ['pct' => $dev['act'], 'meeting' => 0] : \Modules\Attendance\Services\TimeService::dayActivity($uid, $date);

@@ -1,4 +1,4 @@
-/* Niyanta Attendance & Time Tracking: live clocks, read-only live status (polled), OS detection for downloads, task pickers, entry/attendance/reject dialogs. Tracking itself happens in the desktop app. */
+/* Niyanta Attendance & Time Tracking: live clocks, read-only live status (polled), OS detection for downloads, task pickers, entry/attendance/review dialogs. Tracking itself happens in the desktop app. */
 (()=>{"use strict";if(window.NyAttendance)return;window.NyAttendance=1;
 const d=document,$=(s,c=d)=>c.querySelector(s),$$=(s,c=d)=>[...c.querySelectorAll(s)],N=()=>window.Niyanta;
 const pad=n=>String(n).padStart(2,"0"),fmt=(s,f)=>{s=Math.max(0,Math.floor(+s||0));const h=Math.floor(s/3600),m=Math.floor(s%3600/60);return f==="hm"?h+"h "+pad(m)+"m":pad(h)+":"+pad(m)+":"+pad(s%60)};
@@ -45,9 +45,21 @@ loadTasks(F.project_id,j&&j.task_id)});
 const af=$("[data-att-form]");
 if(af)d.addEventListener("click",e=>{const b=e.target.closest("[data-att-edit],[data-att-new]");if(!b)return;const j=b.dataset.attEdit?JSON.parse(b.dataset.attEdit):null;af.reset();
 $("[data-att-title]",af).textContent=j?"Edit · "+j.name:"Add attendance record";if(j)["user_id","work_date","clock_in","clock_out","break_minutes","status","note"].forEach(k=>{if(af.elements[k])af.elements[k].value=j[k]??""})});
-/* shared reject dialog: [data-reject-url][data-reject-name] buttons fill the form before core opens the modal */
+/* Reject day dialog: [data-reject-user][data-reject-date][data-reject-name] buttons fill the form before core opens the modal */
 const rf=$("[data-reject-form]");
-if(rf)d.addEventListener("click",e=>{const b=e.target.closest("[data-reject-url]");if(!b)return;rf.action=b.dataset.rejectUrl;rf.reset();const n=$("[data-reject-name]",rf);if(n)n.textContent=b.dataset.rejectName||"";setTimeout(()=>{const t=rf.elements.note;if(t)t.focus()},60)},true);
+if(rf)d.addEventListener("click",e=>{const b=e.target.closest("[data-reject-date]");if(!b)return;rf.reset();rf.elements.user_id.value=b.dataset.rejectUser;rf.elements.date.value=b.dataset.rejectDate;const n=$("[data-reject-name]",rf);if(n)n.textContent=b.dataset.rejectName||"";setTimeout(()=>{const t=rf.elements.note;if(t)t.focus()},60)},true);
+/* entry details and review: [data-entry-view] day blocks and week rows (JSON, EntryReview::view) open #entry-view; reviewers approve or reject there, owners get Edit */
+const RV=d.getElementById("entry-view");
+if(RV){const rvShow=j=>{const set=(k,v)=>{const el=$('[data-rv="'+k+'"]',RV);if(el)el.textContent=v||""},row=(k,on)=>{const el=$('[data-rv-row="'+k+'"]',RV);if(el)el.hidden=!on};
+["title","task","who","date","range","dur","desc","note","by","at"].forEach(k=>set(k,j[k]));const rej=j.status==="rejected",run=j.status==="running";
+row("task",!!j.task);row("who",!!j.who);row("desc",!!j.desc);row("note",rej);row("by",!!j.by);row("fix",rej&&!!j.edit&&!j.review);row("run",run);
+const p=$("[data-rv-pill]",RV);p.className="pill "+(rej?"pill-red":run?"pill-sky":"pill-mint");p.textContent=rej?"Rejected":run?"Running":"Approved";$("[data-rv-bar]",RV).className="rv-bar c-"+(j.color||"gray");
+const u=RV.dataset.rvBase+j.id,ap=$("[data-rv-approve]",RV),rj=$("[data-rv-reject]",RV),ed=$("[data-rv-edit]",RV);rj.reset();ap.action=u+"/approve";rj.action=u+"/reject";
+ap.hidden=!(j.review&&rej);rj.hidden=$("[data-rv-reject-btn]",RV).hidden=!(j.review&&!rej&&!run);ed.hidden=!j.edit;ed.dataset.entryEdit=j.edit?JSON.stringify(j.edit):"";RV.showModal()};
+const rvOpen=(b,e)=>{e.preventDefault();try{rvShow(JSON.parse(b.dataset.entryView))}catch(x){}};
+d.addEventListener("click",e=>{const b=e.target.closest("[data-entry-view]");if(b&&!e.target.closest("button,a,form,input,select,textarea,label"))rvOpen(b,e)});
+d.addEventListener("keydown",e=>{if((e.key==="Enter"||e.key===" ")&&e.target.matches&&e.target.matches("[data-entry-view]"))rvOpen(e.target,e)});
+RV.addEventListener("click",e=>{if(e.target.closest("[data-rv-edit]"))RV.close()})}
 /* whole-day screenshot gallery: #shot-viewer[data-day] holds every capture of the day ({id,src,t,a,d,g,h,r,p}, HubController::gallery); any [data-shot-at=n] (slot cards, chart bars) opens it at item n.
    Full-screen lightbox: prev/next, arrow keys, Home/End, Esc, swipe; clicking the image toggles fit / actual size; hour-grouped filmstrip with lazy thumbnails; neighbours preloaded; focus kept inside; page scroll locked */
 const SV=d.getElementById("shot-viewer");

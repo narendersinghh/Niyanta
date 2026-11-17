@@ -7,7 +7,7 @@ use Modules\Attendance\Services\{Monitoring, TimeService as T};
 final class HubController extends BaseController {
   private static array $meet = [];
   public function daily(): Response {
-    [$target, $name, $people] = $this->member('attendance.view_all', 'time.daily');
+    [$target, $name, $people] = $this->member($this->can('attendance.view_all') ? 'attendance.view_all' : 'attendance.timesheets.approve', 'time.daily');
     $date = min(date('Y-m-d'), $this->dateParam('date', date('Y-m-d')));
     $own = $target === $this->uid();
     $day = self::day($target, $date);
@@ -18,7 +18,7 @@ final class HubController extends BaseController {
       [$gallery, $first] = self::gallery(self::dayShots($target, $date, $dk));
       if ($gallery && !$own) { \Core\Audit::log('monitoring.view', 'user', $target, ['date' => $date, 'area' => 'daily']); } }
     return $this->view('attendance::hub/daily', ['title' => 'Daily timesheet', 'date' => $date, 'target' => $target, 'targetName' => $name, 'people' => $people, 'own' => $own,
-      'manage' => $manage = !$own && \Modules\Attendance\Services\Timesheets::canManage($this->user(), $target),
+      'manage' => $manage = !$own && \Modules\Attendance\Services\Timesheets::canManage($this->user(), $target), 'review' => !$own && \Modules\Attendance\Services\EntryReview::canReviewDay($this->user(), $target, $date),
       'projects' => $own && $this->can('attendance.track') ? T::projects($this->user()) : ($manage ? T::projects(DB::first('SELECT * FROM users WHERE id=?', [$target])) : []), 'chart' => self::chart($target, $date, $day['entries'], $dk), 'gallery' => $gallery, 'shots' => $first, 'devices' => $devices, 'device' => $dev] + $day + ['styles' => ['css/attendance.css'], 'scripts' => ['js/attendance.js']]); }
 
   /** One person's screenshots of a day, oldest first, with the tracked entry's project, task and description; only device $dev's (Services\Devices key) when given. Callers check Monitoring::canView first. */

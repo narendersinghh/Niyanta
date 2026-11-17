@@ -2,14 +2,14 @@
 /* Time & Attendance header, shared by every page of the hub, in this order:
    1. Me | Organization switch: first, a compact segmented control, for people who may see others' time. Team pages, someone else's page and ?scope=org count as Organization.
    2. Title row with the page actions.
-   3. Tabs, most used first. Me: Today (live tracker), Timesheet, Screenshots, Attendance. Organization: Team today, Timesheets, Screenshots, Approvals.
-      Badges: own rejected weeks (Me > Timesheet), teammates tracking now (Team today), team weeks rejected and awaiting fixes (Approvals).
+   3. Tabs, most used first. Me: Today (live tracker), Timesheet, Screenshots, Attendance. Organization: Team today, Timesheets, Screenshots, Review.
+      Badges: own rejected entries (Me > Timesheet), teammates tracking now (Team today), team entries rejected and awaiting fixes (Review).
    4. One toolbar row: member picker, Day / Week / Month, the date, week or month navigator, then $extra. Pages do not repeat these controls.
    $tab: tracker|daily|weekly|monthly|screenshots|attendance|team-attendance|review; $title, $subtitle; optional $actions (html), $target + $targetName + $people
    (member picker), $hidden (GET fields kept by the toolbar forms and links), $base (toolbar path), $nav (path for the navigator links, default $base),
    $mode ('date'|'week'|'month'|null) with $date, $week (Monday) or $month, $extra (html at the end of the toolbar) */
 use Modules\Attendance\Controllers\TeamNowController;
-use Modules\Attendance\Services\{Monitoring, Timesheets};
+use Modules\Attendance\Services\{EntryReview, Monitoring};
 $u = user(); $me = (int) $u['id'];
 $target = (int) ($target ?? $me);
 $people = $people ?? []; $hidden = array_filter($hidden ?? [], static fn ($v) => $v !== null && $v !== '');
@@ -23,7 +23,7 @@ if ($org) {
     'team' => $all ? ['Team today', 'activity', '/attendance/team', TeamNowController::count($u), 'live', 'tracking now'] : null,
     'timesheet' => $all ? ['Timesheets', 'calendar', '/time/daily'.$uq] : null,
     'screenshots' => $shotsAll ? ['Screenshots', 'image', '/time/screenshots'.$uq] : null,
-    'review' => $rev ? ['Approvals', 'check-square', '/timesheets/approvals', Timesheets::rejectedCount($u, true), 'warn', 'rejected, awaiting fixes'] : null]);
+    'review' => $rev ? ['Review', 'check-square', '/timesheets/review', EntryReview::rejectedCount($u, true), 'warn', 'rejected entries, awaiting fixes'] : null]);
   $group = ['daily' => 'timesheet', 'weekly' => 'timesheet', 'monthly' => 'timesheet', 'team-attendance' => 'team'][$tab] ?? $tab;
   if ($group === 'timesheet' && !$all) { $group = 'review'; }
   $subs = $group === 'timesheet' && $target !== $me ? ['daily' => ['Day', '/time/daily'.$uq], 'weekly' => ['Week', '/timesheets/user/'.$target], 'monthly' => ['Month', '/time/monthly'.$uq]] : []; }
@@ -31,12 +31,12 @@ else {
   $people = [];
   $tabs = array_filter([
     'tracker' => $track ? ['Today', 'timer', '/time'] : null,
-    'timesheet' => ['Timesheet', 'calendar', '/time/daily', $track ? Timesheets::rejectedCount($u) : 0, 'warn', 'rejected, to fix'],
+    'timesheet' => ['Timesheet', 'calendar', '/time/daily', $track ? EntryReview::rejectedCount($u) : 0, 'warn', 'rejected entries to fix'],
     'screenshots' => Monitoring::enabled() || $shotsAll ? ['Screenshots', 'image', '/time/screenshots'] : null,
     'attendance' => $track ? ['Attendance', 'clock', '/attendance'] : null]);
   $group = ['daily' => 'timesheet', 'weekly' => 'timesheet', 'monthly' => 'timesheet'][$tab] ?? $tab;
   $subs = $group === 'timesheet' ? ['daily' => ['Day', '/time/daily'], 'weekly' => ['Week', '/timesheets'], 'monthly' => ['Month', '/time/monthly']] : []; }
-$scopes = $hasOrg ? ['me' => ['Me', 'My time', 'user', $track ? '/time' : '/time/daily'], 'org' => ['Organization', 'My team', 'users', $all ? '/attendance/team' : ($rev ? '/timesheets/approvals' : '/time/screenshots?scope=org')]] : [];
+$scopes = $hasOrg ? ['me' => ['Me', 'My time', 'user', $track ? '/time' : '/time/daily'], 'org' => ['Organization', 'My team', 'users', $all ? '/attendance/team' : ($rev ? '/timesheets/review' : '/time/screenshots?scope=org')]] : [];
 $mode = $mode ?? null; $base = $base ?? ''; $navBase = $nav ?? $base;
 /* query for toolbar links: the period, the shown member (unless the path names them) and $hidden; null drops a key */
 $keep = static fn (array $q): string => ($q = array_filter($q + $hidden + ($target !== $me && !isset($nav) ? ['user' => $target] : []), static fn ($v) => $v !== null && $v !== '')) ? '?'.http_build_query($q) : '';

@@ -4,12 +4,12 @@ use Modules\Attendance\Services\{AttendanceService, DesktopApp, DesktopConnect, 
 
 return [
   'key' => 'attendance', 'name' => 'Attendance & Time Tracking', 'icon' => 'clock', 'order' => 40, 'version' => '1.2.0',
-  'description' => 'Desktop time tracker (Windows, macOS, Linux): the tracked day is the attendance day, with pause, project switching, idle detection, auto-approved timesheets with manager rejection and consent-based screenshots.',
+  'description' => 'Desktop time tracker (Windows, macOS, Linux): the tracked day is the attendance day, with pause, project switching, idle detection, auto-approved time with manager rejection of entries or days and consent-based screenshots.',
   'permissions' => [
     'attendance.track' => ['label' => 'Track own time with the desktop app', 'roles' => ['manager', 'hr', 'employee']],
     'attendance.view_all' => ['label' => 'View team attendance & time (Manager: direct reports + project members)', 'roles' => ['manager', 'hr']],
     'attendance.manage' => ['label' => 'Edit attendance records', 'roles' => ['hr']],
-    'attendance.timesheets.approve' => ['label' => 'Review timesheets (reject / re-approve team weeks)', 'roles' => ['manager', 'hr']],
+    'attendance.timesheets.approve' => ['label' => 'Review time (reject / re-approve team entries and days)', 'roles' => ['manager', 'hr']],
     'attendance.screenshots.view' => ['label' => 'View monitoring screenshots of team', 'roles' => []],
   ],
   'nav' => [
@@ -46,17 +46,18 @@ return [
     $r->post('/time/consent', [TimeController::class, 'consent'], $t);
     $r->post('/time/consent/revoke', [TimeController::class, 'revokeConsent'], $t);
     $r->post('/time/tokens/{id}/revoke', [TimeController::class, 'revokeToken'], $t);
-    $r->get('/time/daily', [HubController::class, 'daily'], ['attendance.track', 'attendance.view_all']);
+    $r->get('/time/daily', [HubController::class, 'daily'], ['attendance.track', 'attendance.view_all', 'attendance.timesheets.approve']);
     $r->get('/time/monthly', [HubController::class, 'monthly'], ['attendance.track', 'attendance.view_all']);
     $r->get('/time/screenshots', [ScreenshotController::class, 'index'], ['attendance.track', 'attendance.screenshots.view']);
     $r->get('/time/screenshots/{id}/image', [ScreenshotController::class, 'image'], ['attendance.track', 'attendance.screenshots.view']);
     $r->get('/timesheets', [TimesheetController::class, 'index'], $ts);
-    $r->post('/timesheets/resubmit', [TimesheetController::class, 'resubmit'], $t);
     $r->get('/timesheets/approvals', [TimesheetController::class, 'approvals'], 'attendance.timesheets.approve');
+    $r->get('/timesheets/review', [TimesheetController::class, 'review'], 'attendance.timesheets.approve');
     $r->get('/timesheets/user/{user_id}', [TimesheetController::class, 'person'], ['attendance.timesheets.approve', 'attendance.view_all']);
     $r->get('/timesheets/{id}', [TimesheetController::class, 'show'], $ts);
-    $r->post('/timesheets/{id}/approve', [TimesheetController::class, 'approve'], 'attendance.timesheets.approve');
-    $r->post('/timesheets/{id}/reject', [TimesheetController::class, 'reject'], 'attendance.timesheets.approve');
+    $r->post('/time/entries/{id}/reject', [TimesheetController::class, 'rejectEntry'], 'attendance.timesheets.approve');
+    $r->post('/time/entries/{id}/approve', [TimesheetController::class, 'approveEntry'], 'attendance.timesheets.approve');
+    $r->post('/time/review/day', [TimesheetController::class, 'reviewDay'], 'attendance.timesheets.approve');
     /* Niyanta Tracker desktop API (token auth, see AGENT_API.md) */
     $api = ['auth' => false, 'csrf' => false, 'throttle' => [600, 60]];
     $r->post('/api/agent/login', [AgentController::class, 'login'], ['auth' => false, 'csrf' => false, 'throttle' => [300, 300]]);

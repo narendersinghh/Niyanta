@@ -1,7 +1,7 @@
 <?php
 namespace Modules\Attendance\Controllers;
 use Core\{Audit, DB, Response};
-use Modules\Attendance\Services\{DesktopApp, DesktopInstall, Monitoring, Timesheets, Tracker, TimeService as T};
+use Modules\Attendance\Services\{DesktopApp, DesktopInstall, EntryReview, Monitoring, Timesheets, Tracker, TimeService as T};
 
 /**
  * Time Tracking page (read-only live status, desktop app downloads, week entries), manual corrections, monitoring consent
@@ -46,7 +46,7 @@ final class TimeController extends BaseController {
       $row = T::manualData($owner, $d);
       self::checkOpen($uid, $row['started_at'], $other);
       $id = DB::transaction(static function () use ($uid, $row): int {
-        $id = DB::insert('time_entries', $row + ['user_id' => $uid, 'source' => 'manual', 'status' => Timesheets::entryStatus($uid, $row['started_at']), 'created_at' => date('Y-m-d H:i:s')]);
+        $id = DB::insert('time_entries', $row + ['user_id' => $uid, 'source' => 'manual', 'status' => 'approved', 'created_at' => date('Y-m-d H:i:s')]);
         Timesheets::sync($uid, T::weekStart(substr($row['started_at'], 0, 10)));
         \Modules\Attendance\Services\AttendanceService::resync($uid, substr($row['started_at'], 0, 10));
         return $id; });
@@ -64,7 +64,7 @@ final class TimeController extends BaseController {
   /** Time can be added to or moved into a week only while it is open for the owner; HR ($other) only outside a finalized payroll month. */
   private static function checkOpen(int $uid, string $startedAt, bool $other = false): void {
     $date = substr($startedAt, 0, 10);
-    if ($other ? Timesheets::payrollLocked($date) : !Timesheets::canEditDate($date, Timesheets::weekRejected($uid, T::weekStart($date)))) { throw new \DomainException(Timesheets::payrollLocked($date) ? 'Payroll for that month is finalized, so its time can no longer change.' : 'That week is closed. You can log or edit time for the current and previous week.'); } }
+    if ($other ? Timesheets::payrollLocked($date) : !Timesheets::canEditDate($date)) { throw new \DomainException(Timesheets::payrollLocked($date) ? 'Payroll for that month is finalized, so its time can no longer change.' : 'That week is closed. You can log or edit time for the current and previous week.'); } }
 
   private function ownEditable(int $id): array {
     $e = DB::first('SELECT * FROM time_entries WHERE id=? LIMIT 1', [$id]) ?? $this->abort(404, 'Entry not found.');
@@ -84,11 +84,12 @@ final class TimeController extends BaseController {
       if ($e['source'] !== 'manual' && ($row['started_at'] !== $e['started_at'] || $row['ended_at'] !== $e['ended_at'])) { $row['source'] = 'manual'; }
       if ($e['source'] !== 'manual' && ($row['started_at'] === $e['started_at'] && $row['ended_at'] === $e['ended_at'])) { $row['duration_seconds'] = (int) $e['duration_seconds']; }
       DB::transaction(static function () use ($uid, $row, $e, $id): void {
-        DB::update('time_entries', $row + ['status' => Timesheets::entryStatus($uid, $row['started_at'])], 'id=?', [$id]);
+        DB::update('time_entries', $row + ['status' => 'approved'], 'id=?', [$id]);
         foreach (array_unique([T::weekStart(substr($e['started_at'], 0, 10)), T::weekStart(substr($row['started_at'], 0, 10))]) as $w) { Timesheets::sync($uid, $w); }
         foreach (array_unique([substr($e['started_at'], 0, 10), substr($row['started_at'], 0, 10)]) as $dt) { \Modules\Attendance\Services\AttendanceService::resync($uid, $dt); } });
       Audit::log('time.entry_update', 'time_entry', $id, ['before' => ['start' => $e['started_at'], 'end' => $e['ended_at'], 'project' => $e['project_id']], 'after' => ['start' => $row['started_at'], 'end' => $row['ended_at'], 'project' => $row['project_id']]] + ($other ? ['for' => $uid] : []));
-      return 'Time entry updated.'; }); }
+      EntryReview::fixed($u, $e);
+      return $e['status'] === 'rejected' ? 'Time entry fixed and approved again.' : 'Time entry updated.'; }); }
 
   public function deleteEntry(int $id): Response {
     $e = $this->ownEditable($id);
