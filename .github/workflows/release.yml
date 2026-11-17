@@ -66,7 +66,7 @@ jobs:
           fi
           git add -A
           if ! git diff --cached --quiet; then git commit -m "Release:$changed"; git push origin HEAD:main; fi
-          for t in $(grep -E '^(app_tag|tracker_tag)=' "$GITHUB_OUTPUT" | cut -d= -f2); do git tag -a "$t" -m "Release $t"; git push origin "$t"; done
+          for t in $(grep -E '^(app_tag|tracker_tag)=' "$GITHUB_OUTPUT" | cut -d= -f2); do git tag -a "$t" -m "Release $t"; ok=; for n in 1 2 3 4 5; do if git push origin "$t"; then ok=1; break; fi; echo "Tag push failed (attempt $n), retrying"; sleep $((n * 5)); done; [ -n "$ok" ] || { echo "::error::Could not push tag $t"; exit 1; }; done
           echo "### Released:$changed" >> "$GITHUB_STEP_SUMMARY"
 
   web-app:
