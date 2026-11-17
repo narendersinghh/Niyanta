@@ -193,7 +193,9 @@ SH;
    * normal user install and not a "download cradle": the installer is saved to the person's Downloads folder with a visible
    * progress bar, its sha512 is checked, and it is started normally (no /S silent switch, no hidden window, no -Wait, no
    * Unblock-File, no TLS or execution-policy tweaks, nothing in %TEMP%); the person clicks through the setup, which starts the
-   * app at the end. Never `exit` (it would close the window).
+   * app at the end. Opening is retried for about 15 s (Defender keeps a fresh download locked while it scans it), then tried through
+   * Explorer; a file Defender removed is reported as such, and when nothing works the reason is shown and the Downloads folder opens
+   * with the setup selected. Never `exit` (it would close the window).
    */
   public static function powershell(string $key, array $f, string $connect = ''): string {
     $w = $f['windows'];
@@ -216,8 +218,19 @@ SH;
     if ($got -ne $sha) { Remove-Item -LiteralPath $out -Force -ErrorAction SilentlyContinue; Write-Host 'The download is damaged (checksum mismatch). Please run the command again.' -ForegroundColor Red; return }
     Write-Host '==> Checksum OK' -ForegroundColor Magenta }
   Write-Host "==> Saved $out" -ForegroundColor Magenta
-  try { Start-Process -FilePath $out }
-  catch { Write-Host "Could not open the setup. Open $out yourself (double-click it in your Downloads folder)." -ForegroundColor Red; return }
+  $opened = $false; $why = ''
+  for ($i = 0; $i -lt 6 -and -not $opened; $i++) {
+    if ($i) { Start-Sleep -Seconds 3 }
+    if (-not (Test-Path -LiteralPath $out)) { Write-Host 'Windows Security removed the setup right after the download. Open Windows Security > Protection history, choose Allow on Niyanta Tracker, then run the command again.' -ForegroundColor Red; return }
+    try { Start-Process -FilePath $out; $opened = $true }
+    catch {
+      $why = $_.Exception.Message
+      try { Start-Process -FilePath 'explorer.exe' -ArgumentList ('"' + $out + '"'); $opened = $true } catch { } } }
+  if (-not $opened) {
+    Write-Host "Windows did not let this window open the setup: $why" -ForegroundColor Red
+    Write-Host "Double-click $name in the folder that opens now to install it." -ForegroundColor Yellow
+    try { Start-Process -FilePath 'explorer.exe' -ArgumentList ('/select,"' + $out + '"') } catch { }
+    return }
   Write-Host '==> The Niyanta Tracker setup is open: follow it to the end (Next, Install, Finish).' -ForegroundColor Green
   Write-Host '    If Windows Security blocks the file, tell your Niyanta administrator: it can be reported to Microsoft as a false positive.' -ForegroundColor Green
   if (-not $connect) { Write-Host '    Niyanta Tracker then starts by itself: sign in with your browser.' -ForegroundColor Green; return }
