@@ -80,11 +80,11 @@ final class PayrollService {
   public const OT_RATES = ['1' => '1x hourly rate', '1.5' => '1.5x hourly rate', '2' => '2x hourly rate', 'manual' => 'Manual multiplier'];
 
   /** Flexible hours mode (setting payroll.flex_mode): monthly (default), weekly or daily (no flexibility). */
-  /** Company time regularisation in minutes (setting payroll.grace_minutes, 0 = off). */
+  /** Company grace time in minutes (setting payroll.grace_minutes, 0 = off). */
   public static function graceDefault(): int { $v = Settings::get('payroll.grace_minutes', 90); return $v === null || $v === '' ? 90 : max(0, min(1440, (int) $v)); }
 
-  /** Employee time regularisation as stored (payroll_employee_settings): null = company setting, 0 = off, N minutes. */
-  public static function graceSetting(int $uid): ?int { $v = DB::value('SELECT grace_minutes FROM payroll_employee_settings WHERE user_id=?', [$uid]); return $v === null || $v === false ? null : (int) $v; }
+  /** Employee grace time as stored (payroll_employee_settings): null = company setting, 0 = off, N minutes. */
+  public static function graceSetting(int $uid): ?int { $v = DB::value('SELECT grace_minutes FROM payroll_employee_settings WHERE user_id=? AND grace_minutes IS NOT NULL', [$uid]); return $v === null || $v === false ? null : (int) $v; }
 
   /** Stored settings of many employees: [uid => minutes|null], one query. */
   public static function graceSettings(array $uids): array { return $uids ? array_map(static fn ($v) => $v === null ? null : (int) $v, DB::pairs('SELECT user_id, grace_minutes FROM payroll_employee_settings WHERE user_id IN '.DB::in($uids), $uids)) : []; }
@@ -95,12 +95,13 @@ final class PayrollService {
   /** Short label: "Company setting (90 min)", "60 min", "Off". */
   public static function graceLabel(?int $setting): string { return $setting === null ? 'Company setting ('.(self::graceDefault() ? self::graceDefault().' min' : 'off').')' : ($setting === 0 ? 'Off' : $setting.' min'); }
 
-  /** Save an employee's setting (null = company setting); audit-logged when it changes. */
+  /** Save an employee's override from the salary form; null (company setting) removes the override. Audit-logged when it changes. */
   public static function setGrace(int $uid, ?int $minutes): void {
     $before = self::graceSetting($uid);
-    if ($before === $minutes && ($minutes !== null || !DB::value('SELECT 1 FROM payroll_employee_settings WHERE user_id=?', [$uid]))) { return; }
-    DB::query('INSERT INTO payroll_employee_settings (user_id, grace_minutes, updated_by, updated_at) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE grace_minutes=VALUES(grace_minutes), updated_by=VALUES(updated_by), updated_at=VALUES(updated_at)', [$uid, $minutes, Auth::id(), date('Y-m-d H:i:s')]);
-    if ($before !== $minutes) { Audit::log('payroll.grace.update', 'user', $uid, ['before' => $before, 'after' => $minutes]); } }
+    if ($before === $minutes) { return; }
+    if ($minutes === null) { DB::delete('payroll_employee_settings', 'user_id=?', [$uid]); }
+    else { DB::query('INSERT INTO payroll_employee_settings (user_id, grace_minutes, updated_by, updated_at) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE grace_minutes=VALUES(grace_minutes), updated_by=VALUES(updated_by), updated_at=VALUES(updated_at)', [$uid, $minutes, Auth::id(), date('Y-m-d H:i:s')]); }
+    Audit::log('payroll.grace.update', 'user', $uid, ['before' => $before, 'after' => $minutes]); }
 
   public static function flexMode(): string { $m = (string) Settings::get('payroll.flex_mode', 'monthly'); return isset(self::FLEX[$m]) ? $m : 'monthly'; }
 
@@ -270,7 +271,7 @@ final class PayrollService {
     else { $paid = max(0.0, round($workingDays - $unpaid, 1)); $base = $workingDays > 0 ? round($rate * $paid / $workingDays, 2) : 0.0; }
     if ($mult && $ot > 0 && $hr) { $otPay = round($ot * $hr * $mult, 2); }
     $cov = $tracked ? round((float) ($hx['covered'] ?? 0), 2) : 0.0; $reg = $tracked ? round((float) ($hx['regularised'] ?? 0), 2) : 0.0;
-    $extra = ($reg > 0 ? ' + '.$h($reg).' h regularised' : '').($cov > 0 ? ' + '.$h($cov).' h paid leave' : '');
+    $extra = ($reg > 0 ? ' + '.$h($reg).' h grace time' : '').($cov > 0 ? ' + '.$h($cov).' h paid leave' : '');
     $earn = [['name' => $hourly ? 'Base pay ('.$h($tracked ? (float) $hx['payable'] : $hours).' h)' : ($tracked ? ($extra !== '' ? 'Basic pay ('.$h((float) $hx['payable'] - $cov - $reg).' h tracked'.$extra.' of '.$h((float) $hx['expected']).' h)' : 'Basic pay ('.$h((float) $hx['payable']).' of '.$h((float) $hx['expected']).' h tracked)') : 'Basic pay'), 'amount' => $base, 'code' => 'base']];
     if ($otPay > 0) { $earn[] = ['name' => 'Overtime ('.$h($ot).' h × '.self::multLabel($mult).')', 'amount' => $otPay, 'code' => 'overtime']; }
     $ded = [];
@@ -324,7 +325,7 @@ final class PayrollService {
       if (isset($ov['payable'])) { $hx['payable'] = round(max(0.0, (float) $ov['payable']), 2); }
       if (isset($ov['overtime'])) { $hx['overtime'] = round(max(0.0, (float) $ov['overtime']), 2); }
       $hx['covered'] = 0.0; $hx['regularised'] = 0.0;
-      /* time regularisation: up to calc['grace'] hours of a monthly shortage count as worked, before paid leave covers the rest; not when HR set the payable hours */
+      /* grace time: up to calc['grace'] hours of a monthly shortage count as worked, before paid leave covers the rest; not when HR set the payable hours */
       if (!$hourly && !isset($ov['payable']) && ($g = (float) ($calc['grace'] ?? 0)) > 0) {
         $r = round(min($g, max(0.0, (float) $hx['expected'] - (float) $hx['payable'])), 2);
         if ($r > 0) { $hx['regularised'] = $r; $hx['payable'] = round((float) $hx['payable'] + $r, 2); } }
@@ -469,7 +470,7 @@ final class PayrollService {
     $x = $byHours ? (self::hoursBreakdown([$u], $from, $to)[$u] ?? null) : null;
     $wd = self::workingDaysFor([$u], $from, $to)[$u] ?? self::workingDays($from, $to);
     $hours = $x ? (float) $x['worked'] : ($comp['pay_type'] === 'hourly' ? (self::approvedHours([$u], $from, $to)[$u] ?? 0.0) : 0.0);
-    return self::computeSlip(['comp' => $comp, 'wd' => $wd, 'unpaid' => $comp['pay_type'] === 'hourly' ? 0.0 : (self::unpaidLeave([$u], $from, $to)[$u] ?? 0.0), 'hours' => $hours, 'components' => [], 'reimb' => 0.0, 'hx' => $x]); } /* month so far: no time regularisation (it applies when salary is generated) */
+    return self::computeSlip(['comp' => $comp, 'wd' => $wd, 'unpaid' => $comp['pay_type'] === 'hourly' ? 0.0 : (self::unpaidLeave([$u], $from, $to)[$u] ?? 0.0), 'hours' => $hours, 'components' => [], 'reimb' => 0.0, 'hx' => $x]); } /* month so far: no grace time (it applies when salary is generated) */
 
   /** New draft run for "Y-m" with its payslips generated. $auto: created by the monthly scheduler (no user). */
   public static function createRun(string $month, bool $auto = false): int {

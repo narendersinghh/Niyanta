@@ -2,14 +2,14 @@
 use Core\{DB, Settings};
 use Modules\Payroll\Services\PayrollService;
 
-/** Time regularisation: up to N minutes of a monthly shortage count as worked (company setting, 90 by default; per salary revision: custom or off). */
+/** Grace time: up to N minutes of a monthly shortage count as worked (company setting, 90 by default; per salary revision: custom or off). */
 return [
   'regularise: a shortage within the limit is paid in full, a bigger one is reduced by the limit, paid leave covers the rest' => function () {
     $hx = static fn (float $p) => ['expected' => 160.0, 'worked' => $p, 'payable' => $p, 'overtime' => 0.0, 'mode' => 'monthly'];
     $calc = static fn (float $p, float $g) => ['comp' => ['pay_type' => 'monthly', 'amount' => 16000], 'wd' => 20, 'unpaid' => 0, 'hours' => $p, 'components' => [], 'reimb' => 0, 'hx' => $hx($p), 'grace' => $g];
     $s = PayrollService::computeSlip($calc(158.75, 1.5));
     assert_eq([160.0, 1.25, 16000.0], [(float) $s['payable_hours'], (float) $s['regularised_hours'], (float) $s['base_pay']], 'within 90 min: full pay');
-    assert_true(str_contains($s['earnings'][0]['name'], '1.25 h regularised'), 'shown on the payslip line');
+    assert_true(str_contains($s['earnings'][0]['name'], '1.25 h grace time'), 'shown on the payslip line');
     $s = PayrollService::computeSlip($calc(150.0, 1.5));
     assert_eq([151.5, 1.5, 15150.0], [(float) $s['payable_hours'], (float) $s['regularised_hours'], (float) $s['base_pay']], 'bigger shortage reduced by 90 min');
     $seen = null; $cover = static function (float $short) use (&$seen) { $seen = $short; return ['days' => 1, 'hours' => $short, 'type_id' => 1, 'balance_after' => 3]; };
@@ -30,7 +30,7 @@ return [
     act_as($hr);
     http('POST', '/payroll/employees/'.$emp.'/compensation', ['pay_type' => 'monthly', 'amount' => '20000', 'effective_from' => date('Y-m-01', strtotime('-1 month')), 'grace_mode' => 'custom', 'grace_minutes' => '45']);
     assert_eq(45, PayrollService::graceSetting($emp), 'saved for the employee');
-    assert_true(str_contains(http('GET', '/payroll/employees/'.$emp)->body(), 'Time regularisation'), 'shown on the employee page');
+    assert_true(str_contains(http('GET', '/payroll/employees/'.$emp)->body(), 'Grace time'), 'shown on the employee page');
     http('POST', '/payroll/employees/'.$emp.'/compensation', ['pay_type' => 'monthly', 'amount' => '21000', 'effective_from' => date('Y-m-01'), 'grace_mode' => 'off']);
     assert_eq(0, PayrollService::graceSetting($emp), 'turned off with the next salary edit');
     assert_eq(2, (int) DB::value('SELECT COUNT(*) FROM compensations WHERE user_id=?', [$emp]), 'one setting, two revisions');

@@ -51,7 +51,7 @@ $num = static fn ($v) => rtrim(rtrim(number_format((float) $v, 2), '0'), '.');
         <div class="pay-line"><span>Pay basis</span><span><?= $current['pay_type'] === 'hourly' ? 'Hourly rate × hours' : ($hl ? 'Salary from tracked time' : 'Monthly salary by days') ?></span></div>
         <?php if ($hl): ?>
         <div class="pay-line"><span>Flexible hours</span><span><?= e(PayrollService::FLEX_SHORT[$est['flex_mode']] ?? '') ?></span></div>
-        <?php if ($current['pay_type'] === 'monthly'): ?><div class="pay-line"><span>Time regularisation</span><span><?= e(PayrollService::graceLabel($grace)) ?></span></div><?php endif ?>
+        <?php if ($current['pay_type'] === 'monthly'): ?><div class="pay-line"><span>Grace time</span><span><?= e(PayrollService::graceLabel($grace)) ?></span></div><?php endif ?>
         <div class="pay-line"><span>Overtime</span><span><?= ($m = PayrollService::overtimeMultiplier()) ? 'Paid at '.e(PayrollService::multLabel($m)) : 'Not paid' ?></span></div>
         <div class="pay-line"><span>Expected hours</span><span><?= e($hn($est['expected_hours'])) ?></span></div>
         <div class="pay-line"><span><?= $current['pay_type'] === 'hourly' ? 'Hourly rate' : 'Hourly rate this month' ?></span><span><?= e(money(round((float) $est['hour_rate'], 2))) ?></span></div>
@@ -84,7 +84,7 @@ $num = static fn ($v) => rtrim(rtrim(number_format((float) $v, 2), '0'), '.');
           <div class="hint<?= $pt === 'monthly' ? ' hide' : '' ?>" data-pay-label="hourly">Paid for each approved hour worked<?= $byHours ? ', up to the expected hours (overtime only when enabled in Payroll settings)' : '' ?>.</div><?= error_for('amount') ?></div>
         <div class="field"><label for="effective_from">Effective from *</label><input id="effective_from" type="date" name="effective_from" value="<?= e(old('effective_from', date('Y-m-01'))) ?>" required><?= error_for('effective_from') ?></div>
         <div class="field"><label for="note">Note</label><input id="note" type="text" name="note" value="<?= e(old('note')) ?>" maxlength="255" placeholder="e.g. Annual appraisal"><?= error_for('note') ?></div>
-        <div data-pay-label="monthly"<?= $pt === 'hourly' ? ' class="hide"' : '' ?>><?= partial('payroll::employees/_grace', ['g' => $grace, 'id' => 'rev']) ?><p class="hint mt0">Saved for <?= e(explode(' ', $emp['name'])[0]) ?>, not per revision: up to this many missing minutes a month count as worked when salary is generated.</p></div>
+        <div data-pay-label="monthly"<?= $pt === 'hourly' ? ' class="hide"' : '' ?>><?= partial('payroll::employees/_grace', ['g' => $grace, 'id' => 'rev']) ?><p class="hint mt0">Missing minutes in a month up to this limit are counted as worked when salary is generated. Leave on Company setting unless <?= e(explode(' ', $emp['name'])[0]) ?> needs a different limit.</p></div>
         <div class="form-actions"><button class="btn ghost" type="button" data-close>Cancel</button><button class="btn primary"><?= icon('check', 'sm') ?> Save revision</button></div>
   </form>
 </dialog>
