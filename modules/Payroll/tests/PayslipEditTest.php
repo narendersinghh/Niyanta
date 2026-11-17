@@ -116,6 +116,7 @@ return [
     Settings::set('payroll.salary_from_tracked_time', '1'); },
 
   'shortage of hours covered from paid leave (stub for LeaveService::shortageCover): payable, payslip line, commit per month, release' => function () {
+    \Core\Settings::set('payroll.grace_minutes', '0'); /* time regularisation off: this test checks exact hours */
     Settings::set('general.weekend_days', '6,7'); Settings::set('general.saturday_rule', 'full'); Settings::set('hr.work_hours_per_day', '8');
     Settings::set('payroll.salary_from_tracked_time', '1'); Settings::set('payroll.flex_mode', 'monthly'); Settings::set('payroll.overtime_enabled', '0');
     LeaveService::flush();

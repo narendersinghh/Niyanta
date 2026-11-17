@@ -285,6 +285,7 @@ return [
     assert_true(!is_file(NY_ROOT.'/assets/js/attendance-bg.js'), 'background heartbeat script removed'); },
 
   'monthly salary from tracked time: base x tracked / expected hours, capped; hourly unchanged' => function () {
+    \Core\Settings::set('payroll.grace_minutes', '0'); /* time regularisation off: this test checks exact hours */
     $c = ['pay_type' => 'monthly', 'amount' => 30000];
     assert_eq(15000.0, PayrollService::compute($c, 22, 0, 88, [], 0, 176)['base_pay'], 'half the expected hours');
     assert_eq(30000.0, PayrollService::compute($c, 22, 0, 200, [], 0, 176)['base_pay'], 'capped at 100%');

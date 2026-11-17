@@ -62,6 +62,7 @@ return [
     assert_eq([], PayrollService::hoursLines(['pay_type' => 'monthly', 'expected_hours' => null]), 'no breakdown for day-based pay'); },
 
   'payroll run: expected hours with half Saturdays, holidays, paid vs unpaid leave and joining date; caps per flex mode' => function () {
+    \Core\Settings::set('payroll.grace_minutes', '0'); /* time regularisation off: this test checks exact hours */
     Settings::set('general.weekend_days', '7'); Settings::set('general.saturday_rule', 'half'); Settings::set('hr.work_hours_per_day', '8');
     Settings::set('payroll.salary_from_tracked_time', '1');
     DB::insert('holidays', ['holiday_date' => '2036-09-30', 'name' => 'Hours unit holiday', 'optional' => 0]);

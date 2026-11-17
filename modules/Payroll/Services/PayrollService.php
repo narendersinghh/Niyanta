@@ -80,6 +80,15 @@ final class PayrollService {
   public const OT_RATES = ['1' => '1x hourly rate', '1.5' => '1.5x hourly rate', '2' => '2x hourly rate', 'manual' => 'Manual multiplier'];
 
   /** Flexible hours mode (setting payroll.flex_mode): monthly (default), weekly or daily (no flexibility). */
+  /** Company time regularisation in minutes (setting payroll.grace_minutes, 0 = off). */
+  public static function graceDefault(): int { $v = Settings::get('payroll.grace_minutes', 90); return $v === null || $v === '' ? 90 : max(0, min(1440, (int) $v)); }
+
+  /** Minutes of a monthly shortage regularised for one salary revision: its own grace_minutes (0 = off) or the company setting when NULL. */
+  public static function graceMinutes(array $comp): int { return ($comp['grace_minutes'] ?? null) === null || $comp['grace_minutes'] === '' ? self::graceDefault() : max(0, min(1440, (int) $comp['grace_minutes'])); }
+
+  /** Short label of a revision's regularisation: "Company (90 min)", "60 min", "Off". */
+  public static function graceLabel(array $comp): string { $g = $comp['grace_minutes'] ?? null; return $g === null || $g === '' ? 'Company ('.(self::graceDefault() ? self::graceDefault().' min' : 'off').')' : ((int) $g === 0 ? 'Off' : (int) $g.' min'); }
+
   public static function flexMode(): string { $m = (string) Settings::get('payroll.flex_mode', 'monthly'); return isset(self::FLEX[$m]) ? $m : 'monthly'; }
 
   /** Overtime multiplier of the hourly rate, or null while overtime pay is off (default). */
@@ -247,8 +256,9 @@ final class PayrollService {
       $paid = $rate > 0 ? round($workingDays * $base / $rate, 1) : 0.0; }
     else { $paid = max(0.0, round($workingDays - $unpaid, 1)); $base = $workingDays > 0 ? round($rate * $paid / $workingDays, 2) : 0.0; }
     if ($mult && $ot > 0 && $hr) { $otPay = round($ot * $hr * $mult, 2); }
-    $cov = $tracked ? round((float) ($hx['covered'] ?? 0), 2) : 0.0;
-    $earn = [['name' => $hourly ? 'Base pay ('.$h($tracked ? (float) $hx['payable'] : $hours).' h)' : ($tracked ? ($cov > 0 ? 'Basic pay ('.$h((float) $hx['payable'] - $cov).' h tracked + '.$h($cov).' h paid leave of '.$h((float) $hx['expected']).' h)' : 'Basic pay ('.$h((float) $hx['payable']).' of '.$h((float) $hx['expected']).' h tracked)') : 'Basic pay'), 'amount' => $base, 'code' => 'base']];
+    $cov = $tracked ? round((float) ($hx['covered'] ?? 0), 2) : 0.0; $reg = $tracked ? round((float) ($hx['regularised'] ?? 0), 2) : 0.0;
+    $extra = ($reg > 0 ? ' + '.$h($reg).' h regularised' : '').($cov > 0 ? ' + '.$h($cov).' h paid leave' : '');
+    $earn = [['name' => $hourly ? 'Base pay ('.$h($tracked ? (float) $hx['payable'] : $hours).' h)' : ($tracked ? ($extra !== '' ? 'Basic pay ('.$h((float) $hx['payable'] - $cov - $reg).' h tracked'.$extra.' of '.$h((float) $hx['expected']).' h)' : 'Basic pay ('.$h((float) $hx['payable']).' of '.$h((float) $hx['expected']).' h tracked)') : 'Basic pay'), 'amount' => $base, 'code' => 'base']];
     if ($otPay > 0) { $earn[] = ['name' => 'Overtime ('.$h($ot).' h × '.self::multLabel($mult).')', 'amount' => $otPay, 'code' => 'overtime']; }
     $ded = [];
     $allow = 0.0; $totalDed = 0.0;
@@ -264,7 +274,7 @@ final class PayrollService {
     $totalDed = round($totalDed, 2);
     return ['pay_type' => $comp['pay_type'], 'rate' => $rate, 'working_days' => $workingDays, 'paid_days' => $hourly ? 0.0 : $paid, 'unpaid_leave_days' => $hourly ? 0.0 : $unpaid,
       'worked_hours' => $hourly || $tracked ? round($hours, 2) : 0.0, 'expected_hours' => $tracked ? round((float) $hx['expected'], 2) : null, 'payable_hours' => $tracked ? round((float) $hx['payable'], 2) : null,
-      'covered_hours' => $cov, 'overtime_hours' => round($ot, 2), 'overtime_pay' => $otPay, 'hour_rate' => $hr === null ? null : round($hr, 4), 'flex_mode' => $tracked ? ($hx['mode'] ?? 'monthly') : null,
+      'covered_hours' => $cov, 'regularised_hours' => $reg, 'overtime_hours' => round($ot, 2), 'overtime_pay' => $otPay, 'hour_rate' => $hr === null ? null : round($hr, 4), 'flex_mode' => $tracked ? ($hx['mode'] ?? 'monthly') : null,
       'missing_pay' => $tracked && !$hourly ? max(0.0, round($rate - $base, 2)) : 0.0, 'base_pay' => $base, 'earnings' => $earn, 'deductions' => $ded, 'reimbursement_total' => $reimb, 'gross' => $gross, 'total_deductions' => $totalDed,
       'net' => max(0.0, round($gross - $totalDed, 2)), 'flagged' => $totalDed > $gross]; }
 
@@ -300,7 +310,11 @@ final class PayrollService {
     if ($hx !== null) {
       if (isset($ov['payable'])) { $hx['payable'] = round(max(0.0, (float) $ov['payable']), 2); }
       if (isset($ov['overtime'])) { $hx['overtime'] = round(max(0.0, (float) $ov['overtime']), 2); }
-      $hx['covered'] = 0.0;
+      $hx['covered'] = 0.0; $hx['regularised'] = 0.0;
+      /* time regularisation: up to calc['grace'] hours of a monthly shortage count as worked, before paid leave covers the rest; not when HR set the payable hours */
+      if (!$hourly && !isset($ov['payable']) && ($g = (float) ($calc['grace'] ?? 0)) > 0) {
+        $r = round(min($g, max(0.0, (float) $hx['expected'] - (float) $hx['payable'])), 2);
+        if ($r > 0) { $hx['regularised'] = $r; $hx['payable'] = round((float) $hx['payable'] + $r, 2); } }
       if ($cover && !$hourly) {
         $sc = $cover(max(0.0, round((float) $hx['expected'] - (float) $hx['payable'], 2)));
         if ($sc && $sc['hours'] > 0) { $hx['covered'] = $sc['hours']; $hx['payable'] = round((float) $hx['payable'] + $sc['hours'], 2); } } }
@@ -381,7 +395,8 @@ final class PayrollService {
         $mine = $claims[$u] ?? [];
         $x = $hx[$u] ?? null;
         $calc = ['comp' => ['pay_type' => $c['pay_type'], 'amount' => (float) $c['amount']], 'wd' => $ownDays[$u] ?? $wd, 'unpaid' => $unpaid[$u] ?? 0.0, 'hours' => $x ? (float) $x['worked'] : ($hours[$u] ?? 0.0),
-          'components' => array_map(static fn ($k) => array_diff_key($k, ['user_id' => 1]), [...$global, ...($personal[$u] ?? [])]), 'reimb' => array_sum(array_map(static fn ($r) => (float) $r['amount'], $mine)), 'hx' => $x, 'hpd' => $hpd[$u] ?? null];
+          'components' => array_map(static fn ($k) => array_diff_key($k, ['user_id' => 1]), [...$global, ...($personal[$u] ?? [])]), 'reimb' => array_sum(array_map(static fn ($r) => (float) $r['amount'], $mine)), 'hx' => $x, 'hpd' => $hpd[$u] ?? null,
+          'grace' => $x && $c['pay_type'] === 'monthly' ? round(self::graceMinutes($c) / 60, 4) : 0.0];
         $edits = $discardEdits ? [] : ($prev[$u]['edits'] ?? []);
         $s = self::computeSlip($calc, $edits, self::coverFor($calc, $u, $run['period_month'], true, !empty($prev[$u]['cover']['hours'])));
         $flagged += (int) $s['flagged']; $kept += (int) $s['edited']; $covered += (int) ($s['shortage_cover'] !== null);
@@ -440,7 +455,7 @@ final class PayrollService {
     $x = $byHours ? (self::hoursBreakdown([$u], $from, $to)[$u] ?? null) : null;
     $wd = self::workingDaysFor([$u], $from, $to)[$u] ?? self::workingDays($from, $to);
     $hours = $x ? (float) $x['worked'] : ($comp['pay_type'] === 'hourly' ? (self::approvedHours([$u], $from, $to)[$u] ?? 0.0) : 0.0);
-    return self::compute($comp, $wd, $comp['pay_type'] === 'hourly' ? 0.0 : (self::unpaidLeave([$u], $from, $to)[$u] ?? 0.0), $hours, [], 0.0, null, $x); }
+    return self::computeSlip(['comp' => $comp, 'wd' => $wd, 'unpaid' => $comp['pay_type'] === 'hourly' ? 0.0 : (self::unpaidLeave([$u], $from, $to)[$u] ?? 0.0), 'hours' => $hours, 'components' => [], 'reimb' => 0.0, 'hx' => $x]); } /* month so far: no time regularisation (it applies when salary is generated) */
 
   /** New draft run for "Y-m" with its payslips generated. $auto: created by the monthly scheduler (no user). */
   public static function createRun(string $month, bool $auto = false): int {

@@ -40,6 +40,7 @@ return [
     $r->get('/payroll/employees', [CompensationController::class, 'index'], $c);
     $r->get('/payroll/employees/{id}', [CompensationController::class, 'show'], $c);
     $r->post('/payroll/employees/{id}/compensation', [CompensationController::class, 'storeCompensation'], $c);
+    $r->post('/payroll/compensations/{id}/grace', [CompensationController::class, 'updateGrace'], $c);
     $r->post('/payroll/compensations/{id}/delete', [CompensationController::class, 'destroyCompensation'], $c);
     $r->get('/payroll/components', [CompensationController::class, 'components'], $c);
     $r->post('/payroll/components', [CompensationController::class, 'storeComponent'], $c);

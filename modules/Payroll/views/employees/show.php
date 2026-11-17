@@ -29,7 +29,7 @@ $num = static fn ($v) => rtrim(rtrim(number_format((float) $v, 2), '0'), '.');
         <?php foreach ($history as $h): $isCur = $current && (int) $current['id'] === (int) $h['id']; $future = $h['effective_from'] > date('Y-m-d'); ?>
         <div class="tl-item"><span class="tl-dot <?= $isCur ? 'bg-mint' : ($future ? 'bg-lemon' : 'bg-gray') ?>"><?= icon($future ? 'clock' : 'check') ?></span>
           <div class="tl-card flex between wrap"><div><b><?= e(money($h['amount'])) ?></b> <span class="muted small"><?= $h['pay_type'] === 'hourly' ? 'per hour' : 'per month' ?></span> <?= $isCur ? '<span class="pill pill-mint">Current</span>' : ($future ? '<span class="pill pill-lemon">Scheduled</span>' : '') ?>
-            <div class="xs muted">Effective <?= e(fdate($h['effective_from'])) ?><?= $h['creator'] ? ' · by '.e($h['creator']) : '' ?><?= $h['note'] ? ' · '.e($h['note']) : '' ?></div></div>
+            <div class="xs muted">Effective <?= e(fdate($h['effective_from'])) ?><?= $h['creator'] ? ' · by '.e($h['creator']) : '' ?><?= $h['note'] ? ' · '.e($h['note']) : '' ?><?= $h['pay_type'] === 'monthly' ? ' · Regularisation: '.e(PayrollService::graceLabel($h)) : '' ?></div></div>
             <form method="post" action="<?= e(url('/payroll/compensations/'.$h['id'].'/delete')) ?>" data-confirm="Delete this revision? Past payslips are not changed."><?= csrf_field() ?><button class="btn icon sm ghost" title="Delete revision"><?= icon('trash', 'sm') ?></button></form></div></div>
         <?php endforeach ?>
       </div><?php endif ?>
@@ -44,6 +44,14 @@ $num = static fn ($v) => rtrim(rtrim(number_format((float) $v, 2), '0'), '.');
     </div>
   </div>
   <div class="stack">
+    <?php if ($current && $current['pay_type'] === 'monthly'): ?>
+    <div class="card">
+      <div class="card-head"><h3>Time regularisation</h3><span class="pill pill-sky"><?= e(PayrollService::graceLabel($current)) ?></span></div>
+      <p class="xs muted">When salary is generated, up to this many missing minutes in the month count as worked, so a small shortage is paid as full hours. Applies to salary from tracked time.</p>
+      <form method="post" action="<?= e(url('/payroll/compensations/'.$current['id'].'/grace')) ?>" class="form"><?= csrf_field() ?><?= partial('payroll::employees/_grace', ['c' => $current, 'id' => 'cur', 'stack' => true]) ?>
+        <div class="form-actions"><button class="btn primary sm"><?= icon('check', 'sm') ?> Save</button></div></form>
+    </div>
+    <?php endif ?>
     <?php if ($est): $hl = $est['expected_hours'] !== null; $hn = static fn ($v) => rtrim(rtrim(number_format((float) $v, 2, '.', ''), '0'), '.').' h'; $dn1 = static fn ($v) => rtrim(rtrim(number_format((float) $v, 1, '.', ''), '0'), '.'); ?>
     <div class="card">
       <div class="card-head"><h3>Pay calculation</h3><span class="muted small"><?= e(date('F Y')) ?> so far</span></div>
@@ -83,6 +91,7 @@ $num = static fn ($v) => rtrim(rtrim(number_format((float) $v, 2), '0'), '.');
           <div class="hint<?= $pt === 'monthly' ? ' hide' : '' ?>" data-pay-label="hourly">Paid for each approved hour worked<?= $byHours ? ', up to the expected hours (overtime only when enabled in Payroll settings)' : '' ?>.</div><?= error_for('amount') ?></div>
         <div class="field"><label for="effective_from">Effective from *</label><input id="effective_from" type="date" name="effective_from" value="<?= e(old('effective_from', date('Y-m-01'))) ?>" required><?= error_for('effective_from') ?></div>
         <div class="field"><label for="note">Note</label><input id="note" type="text" name="note" value="<?= e(old('note')) ?>" maxlength="255" placeholder="e.g. Annual appraisal"><?= error_for('note') ?></div>
+        <?= partial('payroll::employees/_grace', ['c' => $current, 'id' => 'rev']) ?>
         <div class="form-actions"><button class="btn ghost" type="button" data-close>Cancel</button><button class="btn primary"><?= icon('check', 'sm') ?> Save revision</button></div>
   </form>
 </dialog>
