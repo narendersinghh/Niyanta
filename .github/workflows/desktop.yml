@@ -65,7 +65,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then echo "Release $TAG exists"; exit 0; fi
+          # drafts are found by listing (the tag lookup does not return drafts)
+          id="$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq "[.[] | select(.tag_name == \"$TAG\")][0].id // empty")"
+          if [ -n "$id" ]; then echo "Release $TAG exists (id $id)"; exit 0; fi
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag --title "Niyanta Tracker v${TAG#tracker-v}" \
             --notes "Niyanta Tracker v${TAG#tracker-v}. People download it from their workspace (Time Tracking › Get the desktop app); installed apps update themselves through the workspace."
 
@@ -188,8 +190,19 @@ jobs:
           shopt -s nullglob
           files=(dist/*.exe dist/*.dmg dist/*.zip dist/*.AppImage dist/*.deb dist/*.blockmap dist/latest*.yml)
           [ ${#files[@]} -gt 0 ] || { echo "::error::No installers in dist"; exit 1; }
-          for i in 1 2 3; do gh release upload "$TAG" "${files[@]}" --repo "$GITHUB_REPOSITORY" --clobber && exit 0; echo "Upload failed, retrying"; sleep $((i * 10)); done
-          exit 1
+          # by release id: the tag lookup used by `gh release upload` does not find draft releases
+          rid() { gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq "[.[] | select(.tag_name == \"$TAG\")][0].id // empty"; }
+          id=; for i in 1 2 3 4 5 6; do id="$(rid || true)"; [ -n "$id" ] && break; echo "Draft release not visible yet, waiting"; sleep $((i * 10)); done
+          [ -n "$id" ] || { echo "::error::No release for $TAG"; exit 1; }
+          up() {
+            local f="$1" n; n="$(basename "$f")"
+            old="$(gh api "repos/$GITHUB_REPOSITORY/releases/$id/assets?per_page=100" --jq ".[] | select(.name == \"$n\") | .id")"
+            [ -z "$old" ] || gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$old" >/dev/null
+            gh api -X POST "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$id/assets?name=$n" -H "Content-Type: application/octet-stream" --input "$f" --jq .name; }
+          for f in "${files[@]}"; do
+            ok=; for i in 1 2 3; do if up "$f"; then ok=1; break; fi; echo "Upload of $f failed, retrying"; sleep $((i * 10)); done
+            [ -n "$ok" ] || { echo "::error::Could not upload $f"; exit 1; }
+          done
       - uses: actions/upload-artifact@v5
         if: ${{ !startsWith(env.TAG, 'tracker-v') }}
         with:
@@ -240,7 +253,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          assets="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')"
+          id="$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq "[.[] | select(.tag_name == \"$TAG\")][0].id // empty")"
+          [ -n "$id" ] || { echo "::error::No release for $TAG"; exit 1; }
+          assets="$(gh api "repos/$GITHUB_REPOSITORY/releases/$id/assets?per_page=100" --jq '.[].name')"
           echo "$assets"
           for f in latest.yml latest-mac.yml latest-linux.yml; do grep -qx "$f" <<<"$assets" || { echo "::error::$f is missing"; exit 1; }; done
-          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false
+          gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$id" -F draft=false -f tag_name="$TAG" --jq .html_url

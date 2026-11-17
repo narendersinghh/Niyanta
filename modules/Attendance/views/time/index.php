@@ -32,12 +32,19 @@ ob_start(); ?>
         <div class="dk-panel" data-dk-panel="<?= e($ok) ?>">
           <div class="dk-step"><span class="dk-n">1</span><div class="grow">
             <?php if ($ok === 'windows'): /* Windows: the browser download is the main way (no irm | iex: antivirus flags download cradles) */ $files = $app['platforms']['windows'] ?? []; $cmd = $install['commands']['windows'] ?? null; ?>
+            <?php $store = trim((string) setting('attendance.tracker_store_url', '')); if ($store !== '' && preg_match('~^https://[a-z]+\.microsoft\.com/~', $store)): /* published in the Microsoft Store: signed by Microsoft, the safest way, so it is the default */ ?>
+            <b>Install from the Microsoft Store</b> <span class="pill pill-mint">No security warnings</span>
+            <div class="os-btns"><a class="btn sm primary" href="<?= e($store) ?>" target="_blank" rel="noopener"><?= icon('download', 'sm') ?> Get it from Microsoft Store</a></div>
+            <p class="xs muted mb0">Opens the Store: click <b>Get</b> or <b>Install</b>. Updates come through the Store.</p>
+            <?php if ($files): ?><details class="dk-files"><summary class="xs"><?= icon('download', 'sm') ?> Or download the installer</summary><div class="os-btns"><?php foreach ($files as $f): ?><a class="btn sm" href="<?= e($f['url']) ?>" download><?= icon('download', 'sm') ?> Download for Windows</a><?php endforeach ?></div><p class="xs muted mb0">If Windows says <i>Windows protected your PC</i>, click <b>More info</b>, then <b>Run anyway</b>.</p></details><?php endif ?>
+            <?php else: ?>
             <b>Download and install</b>
             <?php if ($files): ?>
             <div class="os-btns"><?php foreach ($files as $f): ?><a class="btn sm primary" href="<?= e($f['url']) ?>" title="<?= e($f['name']) ?>" download><?= icon('download', 'sm') ?> Download for Windows<?= $size((int) $f['size']) ? ' <span class="muted">'.e($size((int) $f['size'])).'</span>' : '' ?></a><?php endforeach ?></div>
             <p class="xs muted mb0">Open the downloaded file<?= $files[0]['version'] ? ' (v'.e($files[0]['version']).')' : '' ?>. If Windows says <i>Windows protected your PC</i>, click <b>More info</b>, then <b>Run anyway</b>. If your browser says the file is not commonly downloaded, choose <b>Keep</b>. It installs for your account only, no administrator rights needed.</p>
             <?php else: ?><p class="xs muted mb0"><?= $app['ok'] ? 'Not in this release.' : 'Not available yet.' ?></p><?php endif ?>
-            <?php if ($cmd): ?>
+            <?php endif ?>
+            <?php if ($cmd && $store === ''): ?>
             <details class="dk-files"><summary class="xs"><?= icon('copy', 'sm') ?> Or use PowerShell</summary>
               <div class="ol-cmd" data-ol="windows"><code><?= e($cmd) ?></code><button type="button" class="btn sm primary" data-copy="<?= e($cmd) ?>" aria-label="Copy the Windows install command"><?= icon('copy', 'sm') ?> Copy</button></div>
               <p class="xs muted mb0"><?= $oh ?> Personal link, valid until <?= e(ftime(date('Y-m-d H:i:s', (int) $install['until']))) ?>.</p></details>

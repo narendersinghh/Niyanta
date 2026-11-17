@@ -193,7 +193,9 @@ final class SettingsSchema {
         $num('attendance.screenshot_interval_seconds', 'Screenshot interval (seconds)', 10, 3600, 'Between 10 seconds and 1 hour, e.g. 180 = every 3 minutes.', ['default' => '180', 'unit' => 'sec']),
         $num('attendance.screenshot_retention_days', 'Keep screenshots for (days)', 1, 365, 'Also shown under System › Data retention.', ['default' => '60']),
         ['key' => 'attendance.screenshot_notify', 'label' => 'Show a small notice each time a screenshot is taken', 'type' => 'toggle', 'default' => '1', 'span' => true],
-        ['key' => 'attendance.screenshot_notify_optional', 'label' => 'People may turn the screenshot notice off in their app', 'type' => 'toggle', 'default' => '1', 'span' => true]],
+        ['key' => 'attendance.screenshot_notify_optional', 'label' => 'People may turn the screenshot notice off in their app', 'type' => 'toggle', 'default' => '1', 'span' => true],
+        ['key' => 'attendance.tracker_store_url', 'label' => 'Microsoft Store link of Niyanta Tracker', 'type' => 'text', 'rules' => 'nullable|max:255|regex:/^https:\/\/[a-z]+\.microsoft\.com\/[^\s"<>]*$/', 'section' => 'Desktop app', 'span' => true, 'placeholder' => 'https://apps.microsoft.com/detail/...',
+          'hint' => 'Once the app is published in the Microsoft Store (signed by Microsoft, so Windows shows no warnings), paste its link here: Windows users then install from the Store by default, with the direct download kept as a fallback.']],
       'payroll' => [
         ...self::hoursFields(),
         ['key' => 'payroll.auto_draft', 'label' => 'Create the draft payroll run automatically on the 1st of each month', 'type' => 'toggle', 'default' => '1', 'section' => 'Monthly run', 'span' => true, 'feature' => 'payroll', 'hint' => 'At 06:10 on the 1st, payslips for the previous month are generated as a draft (unless a run for that month already exists) and the people who can edit them are notified. Employees are only notified when you Finalize & notify.'],

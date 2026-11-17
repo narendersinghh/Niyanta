@@ -137,4 +137,12 @@ return [
       assert_true(DesktopInstall::available(), 'https workspace');
       \Core\App::setConfig(['app_url' => $cfg] + \Core\App::config()); }
     finally { inst_cleanup($root); } },
+  'install: a Microsoft Store link in settings makes the Store the default Windows install, the direct download a fallback, no PowerShell' => function () {
+    $u = (int) \Core\DB::value("SELECT id FROM users WHERE status='active' LIMIT 1");
+    act_as($u);
+    \Core\Settings::set('attendance.tracker_store_url', 'https://apps.microsoft.com/detail/9TESTAPP');
+    $h = http('GET', '/time')->body();
+    assert_true(str_contains($h, 'Get it from Microsoft Store') && str_contains($h, 'https://apps.microsoft.com/detail/9TESTAPP') && !str_contains($h, 'Or use PowerShell'), 'Store first');
+    \Core\Settings::set('attendance.tracker_store_url', '');
+    assert_true(!str_contains(http('GET', '/time')->body(), 'Get it from Microsoft Store'), 'no Store button without a link'); },
 ];
