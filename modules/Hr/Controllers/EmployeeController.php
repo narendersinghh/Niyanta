@@ -49,7 +49,7 @@ final class EmployeeController extends Controller {
   /** Loads the employee and enforces record-level access. */
   private function employee(int $id): array {
     $u = DB::first('SELECT u.*, r.name AS role_name, r.slug AS role_slug, m.name AS manager_name FROM users u JOIN roles r ON r.id=u.role_id LEFT JOIN users m ON m.id=u.manager_id WHERE u.id=?', [$id]) ?? $this->abort(404, 'Employee not found.');
-    if (!HrAccess::canViewProfile($id)) { Audit::log('access.denied', 'employee', $id, ['path' => $this->request->path()]); $this->abort(403, 'You can only view your own HR profile.'); }
+    if (!HrAccess::canViewProfile($id)) { Audit::logLimited('access.denied', 'employee', $id, ['path' => $this->request->path()]); $this->abort(403, 'You can only view your own HR profile.'); }
     unset($u['password_hash']);
     return $u; }
 

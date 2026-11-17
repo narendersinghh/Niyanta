@@ -11,7 +11,7 @@ final class Router {
   public function post(string $p, callable|array $h, array|string $o = []): self { return $this->add('POST', $p, $h, $o); }
   public function any(string $p, callable|array $h, array|string $o = []): self { $this->add('GET', $p, $h, $o); return $this->add('POST', $p, $h, $o); }
 
-  /** Options: perm (string|array any-of), feature (string|array any-of, on top of the features of perm), auth (bool, default true), csrf (bool, default true), module (string), throttle ([max, seconds]) */
+  /** Options: perm (string|array any-of), feature (string|array any-of, on top of the features of perm), auth (bool, default true), csrf (bool, default true), module (string), throttle ([max, seconds]), session_write (bool: a JSON GET that writes the session; others release the session lock before the handler runs) */
   public function add(string $m, string $p, callable|array $h, array|string $o = []): self {
     if (is_string($o) || ($o !== [] && array_is_list($o))) { $o = ['perm' => $o]; }
     $o += $this->groupOpts + ['auth' => true, 'csrf' => true, 'module' => $this->module];
@@ -49,7 +49,9 @@ final class Router {
         if (!Auth::check()) { return $req->wantsJson() ? Response::json(['error' => 'Unauthenticated'], 401) : Response::redirect(url('/login').'?next='.rawurlencode($req->uri())); }
         if (!empty($o['module']) && !Modules::enabled($o['module'])) { return Response::error(403, 'This module has been disabled by the administrator.', $req, 'module'); }
         if ((!empty($o['perm']) && !array_filter((array) $o['perm'], [Features::class, 'permEnabled'])) || (!empty($o['feature']) && !array_filter((array) $o['feature'], [Features::class, 'enabled']))) { return Response::error(403, 'This feature has been turned off by the administrator.', $req, 'module'); }
-        if (!empty($o['perm']) && !Gate::any((array) $o['perm'])) { Audit::log('access.denied', null, null, ['path' => $path]); return Response::error(403, 'You do not have permission to access this page.', $req); } }
+        if (!empty($o['perm']) && !Gate::any((array) $o['perm'])) { Audit::logLimited('access.denied', null, null, ['path' => $path]); return Response::error(403, 'You do not have permission to access this page.', $req); }
+        /* background JSON reads (polls, live search) never write the session: free its lock now so they do not queue behind page loads */
+        if ($req->method() === 'GET' && $req->wantsJson() && empty($o['session_write'])) { Session::release(); } }
       try { $res = is_array($h) ? (new $h[0]($req))->{$h[1]}(...array_values($params)) : $h($req, ...array_values($params)); }
       catch (HttpException $e) { return Response::error($e->status, $e->getMessage() ?: 'Request failed.', $req); }
       catch (ValidationException $e) {

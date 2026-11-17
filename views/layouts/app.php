@@ -3,7 +3,7 @@ use Core\{DB, Modules, Request};
 $u = user();
 $path = Request::current()->path();
 $nav = Modules::nav();
-$unread = \Core\Controllers\NotificationController::unread((int) $u['id']);
+$unread = \Core\Controllers\NotificationController::hasUnread((int) $u['id']);
 $isActive = static function (string $url) use ($path): bool { $u = parse_url($url, PHP_URL_PATH) ?: '/'; return $u === '/' ? $path === '/' : ($path === $u || str_starts_with($path, rtrim($u, '/').'/')); };
 /* global_scripts/global_styles values: a permission (string|list) or ['perm' => ..., 'feature' => ...]. */
 $allowed = static function (mixed $rule): bool {

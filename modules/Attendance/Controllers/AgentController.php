@@ -223,6 +223,7 @@ final class AgentController extends Controller {
       $in = $this->input();
       $tok = $this->token();
       $u = $tok !== '' ? Monitoring::tokenUser($tok) : null;
+      if (!$u && !\Core\RateLimiter::hit('errors:agent-guest', 300, 86400)) { return $this->json(['ok' => true]); } /* signed-out reports: at most 300 a day in total */
       $msg = trim((string) ($in['message'] ?? ''));
       if ($msg === '') { return $this->json(['ok' => false, 'error' => 'message is required'], 422); }
       $lvl = in_array($in['level'] ?? '', ['error', 'warning', 'info', 'fatal', 'exception', 'rejection'], true) ? $in['level'] : 'error';

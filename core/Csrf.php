@@ -5,10 +5,11 @@ final class Csrf {
   public static function token(): string {
     if (empty($_SESSION['_csrf'])) { $_SESSION['_csrf'] = bin2hex(random_bytes(32)); }
     return $_SESSION['_csrf']; }
-  /** Token check plus, when the browser sent one, an Origin check: a token leaked to another site still cannot post from there. */
+  /** Token check plus, when the browser sent them, Fetch Metadata and Origin checks: a token leaked to another site still cannot post from there. */
   public static function verify(Request $r): bool {
     $t = $r->input('_token') ?? $r->header('X-CSRF-Token');
     if (!is_string($t) || empty($_SESSION['_csrf']) || !hash_equals($_SESSION['_csrf'], $t)) { return false; }
+    if (strtolower((string) $r->header('Sec-Fetch-Site')) === 'cross-site') { return false; }
     $origin = (string) $r->header('Origin');
     return $origin === '' || $origin === 'null' || self::sameOrigin($origin, $r); }
 

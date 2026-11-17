@@ -3,6 +3,8 @@ use Core\{Auth, Csrf, Gate, Request, Session, Settings, View};
 
 function e(mixed $v): string { return htmlspecialchars((string) $v, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'); }
 function url(string $path = '/'): string { return Request::base().'/'.ltrim($path, '/'); }
+/** A redirect target from user input that stays on this site: one leading slash, no scheme or host, no backslash, whitespace or control characters (browsers drop tabs and newlines, so "/\t/evil.example" would become "//evil.example"). Else $fallback. */
+function local_path(mixed $p, string $fallback = '/'): string { return is_string($p) && preg_match('#^/(?![/\\\\])[^\\\\\s\x00-\x1f\x7f]*$#', $p) && strlen($p) <= 2000 ? $p : $fallback; }
 function absolute_url(string $path = '/'): string {
   $base = rtrim((string) Core\App::config('app_url', ''), '/');
   if ($base === '') { $r = Request::current(); $base = ($r->isSecure() ? 'https' : 'http').'://'.($_SERVER['HTTP_HOST'] ?? 'localhost').Request::base(); }
@@ -58,7 +60,7 @@ function avatar(?string $name, ?string $img = null, string $size = ''): string {
   $name ??= '?';
   $palette = ['lav', 'mint', 'lemon', 'peach', 'sky', 'pink'];
   $c = $palette[crc32($name) % count($palette)];
-  if ($img) { return '<span class="avatar '.$size.'"><img src="'.e(url('avatar/'.basename($img))).'" alt="'.e($name).'"></span>'; }
+  if ($img) { return '<span class="avatar '.$size.'"><img src="'.e(url('avatar/'.basename($img))).'" alt="'.e($name).'" loading="lazy" decoding="async"></span>'; }
   return '<span class="avatar bg-'.$c.' '.$size.'" title="'.e($name).'">'.e(initials($name)).'</span>'; }
 
 /** Status pill with a colour mapped from common statuses. */

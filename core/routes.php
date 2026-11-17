@@ -15,7 +15,7 @@ $r->get('/', [DashboardController::class, 'index']);
 $r->get('/search', [SearchController::class, 'index']);
 $r->get('/account', [AccountController::class, 'edit']);
 $r->post('/account', [AccountController::class, 'update']);
-$r->post('/account/password', [AccountController::class, 'password']);
+$r->post('/account/password', [AccountController::class, 'password'], ['throttle' => [10, 900]]);
 $r->post('/account/theme', [AccountController::class, 'theme']);
 $r->post('/account/avatar', [AccountController::class, 'avatar']);
 $r->get('/avatar/{file}', [AccountController::class, 'showAvatar']);

@@ -14,20 +14,21 @@ Email the maintainers (see the repository page) with the steps to reproduce. Ple
 - `.htaccess` disables directory listings and TRACE, denies `config/`, `core/`, `modules/`, `storage/`, `views/`, `tests/`, `docs/`, `desktop/`, every dotfile (except `.well-known`), `cron.php`, manifests, lock files, logs, backups, SQL dumps and scripts, and refuses to serve any PHP file other than `index.php`. `storage/` and `assets/uploads/` carry their own deny rules and script-execution blocks. `.user.ini` turns off `expose_php` and `display_errors` on CGI/FastCGI hosts.
 
 ### Sessions and sign-in (core/Session.php, core/Auth.php)
-- Session cookie: session-only, `HttpOnly`, `SameSite=Lax`, `Secure` whenever the request came over HTTPS, strict mode (no fixation), 48-character ids, files in `storage/sessions`.
-- The session id is regenerated at sign-in; the CSRF token is rotated with it. Sessions end after `security.session_idle_minutes` of inactivity (default 120) and `security.session_absolute_hours` after sign-in (default 12), and are bound to the browser's user agent.
+- Session cookie: kept for the sign-in lifetime, `HttpOnly`, `SameSite=Lax`, `Secure` whenever the request came over HTTPS, strict mode (no fixation), 48-character ids, files in `storage/sessions` (pruned nightly, never sooner than a sign-in may stay idle).
+- The session id is regenerated at sign-in; the CSRF token is rotated with it. Sessions end after `security.session_idle_minutes` of inactivity and `security.session_absolute_hours` after sign-in (both 7 days by default), and are bound to the browser family of the user agent.
 - Passwords are hashed with Argon2id (memory 64 MB, 3 passes) where PHP has it, otherwise bcrypt at cost 12; older hashes are upgraded on the next successful sign-in. The policy requires `security.password_min_length` characters (default 10), letters and digits, and refuses a short list of very common passwords.
-- Wrong passwords are rate limited per email (`security.login_max_attempts` per 15 minutes) and per network (100 per 15 minutes); after 10 wrong passwords in a row the account locks for 30 minutes. Successful sign-ins never count. The sign-in, forgot-password and reset routes are additionally throttled per IP. Administrators can unlock a person or sign everyone out (Settings, Users).
+- Wrong passwords are rate limited per email (`security.login_max_attempts` per 15 minutes) and per network (100 per 15 minutes); after 10 wrong passwords in a row the account locks for 30 minutes. Successful sign-ins never count. The sign-in, forgot-password, reset and change-password routes are additionally throttled per IP. The forgot-password reply takes as long whether or not the address exists (the mail goes out after the response on PHP-FPM / LiteSpeed). Administrators can unlock a person or sign everyone out (Settings, Users).
 - Password changes, role changes, deactivation and admin "sign out everywhere" bump a per-user session version, which invalidates every other session at once.
 - Reset links carry a random token that is stored only as a SHA-256 hash, expires after 60 minutes (invitations after 7 days) and works once.
 
 ### CSRF (core/Csrf.php, core/Router.php)
-- Every POST route is protected by a per-session token (form field `_token` or header `X-CSRF-Token`) unless it is explicitly an unauthenticated API route. When the browser sends an `Origin` header it must match the site's host as well.
+- Every POST route is protected by a per-session token (form field `_token` or header `X-CSRF-Token`) unless it is explicitly an unauthenticated API route. When the browser sends an `Origin` header it must match the site's host as well, and a request the browser marks `Sec-Fetch-Site: cross-site` is refused.
 - Routes without CSRF are limited to token-authenticated desktop API calls, the cron tick, the web cron endpoint (secret token in the URL, compared in constant time) and the browser error beacon, all rate limited.
 
 ### Authorisation
-- Every route declares a permission (or Super Admin). Record-level checks sit in each module (`Team::includes`, `ClientAccess`, `ProjectAccess`, `HrAccess`, `MeetingAccess`, `ProcessService::can*`, payslip ownership, time entry ownership, AI conversation ownership) and denied attempts are written to the audit log.
+- Every route declares a permission (or Super Admin). Record-level checks sit in each module (`Team::includes`, `ClientAccess`, `ProjectAccess`, `HrAccess`, `MeetingAccess`, `ProcessService::can*`, payslip ownership, time entry ownership, AI conversation ownership) and denied attempts are written to the audit log (at most 20 per person, IP and kind in 10 minutes, so a script cannot fill the table).
 - Private files are served only through `/files/{id}` after the owning module's `file_access` callback approves; screenshots and payslips have their own owner-or-team checks. Avatars are visible to signed-in colleagues only.
+- Redirect targets taken from input (`next=`, `return=`, the referer of `back()`) must be local paths without a scheme, host, backslash, whitespace or control characters (`local_path()`), so `/\t/evil.example` cannot become `//evil.example`.
 - Input is whitelisted by `Validator` rules on every form; dynamic `ORDER BY` columns go through fixed `match` tables; all SQL is parameterised and identifiers pass `DB::id()`.
 
 ### Uploads (core/Storage.php)
@@ -40,7 +41,7 @@ Email the maintainers (see the repository page) with the steps to reproduce. Ple
 
 ### Secrets and logs
 - API keys, SMTP and IMAP passwords, the GitHub token, Fireflies keys and employee bank and tax numbers are encrypted at rest with libsodium secretbox keyed by `app_key` in `config/config.php` (never in the database).
-- Error and audit logs redact reset tokens, install keys, bearer tokens and secret-looking query parameters. Error pages show a reference id only unless `debug` is on in `config/config.php`; keep it off in production.
+- Error and audit logs redact reset tokens, install keys, bearer tokens and secret-looking query parameters. Error pages show a reference id only unless `debug` is on in `config/config.php`; keep it off in production. Browser error reports are capped per day (300 from signed-out pages in total, 500 per person). CSV exports neutralise cells that start with `= + - @`, tab or CR.
 
 ### Outbound requests
 - Updates and tracker releases are fetched over HTTPS only (`CURLOPT_PROTOCOLS` https, TLS verified) and update packages are checked against the published sha256 before they are extracted by streaming (no `extractTo`, no symlinks, no path escapes).

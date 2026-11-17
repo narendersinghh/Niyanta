@@ -67,6 +67,8 @@ final class Tracker {
    * app was seen ($alive or its last heartbeat). Open days before today with nothing running are closed.
    */
   public static function settle(int $uid, ?string $alive = null, ?int $from = null): void {
+    /* fast path (every poll and page view): nothing running and no open day before today means nothing to settle, so no transaction or user lock */
+    if (!DB::value('SELECT 1 FROM time_entries WHERE user_id=? AND is_running=1 LIMIT 1', [$uid]) && !DB::value('SELECT 1 FROM attendance WHERE user_id=? AND clock_out IS NULL AND clock_in IS NOT NULL AND work_date<? LIMIT 1', [$uid, date('Y-m-d')])) { return; }
     DB::transaction(static function () use ($uid, $alive, $from): void {
       AttendanceService::lock($uid);
       $now = time(); $today = date('Y-m-d', $now); $mid = strtotime($today.' 00:00:00');

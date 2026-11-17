@@ -52,10 +52,10 @@ ServerSignature Off
 FileETag None
 
 <IfModule mod_brotli.c>
-  AddOutputFilterByType BROTLI_COMPRESS text/html text/css text/plain application/javascript application/json image/svg+xml application/xml font/ttf
+  AddOutputFilterByType BROTLI_COMPRESS text/html text/css text/plain text/csv text/javascript application/javascript application/json image/svg+xml image/x-icon application/xml font/ttf
 </IfModule>
 <IfModule mod_deflate.c>
-  AddOutputFilterByType DEFLATE text/html text/css text/plain application/javascript application/json image/svg+xml application/xml font/ttf
+  AddOutputFilterByType DEFLATE text/html text/css text/plain text/csv text/javascript application/javascript application/json image/svg+xml image/x-icon application/xml font/ttf
 </IfModule>
 <IfModule mod_mime.c>
   AddType font/woff2 .woff2

@@ -71,17 +71,17 @@ final class ProcessService {
   public static function find(int $id): array {
     $p = DB::first('SELECT p.*, u.name AS emp_name, u.email AS emp_email, u.avatar AS emp_avatar, u.status AS emp_status, u.designation, u.department, u.joined_on, u.manager_id, m.name AS manager_name, s.name AS started_by_name FROM hr_processes p JOIN users u ON u.id=p.user_id LEFT JOIN users m ON m.id=u.manager_id LEFT JOIN users s ON s.id=p.started_by WHERE p.id=?', [$id]);
     if (!$p) { throw new HttpException(404, 'Process not found.'); }
-    if (!self::canView((int) $p['user_id'])) { Audit::log('access.denied', 'hr_process', $id); throw new HttpException(403, 'You cannot open this process.'); }
+    if (!self::canView((int) $p['user_id'])) { Audit::logLimited('access.denied', 'hr_process', $id); throw new HttpException(403, 'You cannot open this process.'); }
     return $p; }
 
   public static function task(int $id): array {
     $t = DB::find('hr_process_tasks', $id) ?? throw new HttpException(404, 'Task not found.');
-    if (!self::canView((int) $t['user_id'])) { Audit::log('access.denied', 'hr_task', $id); throw new HttpException(403, 'You cannot open this task.'); }
+    if (!self::canView((int) $t['user_id'])) { Audit::logLimited('access.denied', 'hr_task', $id); throw new HttpException(403, 'You cannot open this task.'); }
     return $t; }
 
   public static function upload(int $id): array {
     $u = DB::find('hr_uploads', $id) ?? throw new HttpException(404, 'File not found.');
-    if (!self::canView((int) $u['user_id']) && !self::canModerateUpload($u)) { Audit::log('access.denied', 'hr_upload', $id); throw new HttpException(403, 'You cannot open this file.'); }
+    if (!self::canView((int) $u['user_id']) && !self::canModerateUpload($u)) { Audit::logLimited('access.denied', 'hr_upload', $id); throw new HttpException(403, 'You cannot open this file.'); }
     return $u; }
 
   /** Tasks, uploads grouped per task, linked company documents and pending deletion requests of a process. */

@@ -74,7 +74,9 @@ final class Cron {
     if ($d = $days('retention.cron_logs_days', 30)) { $c['cron_logs'] = $del('cron_logs', 'ran_at < ?', [$cut($d)]); }
     if ($d = $days('retention.error_logs_days', 60)) { $c['error_logs'] = $del('error_logs', 'last_seen < ?', [$cut($d)]); }
     if (($d = $days('retention.ai_usage_days', 180)) && $has('ai_usage')) { $c['ai_usage'] = $del('ai_usage', 'created_at < ?', [$cut($d)]); }
-    if ($d = $days('retention.sessions_days', 2)) {
+    if ($d = $days('retention.sessions_days', 7)) {
+      /* never shorter than a sign-in may stay idle (Settings › Users, 7 days by default), or people would be signed out early */
+      $keep = max(86400 * $d, min(Session::lifetime(), max(5, (int) Settings::get('security.session_idle_minutes', 10080)) * 60));
       $c['sessions'] = 0;
-      foreach (glob(NY_ROOT.'/storage/sessions/sess_*') ?: [] as $f) { if (filemtime($f) < time() - 86400 * $d && @unlink($f)) { $c['sessions']++; } } }
+      foreach (glob(NY_ROOT.'/storage/sessions/sess_*') ?: [] as $f) { if (filemtime($f) < time() - $keep && @unlink($f)) { $c['sessions']++; } } }
     return $c; } }

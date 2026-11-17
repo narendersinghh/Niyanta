@@ -6,8 +6,18 @@ use Core\{Controller, DB, Response};
 final class NotificationController extends Controller {
   private static function visible(array $rows): array { return array_values(array_filter($rows, static fn ($r) => empty($r['url']) || route_on((string) $r['url']))); }
 
-  /** Unread notifications the user can still open. */
-  public static function unread(int $uid): int { return count(self::visible(DB::all('SELECT url FROM notifications WHERE user_id=? AND read_at IS NULL', [$uid]))); }
+  /** Unread notifications the user can still open: counted per distinct link, so thousands of unread rows never load into memory. */
+  public static function unread(int $uid): int {
+    $n = 0;
+    foreach (DB::all('SELECT url, COUNT(*) AS n FROM notifications FORCE INDEX (idx_notif_user) WHERE user_id=? AND read_at IS NULL GROUP BY url LIMIT 500', [$uid]) as $r) { if (empty($r['url']) || route_on((string) $r['url'])) { $n += (int) $r['n']; } }
+    return $n; }
+
+  /** True when at least one unread notification can still be opened (the top bar dot): the newest few decide in one index range read (FORCE INDEX: with idx_notif_read the optimiser picks an index merge plus filesort, 100x slower for a big backlog); only when all of those are hidden are the distinct links checked. */
+  public static function hasUnread(int $uid): bool {
+    $vis = static fn (array $urls): bool => (bool) array_filter($urls, static fn ($u) => empty($u) || route_on((string) $u));
+    $top = DB::column('SELECT url FROM notifications FORCE INDEX (idx_notif_user) WHERE user_id=? AND read_at IS NULL ORDER BY id DESC LIMIT 20', [$uid]);
+    if ($vis($top)) { return true; }
+    return count($top) === 20 && $vis(DB::column('SELECT DISTINCT url FROM notifications FORCE INDEX (idx_notif_user) WHERE user_id=? AND read_at IS NULL LIMIT 200', [$uid])); }
 
   public function index(): Response {
     $p = DB::paginate('SELECT * FROM notifications WHERE user_id=? ORDER BY id DESC', [$this->uid()], 25);

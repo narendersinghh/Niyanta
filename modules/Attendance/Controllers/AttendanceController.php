@@ -45,16 +45,11 @@ final class AttendanceController extends BaseController {
     if ($to < $from) { [$from, $to] = [$to, $from]; }
     if ((strtotime($to) - strtotime($from)) / 86400 > 93) { $this->flash('Export at most 93 days at a time.', 'error'); return $this->back(); }
     [$w, $p] = Team::where($u, 'a.user_id');
-    $rows = DB::all("SELECT u.name, u.email, u.employee_code, u.department, a.work_date, a.status, a.clock_in, a.clock_out, a.break_seconds, a.worked_seconds, a.note, e.name AS editor FROM attendance a JOIN users u ON u.id=a.user_id LEFT JOIN users e ON e.id=a.edited_by WHERE a.work_date BETWEEN ? AND ? AND $w ORDER BY a.work_date, u.name", [$from, $to, ...$p]);
-    $fh = fopen('php://temp', 'w+');
-    fputcsv($fh, ['Date', 'Employee', 'Email', 'Code', 'Department', 'Status', 'Clock in', 'Clock out', 'Break (min)', 'Worked (h)', 'Note', 'Edited by'], ',', '"', '\\');
-    $safe = static fn ($v) => is_string($v) && $v !== '' && str_contains('=+-@', $v[0]) ? "'".$v : $v;
-    foreach ($rows as $r) { fputcsv($fh, array_map($safe, [$r['work_date'], $r['name'], $r['email'], $r['employee_code'], $r['department'], $r['status'], $r['clock_in'] ? substr($r['clock_in'], 0, 16) : '', $r['clock_out'] ? substr($r['clock_out'], 0, 16) : '', round($r['break_seconds'] / 60), round($r['worked_seconds'] / 3600, 2), $r['note'], $r['editor']]), ',', '"', '\\'); }
-    rewind($fh);
-    $csv = (string) stream_get_contents($fh);
-    fclose($fh);
-    \Core\Audit::log('attendance.export', null, null, ['from' => $from, 'to' => $to, 'rows' => count($rows)]);
-    return Response::download($csv, "attendance-$from-to-$to.csv", 'text/csv; charset=utf-8'); }
+    $sql = "SELECT u.name, u.email, u.employee_code, u.department, a.work_date, a.status, a.clock_in, a.clock_out, a.break_seconds, a.worked_seconds, a.note, e.name AS editor FROM attendance a JOIN users u ON u.id=a.user_id LEFT JOIN users e ON e.id=a.edited_by WHERE a.work_date BETWEEN ? AND ? AND $w ORDER BY a.work_date, u.name";
+    /* streamed row by row (DB::cursor): memory stays flat for 93 days x every employee; Response::csv escapes formulas */
+    return Response::csv(['Date', 'Employee', 'Email', 'Code', 'Department', 'Status', 'Clock in', 'Clock out', 'Break (min)', 'Worked (h)', 'Note', 'Edited by'], DB::cursor($sql, [$from, $to, ...$p]), "attendance-$from-to-$to.csv",
+      static fn ($r) => [$r['work_date'], $r['name'], $r['email'], $r['employee_code'], $r['department'], $r['status'], $r['clock_in'] ? substr($r['clock_in'], 0, 16) : '', $r['clock_out'] ? substr($r['clock_out'], 0, 16) : '', round($r['break_seconds'] / 60), round($r['worked_seconds'] / 3600, 2), $r['note'], $r['editor']],
+      static fn (int $n) => \Core\Audit::log('attendance.export', null, null, ['from' => $from, 'to' => $to, 'rows' => $n])); }
 
   /** Create or edit a record (attendance.manage, target must be in scope). */
   public function save(): Response {

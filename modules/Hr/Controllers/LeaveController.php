@@ -149,17 +149,12 @@ final class LeaveController extends Controller {
     if ($f['to'] !== '') { $sql .= ' AND lr.start_date<=?'; $p[] = $f['to']; }
     return [$sql.(in_array($f['status'], ['pending', 'cancel'], true) ? ' ORDER BY lr.start_date, lr.id' : ' ORDER BY lr.id DESC'), $p, $f]; }
 
-  /** CSV of the filtered approvals list (up to 5000 rows). */
+  /** CSV of the filtered approvals list (up to 5000 rows), streamed row by row. */
   public function export(): Response {
     [$sql, $p, $f] = $this->listQuery();
-    $rows = DB::all($sql.' LIMIT 5000', $p);
-    $out = fopen('php://temp', 'w+');
-    $safe = static fn ($v) => is_string($v) && $v !== '' && strpbrk($v[0], "=+-@\t\r") !== false ? "'".$v : $v;
-    fputcsv($out, ['Employee', 'Employee code', 'Department', 'Leave type', 'From', 'To', 'Half day', 'Days', 'Status', 'Cancellation requested', 'Reason', 'Reviewed by', 'Reviewed at', 'Review note', 'Requested at'], ',', '"', '');
-    foreach ($rows as $r) { fputcsv($out, array_map($safe, [$r['name'], $r['employee_code'] ?? '', $r['department'] ?? '', $r['type_name'], $r['start_date'], $r['end_date'], (int) $r['half_day'] ? 'Yes' : 'No', LeaveService::num($r['days']), ucfirst($r['status']), $r['cancel_requested_at'] ? 'Yes' : '', (string) $r['reason'], (string) $r['reviewer'], (string) $r['reviewed_at'], (string) $r['review_note'], (string) $r['created_at']]), ',', '"', ''); }
-    rewind($out); $csv = (string) stream_get_contents($out); fclose($out);
-    Audit::log('hr.leave.export', 'leave_request', null, ['rows' => count($rows), 'filters' => array_filter($f)]);
-    return Response::download("\xEF\xBB\xBF".$csv, 'leave-'.($f['status'] ?: 'all').'-'.date('Ymd').'.csv', 'text/csv; charset=utf-8'); }
+    return Response::csv(['Employee', 'Employee code', 'Department', 'Leave type', 'From', 'To', 'Half day', 'Days', 'Status', 'Cancellation requested', 'Reason', 'Reviewed by', 'Reviewed at', 'Review note', 'Requested at'], DB::cursor($sql.' LIMIT 5000', $p), 'leave-'.($f['status'] ?: 'all').'-'.date('Ymd').'.csv',
+      static fn ($r) => [$r['name'], $r['employee_code'] ?? '', $r['department'] ?? '', $r['type_name'], $r['start_date'], $r['end_date'], (int) $r['half_day'] ? 'Yes' : 'No', LeaveService::num($r['days']), ucfirst($r['status']), $r['cancel_requested_at'] ? 'Yes' : '', (string) $r['reason'], (string) $r['reviewer'], (string) $r['reviewed_at'], (string) $r['review_note'], (string) $r['created_at']],
+      static fn (int $n) => Audit::log('hr.leave.export', 'leave_request', null, ['rows' => $n, 'filters' => array_filter($f)])); }
 
   public function approvals(): Response {
     [$sql, $p, $f] = $this->listQuery();
@@ -205,7 +200,7 @@ final class LeaveController extends Controller {
     $lr = DB::first('SELECT lr.*, u.name, u.avatar, u.designation, u.department, u.employee_code, u.manager_id, m.name AS manager, t.name AS type_name, t.code, t.color, t.paid, t.needs_approval, t.allow_half_day, r.name AS reviewer, c.name AS creator FROM leave_requests lr JOIN users u ON u.id=lr.user_id LEFT JOIN users m ON m.id=u.manager_id JOIN leave_types t ON t.id=lr.leave_type_id LEFT JOIN users r ON r.id=lr.reviewed_by LEFT JOIN users c ON c.id=lr.created_by WHERE lr.id=?', [$id]) ?? $this->abort(404, 'Leave request not found.');
     $own = (int) $lr['user_id'] === $this->uid();
     $approver = HrAccess::canReview($lr);
-    if (!$own && !$approver) { Audit::log('access.denied', 'leave_request', $id, ['action' => 'view']); $this->abort(403, 'You can only open your own leave or leave of people you approve.'); }
+    if (!$own && !$approver) { Audit::logLimited('access.denied', 'leave_request', $id, ['action' => 'view']); $this->abort(403, 'You can only open your own leave or leave of people you approve.'); }
     $year = (int) substr($lr['start_date'], 0, 4);
     $all = LeaveService::balances((int) $lr['user_id'], $year);
     $bal = array_column($all, null, 'id')[(int) $lr['leave_type_id']] ?? null;

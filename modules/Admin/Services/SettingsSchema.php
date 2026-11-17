@@ -225,7 +225,7 @@ final class SettingsSchema {
         $days('retention.cron_logs_days', 'Scheduler run history', 'One row per background job run.', 30),
         $days('retention.ai_usage_days', 'AI usage log', 'Token usage records of the AI assistant.', 180) + ['feature' => 'ai'],
         $num('attendance.screenshot_retention_days', 'Activity screenshots', 1, 365, 'Image files and their rows. Deleted by the attendance screenshot cleanup job.', ['default' => '60', 'section' => 'Files & sessions', 'unit' => 'days', 'feature' => 'attendance']),
-        $days('retention.sessions_days', 'Expired sign-in sessions', 'Session files on disk with no activity for this long. 0 keeps them.', 2) + ['section' => 'Files & sessions'],
+        $days('retention.sessions_days', 'Expired sign-in sessions', 'Session files on disk with no activity for this long, never less than how long a sign-in lasts. 0 keeps them.', 7) + ['section' => 'Files & sessions'],
         $num('backups.keep', 'Backups to keep', 1, 90, 'The newest successful backups are kept; older ones are deleted.', ['default' => '7', 'section' => 'Backups', 'unit' => 'newest']),
         $num('storage.max_upload_mb', 'Maximum upload size (MB)', 1, 512, 'Cannot exceed the PHP upload limit shown above.', ['default' => '10', 'section' => 'Uploads'])],
       'backups' => [

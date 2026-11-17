@@ -16,7 +16,8 @@ final class Auth {
     if (time() - (int) Session::get('last_seen', 0) > $idle || time() - (int) Session::get('login_at', 0) > $absolute || Session::get('fp') !== self::fingerprint()) { self::logout(); return null; }
     $u = DB::first('SELECT u.*, r.slug AS role_slug, r.name AS role_name FROM users u JOIN roles r ON r.id=u.role_id WHERE u.id=? AND u.status=\'active\' LIMIT 1', [$id]);
     if (!$u || (int) $u['session_version'] !== (int) Session::get('sv', -1)) { self::logout(); return null; }
-    Session::put('last_seen', time());
+    /* refreshed at most once a minute: an unchanged session is not rewritten (session.lazy_write), saving a disk write per request */
+    if (time() - (int) Session::get('last_seen', 0) >= 60) { Session::put('last_seen', time()); }
     unset($u['password_hash']);
     return self::$user = $u; }
 

@@ -6,6 +6,7 @@ final class App {
   private static array $config = [];
   private static ?Router $router = null;
   private static ?array $manifest = null;
+  private static array $deferred = [];
 
   public static function config(?string $key = null, mixed $default = null): mixed {
     if ($key === null) { return self::$config; }
@@ -62,7 +63,19 @@ final class App {
       require NY_ROOT.'/core/routes.php';
       Modules::registerRoutes($r); }
     $r->dispatch($req)->send();
+    self::runDeferred();
     if (self::installed()) { AutoCron::afterResponse(); } }
+
+  /** Run work after the response has reached the browser (PHP-FPM / LiteSpeed), e.g. sending mail; elsewhere (and in CLI) it runs at once. */
+  public static function defer(callable $fn): void {
+    if (PHP_SAPI === 'cli' || !AutoCron::canFinishRequest()) { $fn(); return; }
+    self::$deferred[] = $fn; }
+
+  private static function runDeferred(): void {
+    if (!self::$deferred) { return; }
+    if (function_exists('fastcgi_finish_request')) { fastcgi_finish_request(); } elseif (function_exists('litespeed_finish_request')) { litespeed_finish_request(); }
+    foreach (self::$deferred as $fn) { try { $fn(); } catch (\Throwable $e) { error_log('Deferred: '.$e->getMessage()); } }
+    self::$deferred = []; }
 
   public static function handleException(\Throwable $e, ?Request $req = null): void {
     $id = substr(bin2hex(random_bytes(4)), 0, 8);

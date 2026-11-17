@@ -16,9 +16,18 @@ final class Session {
     session_name('niyanta_sid');
     session_set_cookie_params(self::cookieParams(Request::current()));
     session_start();
+    /* background GETs (polling, live search) must not consume the flash meant for the next page */
+    $r = Request::current();
+    if ($r->method() === 'GET' && $r->wantsJson()) { $_SESSION['_flash'] = []; return; }
     $flashOld = $_SESSION['_flash_next'] ?? [];
     $_SESSION['_flash'] = $flashOld;
     $_SESSION['_flash_next'] = []; }
+
+  /**
+   * Write the session and release its file lock early (read-only requests such as polls): PHP holds the lock until the
+   * script ends, so parallel requests of one browser would otherwise queue behind each other. Later writes are not saved.
+   */
+  public static function release(): void { if (session_status() === PHP_SESSION_ACTIVE) { session_write_close(); } }
 
   /** How long a sign-in lasts (Settings › Users, default 7 days): the cookie survives closing the browser for that long. */
   public static function lifetime(): int { try { return max(1, (int) Settings::get('security.session_absolute_hours', 168)) * 3600; } catch (\Throwable) { return 168 * 3600; } }

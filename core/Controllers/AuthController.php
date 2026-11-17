@@ -1,6 +1,6 @@
 <?php
 namespace Core\Controllers;
-use Core\{Audit, Auth, Controller, Crypto, DB, Mailer, Response, Settings};
+use Core\{App, Audit, Auth, Controller, Crypto, DB, Mailer, Response, Settings};
 
 final class AuthController extends Controller {
   public function showLogin(): Response {
@@ -11,14 +11,13 @@ final class AuthController extends Controller {
     $email = $this->request->str('email');
     $err = Auth::attempt($email, (string) $this->request->input('password', ''));
     if ($err) { \Core\Session::flash('old', ['email' => $email]); $this->flash($err, 'error'); return $this->redirect('/login'); }
-    $next = (string) $this->request->input('next', '');
-    return $this->redirect(preg_match('#^/[^/\\\\]#', $next) ? $next : '/'); }
+    return $this->redirect(local_path($this->request->input('next'))); }
 
   /** Sign out of this browser only (desktop device tokens are separate and stay signed in); a safe local `next` comes back after the next sign-in. */
   public function logout(): Response {
-    $next = (string) $this->request->input('next', '');
+    $next = local_path($this->request->input('next'), '');
     Auth::logout();
-    return $this->redirect('/login'.(preg_match('#^/[^/\\\\]#', $next) ? '?next='.rawurlencode($next) : '')); }
+    return $this->redirect('/login'.($next !== '' ? '?next='.rawurlencode($next) : '')); }
 
   public function showForgot(): Response { return $this->view('auth/forgot', ['title' => 'Forgot password'], 'layouts/blank'); }
 
@@ -30,7 +29,8 @@ final class AuthController extends Controller {
       DB::delete('password_resets', 'user_id=?', [$u['id']]);
       DB::insert('password_resets', ['user_id' => $u['id'], 'token_hash' => hash('sha256', $token), 'expires_at' => date('Y-m-d H:i:s', time() + 3600), 'created_at' => date('Y-m-d H:i:s')]);
       Mailer::queue($u['email'], 'Reset your password', Mailer::template('Reset your password', '<p>Hi '.e($u['name']).',</p><p>We received a request to reset your password. This link expires in 60 minutes. If you did not request it, you can ignore this email.</p>', absolute_url('/reset-password/'.$token), 'Reset password'), $u['name']);
-      try { Mailer::processQueue(5); } catch (\Throwable) {}
+      /* sent after the response where the host allows it, so the reply takes as long whether or not the address exists */
+      App::defer(static function (): void { try { Mailer::processQueue(5); } catch (\Throwable) {} });
       Audit::log('auth.reset_requested', 'user', (int) $u['id'], [], (int) $u['id']); }
     $this->flash('If that email exists, a reset link has been sent.');
     return $this->redirect('/login'); }

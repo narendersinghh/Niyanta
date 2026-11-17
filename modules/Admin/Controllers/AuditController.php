@@ -27,17 +27,11 @@ final class AuditController extends Controller {
       'today' => (int) DB::value('SELECT COUNT(*) FROM audit_logs WHERE created_at >= ?', [date('Y-m-d 00:00:00')]),
       'week' => DB::pairs("SELECT action, COUNT(*) FROM audit_logs WHERE created_at >= ? AND action IN ('auth.login','auth.failed','access.denied','settings.update') GROUP BY action", [date('Y-m-d H:i:s', strtotime('-7 days'))])]); }
 
+  /** Streamed row by row (DB::cursor + Response::csv), so even the full 10,000-row export stays small in memory. */
   private function export(array $f, string $sql, array $p): Response {
-    $rows = DB::all($sql.' LIMIT '.self::EXPORT_CAP, $p);
-    $out = fopen('php://temp', 'w+');
-    fputcsv($out, ['ID', 'Date', 'User', 'Email', 'Action', 'Entity', 'Entity ID', 'Details', 'IP', 'User agent'], ',', '"', '');
-    $safe = static fn ($v) => is_string($v) && $v !== '' && strpbrk($v[0], "=+-@\t\r") !== false ? "'".$v : $v;
-    foreach ($rows as $r) { fputcsv($out, array_map($safe, [$r['id'], $r['created_at'], $r['user_name'] ?? 'System', $r['user_email'] ?? '', $r['action'], $r['entity_type'] ?? '', $r['entity_id'] ?? '', $r['meta'] ?? '', $r['ip'] ?? '', $r['user_agent'] ?? '']), ',', '"', ''); }
-    rewind($out);
-    $csv = (string) stream_get_contents($out);
-    fclose($out);
-    Audit::log('audit.export', 'audit', null, ['rows' => count($rows), 'filters' => array_filter($f)]);
-    return Response::download("\xEF\xBB\xBF".$csv, 'audit-log-'.date('Ymd-His').'.csv', 'text/csv; charset=utf-8'); }
+    return Response::csv(['ID', 'Date', 'User', 'Email', 'Action', 'Entity', 'Entity ID', 'Details', 'IP', 'User agent'], DB::cursor($sql.' LIMIT '.self::EXPORT_CAP, $p), 'audit-log-'.date('Ymd-His').'.csv',
+      static fn ($r) => [$r['id'], $r['created_at'], $r['user_name'] ?? 'System', $r['user_email'] ?? '', $r['action'], $r['entity_type'] ?? '', $r['entity_id'] ?? '', $r['meta'] ?? '', $r['ip'] ?? '', $r['user_agent'] ?? ''],
+      static fn (int $n) => Audit::log('audit.export', 'audit', null, ['rows' => $n, 'filters' => array_filter($f)])); }
 
   /** Render JSON meta as compact key/value chips (used by the view). */
   public static function meta(?string $json): array {

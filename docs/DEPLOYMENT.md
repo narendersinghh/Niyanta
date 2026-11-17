@@ -44,6 +44,7 @@ Settings → Email: choose PHP `mail()` or SMTP (host, port, TLS/SSL, username, 
 ## 6. Hardening checklist
 - Serve over **HTTPS** (session cookies become `Secure` automatically; HSTS is sent).
 - Keep `debug => false` in `config/config.php`.
+- To measure a page, add `'profile' => true` to `config/config.php` for a while: every response then carries a `Server-Timing` header (total time, number and time of SQL queries, peak PHP memory) that the browser's developer tools show under Network › Timing. Remove it again afterwards.
 - Verify `https://your-domain/app/config/config.php` and `/storage/` return **403**.
 - Set file permissions: `config/config.php` → `640`.
 - Configure backups (Settings → Backups) and download a copy off-site regularly.

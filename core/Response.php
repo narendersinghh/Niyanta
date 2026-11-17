@@ -2,6 +2,7 @@
 namespace Core;
 
 final class Response {
+  private ?\Closure $stream = null;
   public function __construct(private string $body = '', private int $status = 200, private array $headers = [], private ?string $file = null) {}
 
   public static function json(mixed $data, int $status = 200): self { return new self(json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), $status, ['Content-Type' => 'application/json; charset=utf-8']); }
@@ -10,8 +11,9 @@ final class Response {
     $ref = (string) ($_SERVER['HTTP_REFERER'] ?? '');
     $host = parse_url($ref, PHP_URL_HOST);
     $port = parse_url($ref, PHP_URL_PORT);
-    $same = $host === null || ($host.($port ? ':'.$port : '')) === ($_SERVER['HTTP_HOST'] ?? '') || $host === parse_url('http://'.($_SERVER['HTTP_HOST'] ?? ''), PHP_URL_HOST);
-    return self::redirect($ref !== '' && $same ? $ref : url('/')); }
+    /* only this site: an http(s) URL on our host, or a clean local path (never javascript:, data: or other schemes) */
+    $same = $host === null ? local_path($ref, '') !== '' : in_array(strtolower((string) parse_url($ref, PHP_URL_SCHEME)), ['http', 'https'], true) && (($host.($port ? ':'.$port : '')) === ($_SERVER['HTTP_HOST'] ?? '') || $host === parse_url('http://'.($_SERVER['HTTP_HOST'] ?? ''), PHP_URL_HOST));
+    return self::redirect($ref !== '' && $same && !preg_match('/[\x00-\x1f\x7f]/', $ref) ? $ref : url('/')); }
   public static function view(string $view, array $data = [], string $layout = 'layouts/app'): self { return new self(View::render($view, $data, $layout)); }
 
   /**
@@ -33,6 +35,28 @@ final class Response {
       if (($inm !== '' && hash_equals($etag, trim($inm))) || ($inm === '' && $ims !== '' && strtotime($ims) >= $mtime)) { return new self('', 304, array_diff_key($h, array_flip(['Content-Type', 'Content-Disposition']))); } }
     return new self('', 200, $h + ['Content-Length' => (string) $size], $path); }
 
+  /**
+   * A download written row by row straight to the client: $write receives an output stream. Large exports never build the
+   * whole file in memory (with DB::cursor the rows are not all held as PHP arrays either).
+   */
+  public static function stream(callable $write, string $name, string $mime): self {
+    $r = self::download('', $name, $mime);
+    $r->stream = \Closure::fromCallable($write);
+    return $r; }
+
+  /**
+   * UTF-8 BOM + CSV of $rows (any iterable, e.g. DB::cursor) via Response::stream; $map turns a row into its cells, $done
+   * gets the row count afterwards (audit). Cells starting with = + - @ tab or CR get a leading ' (spreadsheet formula injection).
+   */
+  public static function csv(array $head, iterable $rows, string $name, ?callable $map = null, ?callable $done = null): self {
+    return self::stream(static function ($out) use ($head, $rows, $map, $done): void {
+      $safe = static fn ($v) => is_string($v) && $v !== '' && strpbrk($v[0], "=+-@\t\r") !== false ? "'".$v : $v;
+      fwrite($out, "\xEF\xBB\xBF");
+      fputcsv($out, $head, ',', '"', '');
+      $n = 0;
+      foreach ($rows as $r) { fputcsv($out, array_map($safe, $map ? $map($r) : array_values($r)), ',', '"', ''); $n++; }
+      if ($done) { $done($n); } }, $name, 'text/csv; charset=utf-8'); }
+
   public static function download(string $content, string $name, string $mime): self { return new self($content, 200, ['Content-Type' => $mime, 'Content-Disposition' => 'attachment; filename="'.preg_replace('/[^\w.\- ]+/', '_', $name).'"', 'Cache-Control' => 'private, no-store']); }
 
   public static function error(int $code, string $msg, ?Request $req = null, string $kind = ''): self {
@@ -43,7 +67,10 @@ final class Response {
 
   public function header(string $k, string $v): self { $this->headers[$k] = $v; return $this; }
   public function status(): int { return $this->status; }
-  public function body(): string { return $this->body; }
+  public function body(): string {
+    /* a stream runs once (its rows come from a cursor): reading the body renders it into memory for good (tests, callers that post-process) */
+    if ($this->stream) { $out = fopen('php://temp', 'w+'); ($this->stream)($out); rewind($out); $this->body = (string) stream_get_contents($out); fclose($out); $this->stream = null; }
+    return $this->body; }
   public function headers(): array { return $this->headers; }
 
   /**
@@ -61,10 +88,16 @@ final class Response {
     if ($secure) { $h['Strict-Transport-Security'] = 'max-age=31536000'; }
     return $h; }
 
+  /** Opt-in request profile (config debug or profile): total time, query count and time, peak memory. Never sent in production by default. */
+  public static function timing(): string {
+    return sprintf('app;dur=%.1f, db;desc="%d queries";dur=%.1f, mem;desc="%.2f MB peak"', (microtime(true) - NY_START) * 1000, DB::$queries, DB::$time * 1000, memory_get_peak_usage() / 1048576); }
+
   public function send(): void {
     if (!headers_sent()) {
       http_response_code($this->status);
       header_remove('X-Powered-By');
-      foreach ($this->headers + self::securityHeaders() + ['Content-Type' => 'text/html; charset=utf-8'] as $k => $v) { header($k.': '.$v); } }
+      foreach ($this->headers + self::securityHeaders() + ['Content-Type' => 'text/html; charset=utf-8'] as $k => $v) { header($k.': '.$v); }
+      if (App::config('debug') || App::config('profile')) { header('Server-Timing: '.self::timing()); } }
     if ($this->file) { while (ob_get_level()) { ob_end_clean(); } readfile($this->file); return; }
+    if ($this->stream) { $out = fopen('php://output', 'w'); ($this->stream)($out); fclose($out); return; }
     echo $this->body; } }

@@ -227,7 +227,7 @@ final class LeaveChanges {
     $by = (int) $actor['id'];
     $lr = DB::transaction(static function () use ($id, $approve, $note, $by): array {
       $lr = self::find($id, true) ?? throw new ValidationException(['review_note' => 'Request not found.']);
-      if (!self::canManage($lr)) { Audit::log('access.denied', 'leave_request', $id, ['action' => 'review']); throw new \Core\HttpException(403, (int) $lr['user_id'] === $by ? 'You cannot approve your own leave.' : 'You can only review leave of your direct reports.'); }
+      if (!self::canManage($lr)) { Audit::logLimited('access.denied', 'leave_request', $id, ['action' => 'review']); throw new \Core\HttpException(403, (int) $lr['user_id'] === $by ? 'You cannot approve your own leave.' : 'You can only review leave of your direct reports.'); }
       if ($lr['status'] !== 'pending') { throw new ValidationException(['review_note' => 'This request was already '.$lr['status'].'.']); }
       if ($approve) {
         $year = (int) substr($lr['start_date'], 0, 4);

@@ -42,15 +42,8 @@ final class ReportController extends CrmController {
 
   public function outstandingCsv(): Response {
     [$wi, $pi] = $this->scope('i.client_id');
-    $rows = DB::all('SELECT c.name, c.company, c.email, i.number, i.issue_date, i.due_date, i.status, i.total, i.amount_paid, i.total-i.amount_paid AS balance FROM invoices i JOIN clients c ON c.id=i.client_id WHERE i.status IN '.Finance::OPEN." AND $wi ORDER BY balance DESC LIMIT 10000", $pi);
-    $fh = fopen('php://temp', 'w+');
-    fputcsv($fh, ['Client', 'Company', 'Email', 'Invoice', 'Issue date', 'Due date', 'Days overdue', 'Status', 'Total', 'Paid', 'Balance'], ',', '"', '\\');
-    $safe = static fn ($v) => is_string($v) && preg_match('/^[=+\-@\t\r]/', $v) ? "'".$v : $v;
-    foreach ($rows as $r) {
-      $days = $r['due_date'] ? max(0, (int) floor((strtotime(date('Y-m-d')) - strtotime($r['due_date'])) / 86400)) : 0;
-      fputcsv($fh, array_map($safe, [$r['name'], $r['company'], $r['email'], $r['number'], $r['issue_date'], $r['due_date'], $days, $r['status'], number_format((float) $r['total'], 2, '.', ''), number_format((float) $r['amount_paid'], 2, '.', ''), number_format((float) $r['balance'], 2, '.', '')]), ',', '"', '\\'); }
-    rewind($fh);
-    $csv = "\xEF\xBB\xBF".stream_get_contents($fh);
-    fclose($fh);
-    Audit::log('crm.report.export', null, null, ['report' => 'outstanding', 'rows' => count($rows)]);
-    return Response::download($csv, 'outstanding-'.date('Y-m-d').'.csv', 'text/csv; charset=utf-8'); } }
+    $today = strtotime(date('Y-m-d'));
+    return Response::csv(['Client', 'Company', 'Email', 'Invoice', 'Issue date', 'Due date', 'Days overdue', 'Status', 'Total', 'Paid', 'Balance'],
+      DB::cursor('SELECT c.name, c.company, c.email, i.number, i.issue_date, i.due_date, i.status, i.total, i.amount_paid, i.total-i.amount_paid AS balance FROM invoices i JOIN clients c ON c.id=i.client_id WHERE i.status IN '.Finance::OPEN." AND $wi ORDER BY balance DESC LIMIT 10000", $pi), 'outstanding-'.date('Y-m-d').'.csv',
+      static fn ($r) => [$r['name'], $r['company'], $r['email'], $r['number'], $r['issue_date'], $r['due_date'], $r['due_date'] ? max(0, (int) floor(($today - strtotime($r['due_date'])) / 86400)) : 0, $r['status'], number_format((float) $r['total'], 2, '.', ''), number_format((float) $r['amount_paid'], 2, '.', ''), number_format((float) $r['balance'], 2, '.', '')],
+      static fn (int $n) => Audit::log('crm.report.export', null, null, ['report' => 'outstanding', 'rows' => $n])); } }

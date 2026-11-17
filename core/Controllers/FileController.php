@@ -9,7 +9,7 @@ final class FileController extends Controller {
     $m = Modules::get($f['module']);
     if (!$m || !Modules::enabled($f['module'])) { $this->abort(403, 'This module is disabled.'); }
     $cb = $m['file_access'][$f['entity_type']] ?? null;
-    if (!Auth::isSuperAdmin() && (!$cb || !$cb(Auth::user(), (int) $f['entity_id'], $f, $mode))) { Audit::log('file.denied', $f['entity_type'], (int) $f['entity_id'], ['file_id' => $id]); $this->abort(403, 'You cannot access this file.'); }
+    if (!Auth::isSuperAdmin() && (!$cb || !$cb(Auth::user(), (int) $f['entity_id'], $f, $mode))) { Audit::logLimited('file.denied', $f['entity_type'], (int) $f['entity_id'], ['file_id' => $id]); $this->abort(403, 'You cannot access this file.'); }
     return $f; }
 
   public function download(int $id): Response {

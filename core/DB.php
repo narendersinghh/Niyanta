@@ -7,6 +7,8 @@ final class DB {
   private static ?PDO $pdo = null;
   private static array $cfg = [];
   public static int $queries = 0;
+  /** Seconds spent in queries this request (shown in the Server-Timing header when config debug or profile is on). */
+  public static float $time = 0.0;
 
   public static function init(array $cfg): void { self::$cfg = $cfg; self::$pdo = null; }
 
@@ -22,13 +24,25 @@ final class DB {
   public static function syncTimezone(): void { if (self::$pdo) { self::$pdo->exec("SET time_zone='".(new \DateTime())->format('P')."'"); } }
 
   public static function query(string $sql, array $p = []): \PDOStatement {
-    self::$queries++;
+    self::$queries++; $t = microtime(true);
     $st = self::pdo()->prepare($sql);
     foreach (array_values($p) as $i => $v) { $st->bindValue($i + 1, is_bool($v) ? (int) $v : $v, is_int($v) || is_bool($v) ? PDO::PARAM_INT : ($v === null ? PDO::PARAM_NULL : PDO::PARAM_STR)); }
     $st->execute();
+    self::$time += microtime(true) - $t;
     return $st; }
 
   public static function all(string $sql, array $p = []): array { return self::query($sql, $p)->fetchAll(); }
+  /**
+   * Rows one at a time, unbuffered (exports): neither PHP nor the MySQL client library holds the whole result, so memory stays
+   * flat however many rows. No other query may run on the connection until the loop has finished.
+   */
+  public static function cursor(string $sql, array $p = []): \Generator {
+    $pdo = self::pdo();
+    $pdo->setAttribute(PDO::MYSQL_ATTR_USE_BUFFERED_QUERY, false);
+    try { $st = self::query($sql, $p); }
+    finally { $pdo->setAttribute(PDO::MYSQL_ATTR_USE_BUFFERED_QUERY, true); }
+    try { while (($r = $st->fetch()) !== false) { yield $r; } }
+    finally { $st->closeCursor(); } }
   public static function first(string $sql, array $p = []): ?array { $r = self::query($sql, $p)->fetch(); return $r === false ? null : $r; }
   public static function value(string $sql, array $p = []): mixed { $r = self::query($sql, $p)->fetchColumn(); return $r === false ? null : $r; }
   public static function column(string $sql, array $p = []): array { return self::query($sql, $p)->fetchAll(PDO::FETCH_COLUMN); }
