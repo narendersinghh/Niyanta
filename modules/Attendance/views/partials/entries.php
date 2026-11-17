@@ -1,7 +1,10 @@
-<?php /* $days (date => entries), $ws, $editable (bool) */
+<?php /* $days (date => entries), $ws, $editable (bool: owner or HR may change entries), optional $added (AttendanceService::addedTime: attendance records beyond the tracked time) */
 $srcIc = ['timer' => 'timer', 'manual' => 'edit', 'agent' => 'monitor', 'desktop' => 'monitor'];
-$srcLbl = ['timer' => 'Web timer', 'manual' => 'Manual', 'agent' => 'Agent', 'desktop' => 'Desktop app'];
-if (!$days): ?><?= empty_state('No time logged this week', $editable ? 'Track your day with the Niyanta Tracker desktop app.' : 'Nothing was tracked in this week.', 'clock-worker') ?><?php else: foreach ($days as $d => $list): $sum = 0; foreach ($list as $x) { $sum += \Modules\Attendance\Services\TimeService::elapsed($x); } ?>
+$srcLbl = ['timer' => 'Web timer', 'manual' => 'Imported or manually added', 'agent' => 'Agent', 'desktop' => 'Desktop app'];
+$added = $added ?? [];
+foreach ($added as $d => $_) { $days[$d] ??= []; }
+krsort($days);
+if (!$days): ?><?= empty_state('No time logged this week', $editable ? 'Track your day with the Niyanta Tracker desktop app.' : 'Nothing was tracked in this week.', 'clock-worker') ?><?php else: foreach ($days as $d => $list): $sum = 0; foreach ($list as $x) { $sum += \Modules\Attendance\Services\TimeService::elapsed($x); } $sum += $added[$d]['secs'] ?? 0; ?>
 <div class="day-group">
   <div class="day-head"><b><?= e(fdate($d, 'l, d M')) ?></b><span class="pill pill-gray"><?= e(hours($sum)) ?></span></div>
   <?php foreach ($list as $en): $dur = \Modules\Attendance\Services\TimeService::elapsed($en); ?>
@@ -15,12 +18,24 @@ if (!$days): ?><?= empty_state('No time logged this week', $editable ? 'Track yo
         <?= $en['is_running'] ? '<span class="rec">Running</span>' : ($en['status'] === 'rejected' ? badge('rejected', 'Rejected') : '') ?></div>
     </div>
     <div class="dur"><?= e(hours($dur)) ?></div>
-    <div class="acts"><?php if ($editable && \Modules\Attendance\Services\TimeService::editable($en)):
+    <div class="acts"><?php if ($editable && \Modules\Attendance\Services\Timesheets::entryChangeable(user(), $en)):
       $json = ['id' => (int) $en['id'], 'date' => substr($en['started_at'], 0, 10), 'start_time' => substr($en['started_at'], 11, 5), 'end_time' => substr((string) $en['ended_at'], 11, 5), 'project_id' => $en['project_id'], 'task_id' => $en['task_id'], 'description' => $en['description'] ?? '', 'billable' => (int) $en['billable']]; ?>
       <button class="btn icon sm ghost" data-modal="entry-dialog" data-entry-edit="<?= e(json_encode($json)) ?>" aria-label="Edit entry"><?= icon('edit', 'sm') ?></button>
       <form method="post" action="<?= e(url('/time/entries/'.$en['id'].'/delete')) ?>" data-confirm="Delete this time entry?"><?= csrf_field() ?><button class="btn icon sm ghost" aria-label="Delete entry"><?= icon('trash', 'sm') ?></button></form>
     <?php elseif ($editable && !$en['is_running']): ?><span class="muted" title="Locked: the week is closed or its payroll is finalized"><?= icon('lock', 'sm') ?></span><?php endif ?></div>
   </div>
   <?php endforeach ?>
+  <?php if (isset($added[$d])): $a = $added[$d]; ?>
+  <div class="entry is-added">
+    <span class="bar c-sky"></span>
+    <div class="grow">
+      <div class="ttl">Attendance record<?= $a['status'] !== 'present' ? '<span class="muted small">· '.e(ucfirst(str_replace('_', ' ', $a['status']))).'</span>' : '' ?></div>
+      <div class="meta"><?php if ($a['clock_in']): ?><span><?= e(ftime($a['clock_in'])) ?> - <?= $a['clock_out'] ? e(ftime($a['clock_out'])) : '-' ?></span><?php endif ?><?php if ($a['note']): ?><span>· <?= e(str_limit($a['note'], 80)) ?></span><?php endif ?>
+        <span class="pill pill-sky" title="Added, edited or imported<?= $a['editor'] ? ' by '.e($a['editor']) : '' ?> in attendance; counted beyond the tracked time"><?= icon('edit', 'sm') ?> Imported or manually added</span><?php if ($a['editor']): ?><span class="muted">by <?= e($a['editor']) ?></span><?php endif ?></div>
+    </div>
+    <div class="dur"><?= e(hours($a['secs'])) ?></div>
+    <div class="acts"></div>
+  </div>
+  <?php endif ?>
 </div>
 <?php endforeach; endif ?>

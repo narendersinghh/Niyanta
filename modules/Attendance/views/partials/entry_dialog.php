@@ -1,8 +1,8 @@
-<?php /* Add / edit time entry dialog: $projects (id => name), optional $date default */ ?>
-<dialog class="modal" id="entry-dialog"><form method="post" action="<?= e(url('/time/entries')) ?>" data-entry-form data-new-action="<?= e(url('/time/entries')) ?>"><?= csrf_field() ?>
-  <div class="modal-head"><h3 data-entry-title>Add time</h3><button type="button" class="btn icon sm ghost" data-close aria-label="Close"><?= icon('x', 'sm') ?></button></div>
+<?php /* Add / edit time entry dialog: $projects (id => name), optional $date default, optional $for (['id', 'name']: HR adds time for this team member) */ $for = $for ?? null; ?>
+<dialog class="modal" id="entry-dialog"><form method="post" action="<?= e(url('/time/entries')) ?>" data-entry-form data-new-action="<?= e(url('/time/entries')) ?>"><?= csrf_field() ?><?php if ($for): ?><input type="hidden" name="user_id" value="<?= (int) $for['id'] ?>"><?php endif ?>
+  <div class="modal-head"><h3 data-entry-title><?= $for ? 'Add time for '.e($for['name']) : 'Add time manually' ?></h3><button type="button" class="btn icon sm ghost" data-close aria-label="Close"><?= icon('x', 'sm') ?></button></div>
   <div class="modal-body form">
-    <p class="small muted mb0">You can add or change time in the current and previous week.</p>
+    <p class="small muted mb0"><?= $for ? 'The entry is saved on '.e(explode(' ', $for['name'])[0]).'\'s timesheet, tagged as imported or manually added, and they are notified.' : 'You can add or change time in the current and previous week. Manual time is tagged as imported or manually added.' ?></p>
     <div class="form-grid g3">
       <div class="field"><label>Date *</label><input type="date" name="date" value="<?= e($date ?? date('Y-m-d')) ?>" max="<?= e(date('Y-m-d')) ?>" required></div>
       <div class="field"><label>Start *</label><input type="time" name="start_time" required></div>

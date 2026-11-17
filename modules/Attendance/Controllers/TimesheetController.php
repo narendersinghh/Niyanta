@@ -9,7 +9,8 @@ final class TimesheetController extends BaseController {
     $uid = (int) $person['id'];
     $ts = TS::find($uid, $ws);
     return ['ws' => $ws, 's' => TS::summary($uid, $ws), 'ts' => $ts, 'person' => $person, 'own' => $own, 'locked' => TS::weekLocked($ws),
-      'canReview' => !$own && TS::canReview($this->user(), $uid), 'entries' => T::weekEntries($uid, $ws), 'styles' => ['css/attendance.css'], 'scripts' => ['js/attendance.js']]; }
+      'canReview' => !$own && TS::canReview($this->user(), $uid), 'entries' => T::weekEntries($uid, $ws), 'added' => \Modules\Attendance\Services\AttendanceService::addedTime($uid, $ws, date('Y-m-d', strtotime($ws.' +6 days'))),
+      'manage' => !$own && TS::canManage($this->user(), $uid), 'styles' => ['css/attendance.css'], 'scripts' => ['js/attendance.js']]; }
 
   public function index(): Response {
     $u = $this->user();
@@ -57,7 +58,8 @@ final class TimesheetController extends BaseController {
     $p = DB::first('SELECT id, name, avatar, designation, manager_id FROM users WHERE id=? LIMIT 1', [$userId]) ?? $this->abort(404, 'Person not found.');
     if (!(($this->can('attendance.timesheets.approve') || $this->can('attendance.view_all')) && Team::includes($u, $userId))) { Audit::log('access.denied', 'user', $userId, ['area' => 'timesheets']); $this->abort(403, 'You cannot view this timesheet.'); }
     $ws = $this->weekParam();
-    return $this->view('attendance::timesheets/show', ['title' => 'Timesheet: '.$p['name'], 'people' => $this->peers()] + $this->weekView($p, $ws, false)); }
+    $v = $this->weekView($p, $ws, false);
+    return $this->view('attendance::timesheets/show', ['title' => 'Timesheet: '.$p['name'], 'people' => $this->peers(), 'projects' => $v['manage'] ? T::projects(DB::first('SELECT * FROM users WHERE id=?', [$userId])) : []] + $v); }
 
   public function show(int $id): Response {
     $t = DB::first('SELECT user_id, week_start FROM timesheets WHERE id=? LIMIT 1', [$id]) ?? $this->abort(404, 'Timesheet not found.');

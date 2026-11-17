@@ -38,7 +38,7 @@ d.addEventListener("change",e=>{if(e.target.matches("[data-project-select]"))loa
 /* manual time entry dialog (add / edit) */
 const ef=$("[data-entry-form]");
 if(ef)d.addEventListener("click",e=>{const b=e.target.closest("[data-entry-edit],[data-entry-new]");if(!b)return;const j=b.dataset.entryEdit?JSON.parse(b.dataset.entryEdit):null,F=ef.elements,set=(n,v)=>{if(F[n])F[n].value=v??""};ef.reset();
-$("[data-entry-title]",ef).textContent=j?"Edit time entry":"Add time manually";ef.action=ef.dataset.newAction+(j?"/"+j.id:"");
+var tt=$("[data-entry-title]",ef);tt.dataset.t=tt.dataset.t||tt.textContent;tt.textContent=j?"Edit time entry":tt.dataset.t;ef.action=ef.dataset.newAction+(j?"/"+j.id:"");
 if(j){set("date",j.date);set("start_time",j.start_time);set("end_time",j.end_time);set("description",j.description);if(F.billable)F.billable.checked=!!+j.billable;set("project_id",j.project_id||"")}
 loadTasks(F.project_id,j&&j.task_id)});
 /* attendance record dialog (HR / manager) */

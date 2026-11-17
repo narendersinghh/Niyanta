@@ -70,6 +70,14 @@ final class Timesheets {
   /** Is the entry editable by its owner? */
   public static function entryEditable(array $e): bool { return !$e['is_running'] && self::canEditDate(substr($e['started_at'], 0, 10), $e['status'] === 'rejected'); }
 
+  /** May $u log and fix time for someone else ($uid): HR with attendance.manage, in scope, never self. */
+  public static function canManage(array $u, int $uid): bool { return $uid !== (int) $u['id'] && Gate::allows('attendance.manage', $u) && Team::includes($u, $uid); }
+
+  /** May $u change this entry: the owner while its week is open, HR (canManage) any stopped entry outside a finalized payroll month. */
+  public static function entryChangeable(array $u, array $e): bool {
+    if ((int) $e['user_id'] === (int) $u['id']) { return self::entryEditable($e); }
+    return !$e['is_running'] && !self::payrollLocked(substr($e['started_at'], 0, 10)) && self::canManage($u, (int) $e['user_id']); }
+
   /** Can $u review the timesheets of $targetId (approver permission, in scope, never self)? */
   public static function canReview(array $u, int $targetId): bool {
     return $targetId !== (int) $u['id'] && Gate::allows('attendance.timesheets.approve', $u) && Team::includes($u, $targetId); }
@@ -120,21 +128,27 @@ final class Timesheets {
 
   /** Week grid: rows per project, task and billable flag with per-day seconds; daily totals; attendance; expected hours. */
   public static function summary(int $uid, string $ws): array {
-    $rows = DB::all('SELECT DATE(te.started_at) AS d, te.project_id, p.name AS project_name, p.color, te.task_id, t.title AS task_title, te.billable, SUM('.TimeService::secondsSql('te.').') AS secs, MAX(te.is_running) AS running FROM time_entries te LEFT JOIN projects p ON p.id=te.project_id LEFT JOIN tasks t ON t.id=te.task_id WHERE te.user_id=? AND te.started_at>=? AND te.started_at<? GROUP BY d, te.project_id, p.name, p.color, te.task_id, t.title, te.billable', self::range($uid, $ws));
+    $rows = DB::all('SELECT DATE(te.started_at) AS d, te.project_id, p.name AS project_name, p.color, te.task_id, t.title AS task_title, te.billable, te.source=\'manual\' AS manual, SUM('.TimeService::secondsSql('te.').') AS secs, MAX(te.is_running) AS running FROM time_entries te LEFT JOIN projects p ON p.id=te.project_id LEFT JOIN tasks t ON t.id=te.task_id WHERE te.user_id=? AND te.started_at>=? AND te.started_at<? GROUP BY d, te.project_id, p.name, p.color, te.task_id, t.title, te.billable, manual', self::range($uid, $ws));
     $dates = array_map(static fn ($i) => date('Y-m-d', strtotime($ws." +$i days")), range(0, 6));
     $pj = feature_on('projects'); /* projects switched off: one row per billable flag, no project/task names */
-    $s = ['days' => array_fill_keys($dates, 0), 'billable_days' => array_fill_keys($dates, 0), 'rows' => [], 'total' => 0, 'billable' => 0, 'running' => false];
+    $s = ['days' => array_fill_keys($dates, 0), 'billable_days' => array_fill_keys($dates, 0), 'rows' => [], 'total' => 0, 'billable' => 0, 'running' => false, 'added' => 0];
     foreach ($rows as $r) {
       $sec = (int) $r['secs'];
-      $k = $pj ? (int) $r['project_id'].'-'.(int) $r['task_id'].'-'.(int) $r['billable'] : 'all-'.(int) $r['billable'];
-      $s['rows'][$k] ??= ['project' => $pj ? $r['project_name'] ?? 'No project' : 'Tracked time', 'task' => $pj ? $r['task_title'] : null, 'color' => $pj ? ($r['color'] ?: 'gray') : 'gray', 'billable' => (bool) $r['billable'], 'total' => 0, 'days' => []];
+      $k = ($pj ? (int) $r['project_id'].'-'.(int) $r['task_id'] : 'all').'-'.(int) $r['billable'].'-'.(int) $r['manual'];
+      $s['rows'][$k] ??= ['project' => $pj ? $r['project_name'] ?? 'No project' : 'Tracked time', 'task' => $pj ? $r['task_title'] : null, 'color' => $pj ? ($r['color'] ?: 'gray') : 'gray', 'billable' => (bool) $r['billable'], 'added' => (bool) $r['manual'], 'total' => 0, 'days' => []];
       $s['rows'][$k]['total'] += $sec;
       $s['rows'][$k]['days'][$r['d']] = ($s['rows'][$k]['days'][$r['d']] ?? 0) + $sec;
       $s['days'][$r['d']] = ($s['days'][$r['d']] ?? 0) + $sec;
       $s['total'] += $sec;
       if ($r['billable']) { $s['billable'] += $sec; $s['billable_days'][$r['d']] += $sec; }
+      if ($r['manual']) { $s['added'] += $sec; }
       if ($r['running']) { $s['running'] = true; } }
-    uasort($s['rows'], static fn ($a, $b) => [$a['project'], (string) $a['task'], !$a['billable']] <=> [$b['project'], (string) $b['task'], !$b['billable']]);
+    uasort($s['rows'], static fn ($a, $b) => [$a['project'], (string) $a['task'], !$a['billable'], $a['added']] <=> [$b['project'], (string) $b['task'], !$b['billable'], $b['added']]);
+    /* attendance records HR added, edited or imported beyond the tracked time: one non-billable row, counted in the totals */
+    foreach (AttendanceService::addedTime($uid, $ws, end($dates)) as $d => $a) {
+      $s['rows']['attendance'] ??= ['project' => 'Attendance record', 'task' => null, 'color' => 'gray', 'billable' => false, 'added' => true, 'record' => true, 'total' => 0, 'days' => []];
+      $s['rows']['attendance']['total'] += $a['secs']; $s['rows']['attendance']['days'][$d] = $a['secs'];
+      $s['days'][$d] += $a['secs']; $s['total'] += $a['secs']; $s['added'] += $a['secs']; }
     $s['attendance'] = DB::pairs('SELECT work_date, worked_seconds FROM attendance WHERE user_id=? AND work_date BETWEEN ? AND ?', [$uid, $ws, end($dates)]);
     // Expected hours: the employee's schedule (HR) on working days, minus fixed holidays and approved leave.
     $perDay = AttendanceService::workSeconds($uid);

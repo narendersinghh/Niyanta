@@ -1,7 +1,8 @@
-<?= partial('attendance::partials/hub', ['tab' => 'weekly', 'title' => 'Time & Attendance', 'subtitle' => $canReview ? 'Weeks are approved automatically. Reject one to send it back for fixes.' : 'The week by project and day.', 'target' => (int) $person['id'], 'targetName' => $person['name'], 'people' => $people, 'base' => '/timesheets', 'nav' => '/timesheets/user/'.$person['id'], 'mode' => 'week', 'week' => $ws]) ?>
+<?= partial('attendance::partials/hub', ['tab' => 'weekly', 'title' => 'Time & Attendance', 'subtitle' => $canReview ? 'Weeks are approved automatically. Reject one to send it back for fixes.' : 'The week by project and day.', 'target' => (int) $person['id'], 'targetName' => $person['name'], 'people' => $people, 'base' => '/timesheets', 'nav' => '/timesheets/user/'.$person['id'], 'mode' => 'week', 'week' => $ws,
+  'actions' => $manage && !$locked ? '<button class="btn primary" data-modal="entry-dialog" data-entry-new>'.icon('plus', 'sm').' Add time for '.e(explode(' ', $person['name'])[0]).'</button>' : '']) ?>
 <?= partial('attendance::partials/ts_week', compact('ws', 's', 'ts', 'person', 'own', 'locked', 'canReview')) ?>
 <div class="ta-split wide">
-  <section class="card"><div class="card-head"><h3>Entries</h3><span class="muted small"><?= $n = array_sum(array_map('count', $entries)) ?> entr<?= $n === 1 ? 'y' : 'ies' ?></span></div><?= partial('attendance::partials/entries', ['days' => $entries, 'ws' => $ws, 'editable' => false]) ?></section>
+  <section class="card"><div class="card-head"><h3>Entries</h3><span class="muted small"><?= $n = array_sum(array_map('count', $entries)) + count($added) ?> entr<?= $n === 1 ? 'y' : 'ies' ?></span></div><?= partial('attendance::partials/entries', ['days' => $entries, 'added' => $added, 'ws' => $ws, 'editable' => $manage]) ?></section>
   <section class="card">
     <div class="card-head"><h3>Review</h3><?= $ts ? badge($ts['status'] === 'rejected' ? 'rejected' : 'approved') : '' ?></div>
     <dl class="ta-kv">
@@ -15,3 +16,4 @@
   </section>
 </div>
 <?php if ($canReview && $ts): ?><?= partial('attendance::partials/reject_dialog') ?><?php endif ?>
+<?php if ($manage): ?><?= partial('attendance::partials/entry_dialog', ['projects' => $projects, 'date' => min(date('Y-m-d'), date('Y-m-d', strtotime($ws.' +6 days'))), 'for' => ['id' => (int) $person['id'], 'name' => $person['name']]]) ?><?php endif ?>

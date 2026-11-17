@@ -20,7 +20,7 @@ $attLbl = ['leave' => 'Leave', 'holiday' => 'Holiday', 'absent' => 'Absent', 'ha
       $note = $hol[$ds] ?? (isset($att[$ds]) ? $attLbl[$att[$ds]] ?? '' : ''); ?>
     <<?= $fut ? 'div' : 'a href="'.e(url('/time/daily?date='.$ds.$uq)).'"' ?> class="mcal-d<?= $ds === $today ? ' today' : '' ?><?= $we ? ' we' : '' ?><?= $fut ? ' fut' : '' ?>" role="gridcell"<?= $fut ? '' : ' title="Open '.e(fdate($ds)).'"' ?>>
       <span class="mcal-n"><?= $d ?></span>
-      <?php if ($s): ?><span class="mcal-v"><?= e(hours($s)) ?></span><?php elseif (!$fut): ?><span class="mcal-nil">-</span><?php endif ?>
+      <?php if ($s): ?><span class="mcal-v"><?= e(hours($s)) ?></span><?php if (!empty($added[$ds])): ?><span class="mcal-add" title="<?= e(hours($added[$ds])) ?> imported or manually added">incl. <?= e(hours($added[$ds])) ?> added</span><?php endif ?><?php elseif (!$fut): ?><span class="mcal-nil">-</span><?php endif ?>
       <?php if ($note !== ''): ?><span class="mcal-note truncate"><?= e($note) ?></span><?php endif ?>
     </<?= $fut ? 'div' : 'a' ?>>
     <?php endfor ?>

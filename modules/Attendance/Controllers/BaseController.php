@@ -73,5 +73,8 @@ abstract class BaseController extends Controller {
       $first ??= $r['started_at']; $last = max((string) $last, $r['end']); }
     unset($r);
     $active = $total - $idle;
-    return ['entries' => $rows, 'sum' => ['date' => $date, 'clock_in' => $att['clock_in'] ?? $first, 'clock_out' => $att['clock_out'] ?? ($rows && !end($rows)['is_running'] ? $last : null), 'running' => (bool) array_filter($rows, static fn ($r) => $r['is_running']),
+    /* attendance record HR added, edited or imported beyond the tracked time (whole day only, not per device) */
+    $added = $dev ? null : \Modules\Attendance\Services\AttendanceService::addedTime($uid, $date, $date)[$date] ?? null;
+    $total += $added['secs'] ?? 0;
+    return ['entries' => $rows, 'added' => $added, 'sum' => ['date' => $date, 'clock_in' => $att['clock_in'] ?? $first, 'clock_out' => $att['clock_out'] ?? ($rows && !end($rows)['is_running'] ? $last : null), 'running' => (bool) array_filter($rows, static fn ($r) => $r['is_running']),
       'total' => $total, 'active' => $active, 'idle' => $idle, 'paused' => (int) ($att['break_seconds'] ?? 0), 'activity' => $act ?? ($total && !$da['meeting'] ? (int) round(100 * $active / $total) : 0), 'meeting' => $da['meeting']]]; } }

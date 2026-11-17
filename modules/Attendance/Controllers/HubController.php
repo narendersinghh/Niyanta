@@ -18,7 +18,8 @@ final class HubController extends BaseController {
       [$gallery, $first] = self::gallery(self::dayShots($target, $date, $dk));
       if ($gallery && !$own) { \Core\Audit::log('monitoring.view', 'user', $target, ['date' => $date, 'area' => 'daily']); } }
     return $this->view('attendance::hub/daily', ['title' => 'Daily timesheet', 'date' => $date, 'target' => $target, 'targetName' => $name, 'people' => $people, 'own' => $own,
-      'projects' => $own && $this->can('attendance.track') ? T::projects($this->user()) : [], 'chart' => self::chart($target, $date, $day['entries'], $dk), 'gallery' => $gallery, 'shots' => $first, 'devices' => $devices, 'device' => $dev] + $day + ['styles' => ['css/attendance.css'], 'scripts' => ['js/attendance.js']]); }
+      'manage' => $manage = !$own && \Modules\Attendance\Services\Timesheets::canManage($this->user(), $target),
+      'projects' => $own && $this->can('attendance.track') ? T::projects($this->user()) : ($manage ? T::projects(DB::first('SELECT * FROM users WHERE id=?', [$target])) : []), 'chart' => self::chart($target, $date, $day['entries'], $dk), 'gallery' => $gallery, 'shots' => $first, 'devices' => $devices, 'device' => $dev] + $day + ['styles' => ['css/attendance.css'], 'scripts' => ['js/attendance.js']]); }
 
   /** One person's screenshots of a day, oldest first, with the tracked entry's project, task and description; only device $dev's (Services\Devices key) when given. Callers check Monitoring::canView first. */
   public static function dayShots(int $uid, string $date, ?int $dev = null): array {
@@ -100,7 +101,9 @@ final class HubController extends BaseController {
     $month = preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $m) && $m <= date('Y-m') ? $m : date('Y-m');
     $from = $month.'-01'; $to = date('Y-m-d', strtotime($from.' +1 month'));
     $days = DB::pairs('SELECT DATE(started_at) AS d, SUM('.T::secondsSql().') AS s FROM time_entries WHERE user_id=? AND started_at>=? AND started_at<? GROUP BY DATE(started_at)', [$target, $from.' 00:00:00', $to.' 00:00:00']);
+    $added = array_map('intval', DB::pairs("SELECT DATE(started_at) AS d, SUM(duration_seconds) FROM time_entries WHERE user_id=? AND source='manual' AND started_at>=? AND started_at<? GROUP BY DATE(started_at)", [$target, $from.' 00:00:00', $to.' 00:00:00']));
+    foreach (\Modules\Attendance\Services\AttendanceService::addedTime($target, $from, date('Y-m-d', strtotime($to.' -1 day'))) as $d => $a) { $days[$d] = (int) ($days[$d] ?? 0) + $a['secs']; $added[$d] = ($added[$d] ?? 0) + $a['secs']; }
     $att = DB::pairs("SELECT work_date, status FROM attendance WHERE user_id=? AND work_date>=? AND work_date<? AND status IN ('leave','holiday','absent','half_day')", [$target, $from, $to]);
     $hol = feature_on('leave') ? DB::pairs('SELECT holiday_date, MIN(name) FROM holidays WHERE holiday_date>=? AND holiday_date<? AND optional=0 GROUP BY holiday_date', [$from, $to]) : [];
-    return $this->view('attendance::hub/monthly', ['title' => 'Monthly timesheet', 'month' => $month, 'target' => $target, 'targetName' => $name, 'people' => $people, 'days' => array_map('intval', $days), 'att' => $att, 'hol' => $hol,
+    return $this->view('attendance::hub/monthly', ['title' => 'Monthly timesheet', 'month' => $month, 'target' => $target, 'targetName' => $name, 'people' => $people, 'days' => array_map('intval', $days), 'added' => $added, 'att' => $att, 'hol' => $hol,
       'styles' => ['css/attendance.css'], 'scripts' => ['js/attendance.js']]); } }

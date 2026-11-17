@@ -147,6 +147,20 @@ final class AttendanceService {
    */
   public static function autoClose(): string { return TimeService::staleTimers(); }
 
+  /**
+   * Time from attendance records HR added, edited or imported (edited_by set) that the tracker did not record: per day the record's worked
+   * time minus the time tracked that day, when positive. [Y-m-d => [secs, clock_in, clock_out, status, note, editor]]. Two queries for any range.
+   */
+  public static function addedTime(int $uid, string $from, string $to): array {
+    $rows = DB::all('SELECT a.work_date, a.worked_seconds, a.clock_in, a.clock_out, a.status, a.note, e.name AS editor FROM attendance a LEFT JOIN users e ON e.id=a.edited_by WHERE a.user_id=? AND a.work_date BETWEEN ? AND ? AND a.edited_by IS NOT NULL AND a.worked_seconds>0', [$uid, $from, $to]);
+    if (!$rows) { return []; }
+    $tracked = DB::pairs('SELECT DATE(started_at) AS d, SUM('.TimeService::secondsSql().') FROM time_entries WHERE user_id=? AND started_at>=? AND started_at<? GROUP BY DATE(started_at)', [$uid, $from.' 00:00:00', date('Y-m-d', strtotime($to.' +1 day')).' 00:00:00']);
+    $out = [];
+    foreach ($rows as $r) {
+      $x = (int) $r['worked_seconds'] - (int) ($tracked[$r['work_date']] ?? 0);
+      if ($x > 0) { $out[$r['work_date']] = ['secs' => $x, 'clock_in' => $r['clock_in'], 'clock_out' => $r['clock_out'], 'status' => $r['status'], 'note' => $r['note'], 'editor' => $r['editor']]; } }
+    return $out; }
+
   /** HR/manager edit or create of a record (audit-logged, edited_by set). */
   public static function saveManual(array $d, int $editor): int {
     return DB::transaction(static function () use ($d, $editor): int {

@@ -6,8 +6,8 @@ $canAdd = can('attendance.track') && \Modules\Attendance\Services\Timesheets::ca
 <?= partial('attendance::partials/ts_week', compact('ws', 's', 'ts', 'person', 'own', 'locked', 'canReview')) ?>
 <div class="ta-split wide">
   <section class="card">
-    <div class="card-head"><h3>Entries</h3><span class="muted small"><?= $n = array_sum(array_map('count', $entries)) ?> entr<?= $n === 1 ? 'y' : 'ies' ?></span></div>
-    <?= partial('attendance::partials/entries', ['days' => $entries, 'ws' => $ws, 'editable' => can('attendance.track')]) ?>
+    <div class="card-head"><h3>Entries</h3><span class="muted small"><?= $n = array_sum(array_map('count', $entries)) + count($added) ?> entr<?= $n === 1 ? 'y' : 'ies' ?></span></div>
+    <?= partial('attendance::partials/entries', ['days' => $entries, 'added' => $added, 'ws' => $ws, 'editable' => can('attendance.track')]) ?>
   </section>
   <section class="card">
     <div class="card-head"><h3>Recent weeks</h3></div>
