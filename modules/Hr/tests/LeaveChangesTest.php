@@ -181,9 +181,9 @@ return [
     $x = lc_approved($emp, $a, '2027-09-06', '2027-09-06'); $y = lc_approved($emp, $b, '2027-10-04', '2027-10-04'); $z = lc_approved($emp2, $a, '2027-09-07', '2027-09-07');
     act_as($hr);
     $body = (string) http('GET', "/hr/leave/approvals?status=approved&type=$a&from=2027-09-01&to=2027-09-30")->body();
-    assert_true(str_contains($body, '<b class="small">Esha LcEmp</b>') && str_contains($body, '<b class="small">Ravi LcEmp</b>'), 'both September LCA rows');
+    assert_true(str_contains($body, '>Esha LcEmp</a>') && str_contains($body, '>Ravi LcEmp</a>'), 'both September LCA rows');
     $body = (string) http('GET', "/hr/leave/approvals?status=approved&user=$emp&type=$b")->body();
-    assert_true(str_contains($body, '<b class="small">Esha LcEmp</b>') && !str_contains($body, '<b class="small">Ravi LcEmp</b>'), 'person + type filter');
+    assert_true(str_contains($body, '>Esha LcEmp</a>') && !str_contains($body, '>Ravi LcEmp</a>'), 'person + type filter');
     $csv = http('GET', "/hr/leave/approvals/export?status=approved&type=$a&from=2027-09-01&to=2027-09-30");
     assert_eq(200, $csv->status());
     $lines = array_values(array_filter(explode("\n", trim((string) $csv->body()))));

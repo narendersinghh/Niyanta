@@ -153,6 +153,8 @@ final class HolidayService {
       if (DB::query('INSERT IGNORE INTO holidays (holiday_date, name, optional, movable, verified) VALUES (?,?,?,?,?)', [$date, $h['name'], (int) $h['optional'], $mov, $ok])->rowCount()) { $res['created']++; $res['unverified'] += $ok ? 0 : 1; } }
     LeaveService::flush();
     if ($res['created']) { Audit::log('hr.holiday.next_year', 'holiday_year', $year, $res, $uid); }
+    /* leave already requested for that year was counted without these holidays */
+    $res['recounted'] = $res['created'] ? LeaveChanges::recount("$year-01-01", "$year-12-31", 'Holiday list for '.$year.' created.', $uid ? DB::first('SELECT id, name FROM users WHERE id=?', [$uid]) : null) : 0;
     return $res; }
 
   /** AI date check for a year's holidays: ['rows' => [[id, name, optional, old, new, changed]], 'error' => ?string]. */

@@ -175,6 +175,11 @@ final class LeaveService {
   public static function onLeaveOn(string $date, int $limit = 200): array {
     return DB::all("SELECT u.id, u.name, u.avatar, u.designation, u.department, t.name AS type_name, t.color, lr.half_day, lr.end_date FROM leave_requests lr JOIN users u ON u.id=lr.user_id JOIN leave_types t ON t.id=lr.leave_type_id WHERE lr.status='approved' AND lr.start_date<=? AND lr.end_date>=? AND u.status='active' ORDER BY u.name LIMIT ".max(1, $limit), [$date, $date]); }
 
+  /** Pending requests the signed-in approver may decide (sidebar badge, tabs); 0 without hr.leave.approve. */
+  public static function pendingForReviewer(): int {
+    [$w, $p] = HrAccess::reviewScope();
+    return $w === '1=0' ? 0 : (int) DB::value("SELECT COUNT(*) FROM leave_requests lr JOIN users u ON u.id=lr.user_id WHERE lr.status='pending' AND $w", $p); }
+
   /** Balances of a user for a year with pending days and availability, one row per active leave type (policy columns included). */
   public static function balances(int $userId, int $year): array {
     $rows = DB::all("SELECT t.id, t.name, t.code, t.color, t.paid, t.annual_quota, t.allowance, t.monthly_accrual, t.allow_half_day, t.shortage_cover, t.description, b.user_id IS NOT NULL AS allocated_row, COALESCE(b.allocated,0) AS allocated, COALESCE(b.used,0) AS used, COALESCE(p.pending,0) AS pending

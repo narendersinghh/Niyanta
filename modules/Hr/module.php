@@ -28,7 +28,8 @@ return [
     ['label' => 'Employees', 'icon' => 'id-card', 'color' => '#12B5A0', 'url' => '/hr/employees', 'also' => ['/hr/processes', '/hr/process-templates'], 'perm' => 'hr.employees.view', 'section' => 'hr', 'order' => 1],
     /* managers who only review their team's onboarding & exit (no employee directory admin) keep a direct link */
     ['label' => 'Onboarding & exit', 'icon' => 'clipboard', 'color' => '#5B4CF5', 'url' => '/hr/processes', 'also' => ['/hr/process-templates'], 'perm' => ['hr.employees.manage', 'hr.employees.review_team'], 'hide_if' => 'hr.employees.view', 'section' => 'hr', 'order' => 2],
-    ['label' => 'Leave Approvals', 'icon' => 'check-circle', 'color' => '#F0508A', 'url' => '/hr/leave/approvals', 'perm' => 'hr.leave.approve', 'hide_if' => 'hr.leave.request', 'section' => 'hr', 'order' => 3],
+    /* approvers (managers, HR) also request leave themselves: the approvals list keeps its own entry with the number waiting */
+    ['label' => 'Leave approvals', 'icon' => 'check-circle', 'color' => '#F0508A', 'url' => '/hr/leave/approvals', 'perm' => 'hr.leave.approve', 'feature' => 'leave', 'section' => 'hr', 'order' => 3, 'badge' => static fn (): int => LeaveService::pendingForReviewer()],
   ],
   'routes' => function (Core\Router $r): void {
     $self = ['hr.employees.view', 'hr.directory.view', 'hr.leave.request'];
@@ -56,6 +57,8 @@ return [
     $r->post('/hr/leave', [LeaveController::class, 'store'], ['perm' => 'hr.leave.request', 'throttle' => [20, 300]]);
     $r->post('/hr/leave/{id}/cancel', [LeaveController::class, 'cancel'], 'hr.leave.request');
     $r->get('/hr/leave/approvals', [LeaveController::class, 'approvals'], 'hr.leave.approve');
+    $r->get('/hr/leave/requests/{id}', [LeaveController::class, 'show'], $leave);
+    $r->post('/hr/leave/bulk-review', [LeaveController::class, 'bulkReview'], ['perm' => 'hr.leave.approve', 'throttle' => [30, 300]]);
     $r->post('/hr/leave/{id}/review', [LeaveController::class, 'review'], 'hr.leave.approve');
     $r->post('/hr/leave/{id}/edit', [LeaveController::class, 'edit'], 'hr.leave.approve');
     $r->post('/hr/leave/{id}/revoke', [LeaveController::class, 'revoke'], 'hr.leave.approve');
@@ -128,14 +131,15 @@ return [
       $avail = array_sum(array_map(static fn ($r) => max(0, (float) $r['available']), $b));
       $alloc = array_sum(array_column($b, 'allocated'));
       return View::partial('hr::widgets/balance_tile', ['avail' => $avail, 'alloc' => (float) $alloc]); }],
-    ['zone' => 'main', 'order' => 25, 'perm' => 'hr.leave.approve', 'feature' => 'leave', 'render' => static function (array $u): string {
+    ['zone' => 'main', 'order' => 4, 'perm' => 'hr.leave.approve', 'feature' => 'leave', 'render' => static function (array $u): string {
       [$w, $p] = HrAccess::reviewScope();
-      $sql = "SELECT lr.id, lr.start_date, lr.end_date, lr.days, lr.half_day, u.name, u.avatar, t.name AS type_name, t.color FROM leave_requests lr JOIN users u ON u.id=lr.user_id JOIN leave_types t ON t.id=lr.leave_type_id WHERE lr.status='pending' AND $w";
-      $count = (int) DB::value("SELECT COUNT(*) FROM leave_requests lr JOIN users u ON u.id=lr.user_id WHERE lr.status='pending' AND $w", $p);
-      return View::partial('hr::widgets/approvals', ['count' => $count, 'rows' => $count ? DB::all($sql.' ORDER BY lr.start_date LIMIT 5', $p) : []]); }],
+      $sql = "SELECT lr.id, lr.start_date, lr.end_date, lr.days, lr.half_day, lr.created_at, lr.cancel_requested_at, lr.status, u.name, u.avatar, u.designation, u.department, t.name AS type_name, t.color FROM leave_requests lr JOIN users u ON u.id=lr.user_id JOIN leave_types t ON t.id=lr.leave_type_id WHERE (lr.status='pending' OR (lr.status='approved' AND lr.cancel_requested_at IS NOT NULL)) AND $w";
+      $c = DB::first("SELECT SUM(lr.status='pending') AS pending, SUM(lr.status='approved' AND lr.cancel_requested_at IS NOT NULL) AS cxl FROM leave_requests lr JOIN users u ON u.id=lr.user_id WHERE (lr.status='pending' OR lr.cancel_requested_at IS NOT NULL) AND $w", $p);
+      $count = (int) ($c['pending'] ?? 0); $cxl = (int) ($c['cxl'] ?? 0);
+      return View::partial('hr::widgets/approvals', ['count' => $count, 'cxl' => $cxl, 'rows' => $count + $cxl ? DB::all($sql.' ORDER BY lr.status=\'pending\' DESC, lr.start_date LIMIT 5', $p) : []]); }],
     ['zone' => 'side', 'order' => 20, 'perm' => ['hr.directory.view', 'hr.leave.request'], 'feature' => 'leave', 'render' => static function (array $u): string {
       $today = date('Y-m-d');
-      return View::partial('hr::widgets/out_today', ['out' => LeaveService::onLeaveOn($today, 6), 'holidays' => DB::all('SELECT holiday_date, name, optional FROM holidays WHERE holiday_date>=? ORDER BY holiday_date LIMIT 4', [$today])]); }],
+      return View::partial('hr::widgets/out_today', ['out' => LeaveService::onLeaveOn($today, 6), 'types' => Gate::any(['hr.leave.approve', 'hr.employees.view'], $u), 'holidays' => DB::all('SELECT holiday_date, name, optional FROM holidays WHERE holiday_date>=? ORDER BY holiday_date LIMIT 4', [$today])]); }],
     ['zone' => 'side', 'order' => 15, 'perm' => 'hr.company_docs.view', 'feature' => 'company_docs', 'render' => static function (array $u): string {
       $docs = CompanyDocController::pendingFor((int) $u['id']);
       return $docs ? View::partial('hr::widgets/docs_ack', ['docs' => $docs, 'cats' => CompanyDocController::CATS]) : ''; }],
@@ -156,6 +160,7 @@ return [
     'hr_exit_deactivate' => ['feature' => 'employees', 'daily' => '23:50', 'run' => [ProcessService::class, 'autoDeactivate']],
     'leave_year_rollover' => ['feature' => 'leave', 'monthly' => '1 00:20', 'run' => [LeaveService::class, 'yearRollover']],
     'leave_accrual' => ['feature' => 'leave', 'daily' => '00:35', 'run' => [LeaveService::class, 'accrualCron']],
+    'leave_pending_reminders' => ['feature' => 'leave', 'daily' => '09:20', 'run' => [Modules\Hr\Services\LeaveChanges::class, 'remindPending']],
     'holidays_next_year' => ['feature' => 'leave', 'daily' => '01:15', 'run' => [Modules\Hr\Services\HolidayService::class, 'cronNextYear']],
   ],
   'file_access' => [

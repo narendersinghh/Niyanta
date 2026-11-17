@@ -1,10 +1,10 @@
-<?php use Modules\Hr\Services\LeaveService as LS;
+<?php use Modules\Hr\Services\{LeaveChanges as LC, LeaveService as LS};
 $ohId = (int) ($paidType['id'] ?? $optional['id'] ?? 0);
 $defaultType = old('leave_type_id', $_GET['type'] ?? ($ohId ?: ''));
 $statuses = ['' => 'All', 'pending' => 'Pending', 'approved' => 'Approved', 'rejected' => 'Rejected', 'cancelled' => 'Cancelled'];
 $cur = $_GET['status'] ?? '';
 $extra = '<div class="tile bg-lemon"><span class="tile-ic">'.icon('clock').'</span><div><div class="num">'.(int) ($stats['pending'] ?? 0).'</div><div class="lbl">Pending requests</div><div class="hr-tsub">'.($manager ? 'Approver: '.e($manager) : 'Reviewed by HR').'</div></div></div>'
-  .'<div class="tile bg-mint"><span class="tile-ic">'.icon('plane').'</span><div><div class="num">'.e(LS::num($stats['taken'] ?? 0)).'</div><div class="lbl">Days off taken in '.(int) $year.'</div><div class="hr-tsub">'.($nextLeave ? 'Next: '.e(fdate($nextLeave['start_date'], 'd M')).' · '.e($nextLeave['type_name']) : 'No upcoming leave booked').'</div></div></div>';
+  .'<div class="tile bg-mint"><span class="tile-ic">'.icon('plane').'</span><div><div class="num">'.e(LS::num($stats['taken'] ?? 0)).'</div><div class="lbl">Days off booked in '.(int) $year.'</div><div class="hr-tsub">'.($nextLeave ? 'Next: '.e(fdate($nextLeave['start_date'], 'd M')).' · '.e($nextLeave['type_name']) : 'No upcoming leave booked').'</div></div></div>';
 ?>
 <?= partial('partials/page_head', ['title' => 'Leave', 'subtitle' => 'Plan time off, track your balance and follow approvals.', 'crumbs' => [['My HR'], ['Leave']], 'actions' => '<a class="btn ghost" href="'.e(url('/hr/leave/ledger')).'">'.icon('list', 'sm').' My ledger</a><button type="button" class="btn primary" data-modal="leave-req">'.icon('plus', 'sm').' Request leave</button>']) ?>
 <?= partial('hr::leave/_tabs', ['tab' => $tab, 'pendingCount' => $pendingCount]) ?>
@@ -14,25 +14,36 @@ $extra = '<div class="tile bg-lemon"><span class="tile-ic">'.icon('clock').'</sp
     <div class="card-head"><h3>My requests</h3><span class="small muted"><?= (int) $p['total'] ?> total</span></div>
     <div class="hr-toolbar"><div class="chips" role="tablist" aria-label="Filter by status"><?php foreach ($statuses as $k => $l): ?><a class="chip<?= $cur === $k ? ' on' : '' ?>" href="<?= e(url('/hr/leave').query_merge(['status' => $k, 'page' => 1])) ?>"><?= e($l) ?></a><?php endforeach ?></div></div>
     <?php if (!$p['items']): ?><?= empty_state($cur ? 'No '.$cur.' requests' : 'No leave requests yet', $cur ? 'Try another status filter.' : 'Plan a break, use optional days for festivals, personal errands or a sick day.', 'leave-beach', $cur ? '' : '<button type="button" class="btn primary" data-modal="leave-req">'.icon('plus', 'sm').' Request leave</button>') ?><?php else: ?>
-    <div class="table-wrap"><table class="table">
-      <thead><tr><th>Type</th><th>Dates</th><th class="num">Days</th><th>Status</th><th>Review</th><th><span class="sr">Actions</span></th></tr></thead>
-      <tbody><?php foreach ($p['items'] as $r): ?><tr>
-        <td><span class="pill pill-<?= e($r['color']) ?>"><?= e($r['type_name']) ?></span><?php if ($r['reason']): ?><div class="xs muted mt hr-reason"><?= e(str_limit($r['reason'], 60)) ?></div><?php endif ?></td>
-        <td class="nowrap"><b class="small"><?= fdate($r['start_date'], 'd M Y') ?><?= $r['end_date'] !== $r['start_date'] ? ' – '.fdate($r['end_date'], 'd M Y') : '' ?></b><?= $r['half_day'] ? ' <span class="pill pill-gray">½ day</span>' : '' ?><div class="xs muted">Requested <?= e(ago($r['created_at'])) ?></div></td>
-        <td class="num b"><?= e(LS::num($r['days'])) ?></td>
-        <td><?= badge($r['status']) ?><?php if ($r['status'] === 'approved' && $r['cancel_requested_at']): ?> <span class="pill pill-peach">Cancel requested</span><?php endif ?><?php $ed = array_values(array_filter($history[(int) $r['id']] ?? [], static fn ($h) => $h['action'] === 'edit')); if ($ed): $le = end($ed); ?><div class="xs lv-edited"><?= icon('edit', 'sm') ?> Edited by <?= e($le['actor'] ?? 'HR') ?> on <?= e(fdate($le['created_at'], 'd M')) ?></div><?php endif ?></td>
-        <td class="small"><?php if ($r['reviewer']): ?><?= e($r['reviewer']) ?><div class="xs muted"><?= e(str_limit($r['review_note'] ?: fdate($r['reviewed_at']), 50)) ?></div><?php elseif ($r['status'] === 'pending'): ?><span class="muted">Awaiting <?= e($manager ?? 'HR') ?></span><?php else: ?><span class="muted"><?= e($r['review_note'] ?? '-') ?></span><?php endif ?></td>
-        <td class="actions"><div class="lv-acts"><?php if ($r['status'] === 'pending' || ($r['status'] === 'approved' && !(int) $r['needs_approval'] && $r['start_date'] > $today)): ?><form method="post" action="<?= e(url('/hr/leave/'.$r['id'].'/cancel')) ?>" data-confirm="<?= $r['status'] === 'pending' ? 'Cancel this leave request?' : 'Cancel this leave? The days go back to your balance.' ?>"><?= csrf_field() ?><button class="btn sm ghost"><?= icon('x', 'sm') ?> Cancel</button></form><?php elseif ($r['status'] === 'approved' && $r['start_date'] > $today && !$r['cancel_requested_at']): ?><button type="button" class="btn sm ghost" data-modal="lv-askcxl" data-lv-act="<?= e(url('/hr/leave/'.$r['id'].'/cancel-request')) ?>" data-lv="<?= e(json_encode(['summary' => $r['type_name'].' · '.LS::num($r['days']).' day(s) from '.fdate($r['start_date'])])) ?>"><?= icon('x', 'sm') ?> Request cancellation</button><?php endif ?><?php if (!empty($history[(int) $r['id']])): ?><button type="button" class="btn sm ghost" data-modal="lh-<?= (int) $r['id'] ?>"><?= icon('history', 'sm') ?> History</button><?php endif ?></div></td>
-      </tr><?php endforeach ?></tbody>
-    </table></div>
+    <ul class="lv-list lv-mine" aria-label="My leave requests">
+      <?php foreach ($p['items'] as $r): $id = (int) $r['id']; $cxl = $r['status'] === 'approved' && $r['cancel_requested_at']; $ed = array_values(array_filter($history[$id] ?? [], static fn ($h) => $h['action'] === 'edit')); $le = $ed ? end($ed) : null; $detail = url(LC::url($id)); ?>
+      <li class="lv-item">
+        <div class="lv-what">
+          <div class="lv-line"><span class="pill pill-<?= e($r['color']) ?>"><?= e($r['type_name']) ?></span> <a class="b" href="<?= e($detail) ?>"><?= e(LC::range($r['start_date'], $r['end_date'])) ?></a><?= $r['half_day'] ? ' <span class="pill pill-gray">Half day</span>' : '' ?> <span class="lv-days"><?= e(LS::num($r['days'])) ?> day<?= (float) $r['days'] == 1 ? '' : 's' ?></span></div>
+          <?php if ($r['reason']): ?><p class="lv-reason"><?= icon('message', 'sm') ?> <span><?= e(str_limit($r['reason'], 120)) ?></span></p><?php endif ?>
+          <?php if ($r['status'] === 'pending'): ?><p class="lv-decision"><?= icon('clock', 'sm') ?> Waiting for <?= e($manager ?? 'HR') ?> · applied <?= e(ago($r['created_at'])) ?></p>
+          <?php elseif ($r['status'] === 'cancelled'): ?><p class="lv-decision lv-d-cancelled">Cancelled<?= $r['updated_at'] ? ' '.e(fdate($r['updated_at'], 'd M')) : '' ?></p>
+          <?php else: ?><p class="lv-decision lv-d-<?= e($r['status']) ?>"><?= e(ucfirst($r['status'])) ?><?= $r['reviewer'] ? ' by '.e($r['reviewer']) : '' ?><?= $r['reviewed_at'] ? ' on '.e(fdate($r['reviewed_at'], 'd M')) : '' ?><?php if ($r['review_note']): ?>: <q><?= e(str_limit($r['review_note'], 160)) ?></q><?php endif ?></p><?php endif ?>
+          <?php if ($cxl): ?><p class="lv-decision lv-d-cancelled"><?= icon('clock', 'sm') ?> Cancellation requested, waiting for <?= e($manager ?? 'HR') ?></p><?php endif ?>
+          <?php if ($le): ?><div class="xs lv-edited"><?= icon('edit', 'sm') ?> Edited by <?= e($le['actor'] ?? 'HR') ?> on <?= e(fdate($le['created_at'], 'd M')) ?></div><?php endif ?>
+        </div>
+        <div class="lv-side">
+          <div><?= badge($r['status']) ?><?= $cxl ? ' <span class="pill pill-peach">Cancel requested</span>' : '' ?></div>
+          <div class="lv-acts">
+            <?php if ($r['status'] === 'pending' || ($r['status'] === 'approved' && !(int) $r['needs_approval'] && $r['start_date'] > $today)): ?><form method="post" action="<?= e(url('/hr/leave/'.$id.'/cancel')) ?>" data-confirm="<?= $r['status'] === 'pending' ? 'Withdraw this leave request?' : 'Cancel this leave? The days go back to your balance.' ?>"><?= csrf_field() ?><button class="btn sm ghost"><?= icon('x', 'sm') ?> <?= $r['status'] === 'pending' ? 'Withdraw' : 'Cancel' ?></button></form>
+            <?php elseif ($r['status'] === 'approved' && $r['start_date'] > $today && !$cxl): ?><button type="button" class="btn sm ghost" data-modal="lv-askcxl" data-lv-act="<?= e(url('/hr/leave/'.$id.'/cancel-request')) ?>" data-lv="<?= e(LC::dialogData($r + ['name' => ''])) ?>"><?= icon('x', 'sm') ?> Request cancellation</button><?php endif ?>
+            <a class="btn sm ghost" href="<?= e($detail) ?>"><?= icon('history', 'sm') ?> Details</a>
+          </div>
+        </div>
+      </li>
+      <?php endforeach ?>
+    </ul>
     <?= pager($p) ?>
-    <?php foreach ($p['items'] as $r): if (!empty($history[(int) $r['id']])): ?><?= partial('hr::leave/_history', ['r' => $r, 'events' => $history[(int) $r['id']]]) ?><?php endif; endforeach ?>
     <?php endif ?>
   </div>
   <div class="stack">
     <?php if ($paidType): ?>
     <div class="card">
-      <div class="hr-side-head"><span class="hr-ic mint"><?= icon('umbrella') ?></span><div><h4 class="mb0">How <?= e($paidType['name']) ?> works</h4><div class="xs muted">Builds up every month</div></div></div>
+      <div class="hr-side-head"><span class="hr-ic mint"><?= icon('umbrella') ?></span><div><h4 class="mb0">How <?= e($paidType['name']) ?> works</h4><div class="xs muted"><?= $paidType['allowance'] === 'monthly' ? 'Builds up every month' : 'Yearly allowance' ?></div></div></div>
       <p class="small mb0">Fixed holidays are off for everyone. You also get <b><?= e(LS::num($paidType['monthly_accrual'] ?: $paidType['annual_quota'])) ?> day(s) of <?= e($paidType['name']) ?></b> <?= $paidType['allowance'] === 'monthly' ? 'every month' : 'a year' ?> for any festival (Eid, Christmas, New Year...), personal work or a medical emergency.<?= $shortageOn ? ' If you work fewer hours than expected in a month, the shortage is taken from this balance first so your pay is not cut.' : '' ?></p>
       <div class="flex wrap mt"><a class="btn sm soft" href="<?= e(url('/hr/leave/ledger')) ?>"><?= icon('list', 'sm') ?> See my ledger</a></div>
     </div>
@@ -72,11 +83,4 @@ $extra = '<div class="tile bg-lemon"><span class="tile-ic">'.icon('clock').'</sp
     <div class="form-actions"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary"><?= icon('send', 'sm') ?> Submit request</button></div>
   </form>
 </dialog>
-<dialog class="modal" id="lv-askcxl" aria-labelledby="lv-askcxl-t">
-  <div class="modal-head"><div><h3 id="lv-askcxl-t">Request cancellation</h3><p class="xs muted mb0" data-lv-summary></p></div><button type="button" class="btn icon sm ghost" data-close aria-label="Close"><?= icon('x', 'sm') ?></button></div>
-  <form class="modal-body form" method="post" action="#"><?= csrf_field() ?>
-    <p class="small muted mb0">Your leave stays approved until <?= e($manager ?? 'HR') ?> confirms. Once confirmed, the days go back to your balance.</p>
-    <div class="field"><label for="lv-ac-reason">Reason *</label><textarea id="lv-ac-reason" name="cancel_reason" rows="3" maxlength="500" required placeholder="e.g. Trip postponed, I will be working these days"></textarea></div>
-    <div class="form-actions"><button type="button" class="btn ghost" data-close>Keep leave</button><button class="btn primary"><?= icon('send', 'sm') ?> Send request</button></div>
-  </form>
-</dialog>
+<?= partial('hr::leave/_dialogs', ['mine' => true, 'manager' => $manager]) ?>

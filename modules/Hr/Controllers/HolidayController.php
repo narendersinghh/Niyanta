@@ -1,7 +1,7 @@
 <?php
 namespace Modules\Hr\Controllers;
 use Core\{Audit, Controller, DB, Response, Session, Settings, ValidationException};
-use Modules\Hr\Services\{HolidayService, LeaveService};
+use Modules\Hr\Services\{HolidayService, LeaveChanges, LeaveService};
 
 /** Fixed holidays (company-wide days off), optional festival days (OH pool or Paid Leave), next-year lists and AI date checks. */
 final class HolidayController extends Controller {
@@ -38,32 +38,41 @@ final class HolidayController extends Controller {
     $d = $this->data(null);
     $id = DB::insert('holidays', $d);
     Audit::log('hr.holiday.create', 'holiday', $id, $d);
-    $this->flash(($d['optional'] ? 'Optional festival day' : 'Fixed holiday').' added.');
+    $n = $d['optional'] ? 0 : LeaveChanges::recount($d['holiday_date'], $d['holiday_date'], 'Fixed holiday added: '.$d['name'].' on '.fdate($d['holiday_date']).'.', $this->user());
+    $this->flash(($d['optional'] ? 'Optional festival day' : 'Fixed holiday').' added.'.$this->recounted($n));
     return $this->redirect('/hr/holidays?year='.substr($d['holiday_date'], 0, 4)); }
 
   public function update(int $id): Response {
-    $this->findOr404('holidays', $id);
+    $old = $this->findOr404('holidays', $id);
     $d = $this->data($id);
     DB::update('holidays', $d, 'id=?', [$id]);
     Audit::log('hr.holiday.update', 'holiday', $id, $d);
-    $this->flash('Holiday updated.');
+    $n = 0;
+    if ($old['holiday_date'] !== $d['holiday_date'] || (int) $old['optional'] !== (int) $d['optional']) {
+      $why = 'Holiday '.$d['name'].' changed: '.fdate($old['holiday_date']).((int) $old['optional'] ? ' (optional)' : '').' to '.fdate($d['holiday_date']).($d['optional'] ? ' (optional)' : '').'.';
+      $n = LeaveChanges::recount($old['holiday_date'], $old['holiday_date'], $why, $this->user()) + LeaveChanges::recount($d['holiday_date'], $d['holiday_date'], $why, $this->user()); }
+    $this->flash('Holiday updated.'.$this->recounted($n));
     return $this->redirect('/hr/holidays?year='.substr($d['holiday_date'], 0, 4)); }
 
   public function destroy(int $id): Response {
     $h = $this->findOr404('holidays', $id);
     DB::delete('holidays', 'id=?', [$id]);
     Audit::log('hr.holiday.delete', 'holiday', $id, ['name' => $h['name'], 'date' => $h['holiday_date']]);
-    $this->flash('Holiday removed.');
+    $n = (int) $h['optional'] ? 0 : LeaveChanges::recount($h['holiday_date'], $h['holiday_date'], 'Fixed holiday removed: '.$h['name'].' on '.fdate($h['holiday_date']).' is a working day now.', $this->user());
+    $this->flash('Holiday removed.'.$this->recounted($n));
     return $this->redirect('/hr/holidays?year='.substr($h['holiday_date'], 0, 4)); }
+  private function recounted(int $n): string { return $n ? ' Leave days of '.$n.' request'.($n === 1 ? ' was' : 's were').' recounted and the employees notified.' : ''; }
+
   /** Create next year's list from this year's (fixed dates copied, movable festivals from known dates or the AI). */
   public function nextYear(): Response {
     $year = $this->request->int('year', (int) date('Y') + 1);
     if ($year < 2000 || $year > (int) date('Y') + 2) { $this->abort(422, 'Invalid year.'); }
     $r = HolidayService::createYear($year, true, $this->uid());
     if (!$r['source']) { $this->flash('There are no holidays in '.($year - 1).' to copy from. Add them by hand first.', 'error'); return $this->redirect('/hr/holidays?year='.$year); }
+    $rc = (int) ($r['recounted'] ?? 0);
     $msg = $r['created'] ? 'Created '.$r['created'].' holiday(s) for '.$year.($r['ai'] ? ', '.$r['ai'].' festival date(s) from AI' : '').'.' : 'All '.($year - 1).' holidays already exist in '.$year.'.';
     if ($r['unverified']) { $msg .= ' '.$r['unverified'].' festival date(s) are copied from last year and marked "Check date"'.($r['error'] ? ' (AI: '.$r['error'].')' : '').'.'; }
-    $this->flash($msg);
+    $this->flash($msg.$this->recounted($rc));
     return $this->redirect('/hr/holidays?year='.$year); }
 
   /** Ask the AI for the correct dates of this year's holidays and keep the proposal for review. */
@@ -87,5 +96,6 @@ final class HolidayController extends Controller {
     $map = [];
     foreach ($f['rows'] as $r) { if ($r['new'] && in_array((int) $r['id'], $pick, true)) { $map[(int) $r['id']] = $r['new']; } }
     $n = HolidayService::applyDates($map, $year, $this->uid());
-    $this->flash($n ? "Updated $n holiday date(s) for $year." : 'No dates changed.');
+    $rc = $n ? LeaveChanges::recount("$year-01-01", "$year-12-31", 'Holiday dates corrected for '.$year.'.', $this->user()) : 0;
+    $this->flash(($n ? "Updated $n holiday date(s) for $year." : 'No dates changed.').$this->recounted($rc));
     return $this->redirect('/hr/holidays?year='.$year); } }

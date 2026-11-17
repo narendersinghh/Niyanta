@@ -42,10 +42,15 @@ echo partial('partials/head', get_defined_vars());
       if ($c === $prev) { $next = $flat[$k + 1][2] ?? ''; $at = (int) array_search($c, $pal, true); for ($j = 1; $j < 6; $j++) { $cand = $pal[($at + $j) % 6]; if ($cand !== $prev && $cand !== $next) { $c = $cand; break; } } }
       $navColor[$sec.'.'.$i] = $prev = $c; } ?>
     <?php foreach ($nav as $sec => $items): [$label] = Modules::SECTIONS[$sec]; if ($sec === 'clients' && !feature_on('clients')) { $label = 'Billing'; }
-      $on = static fn (array $n): bool => $isActive($n['url']) || (bool) array_filter($n['also'] ?? [], $isActive);
+      /* only the longest matching url is highlighted (Leave approvals at /hr/leave/approvals, not also Leave at /hr/leave) */
+      $mlen = static fn (array $n): int => max(0, ...array_map(static fn ($x) => $isActive($x) ? strlen((string) parse_url($x, PHP_URL_PATH)) : 0, [$n['url'], ...($n['also'] ?? [])]));
+      $navBest ??= max(0, ...array_map($mlen, array_merge(...array_values($nav))));
+      $on = static fn (array $n): bool => $navBest > 0 && $mlen($n) === $navBest;
       $hasActive = (bool) array_filter($items, $on);
       $links = '';
-      foreach ($items as $i => $n) { $links .= '<a href="'.e(url($n['url'])).'" class="'.($on($n) ? 'active' : '').'"><span class="ni" style="--c:'.e($navColor[$sec.'.'.$i] ?? $n['color']).'">'.icon($n['icon'] ?? 'grid').'</span> '.e($n['label']).'</a>'; } ?>
+      foreach ($items as $i => $n) {
+        $nb = 0; if (isset($n['badge']) && is_callable($n['badge'])) { try { $nb = (int) ($n['badge'])(); } catch (\Throwable $ex) { error_log('nav badge: '.$ex->getMessage()); } }
+        $links .= '<a href="'.e(url($n['url'])).'" class="'.($on($n) ? 'active' : '').'"><span class="ni" style="--c:'.e($navColor[$sec.'.'.$i] ?? $n['color']).'">'.icon($n['icon'] ?? 'grid').'</span> '.e($n['label']).($nb > 0 ? ' <span class="nav-badge" title="'.$nb.' waiting">'.($nb > 99 ? '99+' : $nb).'</span>' : '').'</a>'; } ?>
       <?php if ($label): ?><div class="nav-group"><?= e($label) ?></div><?php endif ?><?= $links ?>
     <?php endforeach ?>
   </nav>

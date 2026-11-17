@@ -69,7 +69,7 @@ return [
     assert_eq(4.0, (float) DB::value('SELECT used FROM leave_balances WHERE user_id=? AND leave_type_id=? AND year=2031', [$emp, hr_oh()]), 'no double count');
     assert_true((bool) DB::value("SELECT 1 FROM notifications WHERE user_id=? AND title LIKE 'Your leave was approved%'", [$emp]), 'requester notified');
     act_as($hr);
-    assert_eq(302, http('POST', "/hr/leave/$foreign/review", ['decision' => 'reject'])->status(), 'HR reviews anyone');
+    assert_eq(302, http('POST', "/hr/leave/$foreign/review", ['decision' => 'reject', 'review_note' => 'Not this week'])->status(), 'HR reviews anyone');
     assert_eq('rejected', DB::value('SELECT status FROM leave_requests WHERE id=?', [$foreign])); },
   'approved leave days are prorated across ranges' => function () {
     ['emp' => $emp] = hr_fixture();
