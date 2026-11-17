@@ -20,23 +20,25 @@ return [
     $h = PayrollService::computeSlip(['comp' => ['pay_type' => 'hourly', 'amount' => 100], 'wd' => 0, 'unpaid' => 0, 'hours' => 150, 'components' => [], 'reimb' => 0, 'hx' => $hx(150.0), 'grace' => 1.5]);
     assert_eq(0.0, (float) $h['regularised_hours'], 'never for hourly pay'); },
 
-  'regularise: company default 90 min, per-employee custom or off from the salary form, audit-logged' => function () {
+  'regularise: company default 90 min; stored once per employee from the salary form (custom or off), audit-logged, used when generating' => function () {
     Settings::set('payroll.grace_minutes', '');
-    assert_eq(90, PayrollService::graceMinutes(['grace_minutes' => null]), 'default');
+    assert_eq(90, PayrollService::graceMinutes(null), 'default');
     Settings::set('payroll.grace_minutes', '60');
-    assert_eq([60, 30, 0], [PayrollService::graceMinutes(['grace_minutes' => null]), PayrollService::graceMinutes(['grace_minutes' => 30]), PayrollService::graceMinutes(['grace_minutes' => 0])], 'company, custom, off');
+    assert_eq([60, 30, 0], [PayrollService::graceMinutes(null), PayrollService::graceMinutes(30), PayrollService::graceMinutes(0)], 'company, custom, off');
     Settings::set('payroll.grace_minutes', '90');
     $hr = make_user('hr', 'hr@regunit.test', ['name' => 'Zz Reg HR']); $emp = make_user('employee', 'emp@regunit.test', ['name' => 'Zz Reg Emp']);
     act_as($hr);
-    http('POST', '/payroll/employees/'.$emp.'/compensation', ['pay_type' => 'monthly', 'amount' => '20000', 'effective_from' => date('Y-m-01'), 'grace_mode' => 'custom', 'grace_minutes' => '45']);
-    $c = DB::first('SELECT id, grace_minutes FROM compensations WHERE user_id=?', [$emp]);
-    assert_eq(45, (int) $c['grace_minutes'], 'custom saved with the revision');
-    assert_true(str_contains(http('GET', '/payroll/employees/'.$emp)->body(), 'Time regularisation'), 'card on the employee page');
-    http('POST', '/payroll/compensations/'.$c['id'].'/grace', ['grace_mode' => 'off']);
-    assert_eq(0, (int) DB::value('SELECT grace_minutes FROM compensations WHERE id=?', [$c['id']]), 'turned off');
-    http('POST', '/payroll/compensations/'.$c['id'].'/grace', ['grace_mode' => 'default']);
-    assert_true(DB::value('SELECT grace_minutes FROM compensations WHERE id=?', [$c['id']]) === null, 'back to the company setting');
-    assert_true((bool) DB::value("SELECT 1 FROM audit_logs WHERE action='payroll.compensation.grace' LIMIT 1"), 'audit');
+    http('POST', '/payroll/employees/'.$emp.'/compensation', ['pay_type' => 'monthly', 'amount' => '20000', 'effective_from' => date('Y-m-01', strtotime('-1 month')), 'grace_mode' => 'custom', 'grace_minutes' => '45']);
+    assert_eq(45, PayrollService::graceSetting($emp), 'saved for the employee');
+    assert_true(str_contains(http('GET', '/payroll/employees/'.$emp)->body(), 'Time regularisation'), 'shown on the employee page');
+    http('POST', '/payroll/employees/'.$emp.'/compensation', ['pay_type' => 'monthly', 'amount' => '21000', 'effective_from' => date('Y-m-01'), 'grace_mode' => 'off']);
+    assert_eq(0, PayrollService::graceSetting($emp), 'turned off with the next salary edit');
+    assert_eq(2, (int) DB::value('SELECT COUNT(*) FROM compensations WHERE user_id=?', [$emp]), 'one setting, two revisions');
+    assert_true((bool) DB::value("SELECT 1 FROM audit_logs WHERE action='payroll.grace.update' AND entity_id=? LIMIT 1", [$emp]), 'audit');
+    http('POST', '/payroll/employees/'.$emp.'/compensation', ['pay_type' => 'monthly', 'amount' => '22000', 'effective_from' => date('Y-m-02'), 'grace_mode' => 'custom']);
+    assert_eq(2, (int) DB::value('SELECT COUNT(*) FROM compensations WHERE user_id=?', [$emp]), 'nothing saved on a validation error');
+    PayrollService::setGrace($emp, null);
+    assert_true(PayrollService::graceSetting($emp) === null, 'back to the company setting');
     act_as($emp);
-    assert_eq(403, http('POST', '/payroll/compensations/'.$c['id'].'/grace', ['grace_mode' => 'off'])->status(), 'employees cannot change it'); },
+    assert_eq(403, http('POST', '/payroll/employees/'.$emp.'/compensation', ['pay_type' => 'monthly', 'amount' => '1', 'effective_from' => date('Y-m-01'), 'grace_mode' => 'off'])->status(), 'employees cannot change it'); },
 ];

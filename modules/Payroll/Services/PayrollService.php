@@ -83,11 +83,24 @@ final class PayrollService {
   /** Company time regularisation in minutes (setting payroll.grace_minutes, 0 = off). */
   public static function graceDefault(): int { $v = Settings::get('payroll.grace_minutes', 90); return $v === null || $v === '' ? 90 : max(0, min(1440, (int) $v)); }
 
-  /** Minutes of a monthly shortage regularised for one salary revision: its own grace_minutes (0 = off) or the company setting when NULL. */
-  public static function graceMinutes(array $comp): int { return ($comp['grace_minutes'] ?? null) === null || $comp['grace_minutes'] === '' ? self::graceDefault() : max(0, min(1440, (int) $comp['grace_minutes'])); }
+  /** Employee time regularisation as stored (payroll_employee_settings): null = company setting, 0 = off, N minutes. */
+  public static function graceSetting(int $uid): ?int { $v = DB::value('SELECT grace_minutes FROM payroll_employee_settings WHERE user_id=?', [$uid]); return $v === null || $v === false ? null : (int) $v; }
 
-  /** Short label of a revision's regularisation: "Company (90 min)", "60 min", "Off". */
-  public static function graceLabel(array $comp): string { $g = $comp['grace_minutes'] ?? null; return $g === null || $g === '' ? 'Company ('.(self::graceDefault() ? self::graceDefault().' min' : 'off').')' : ((int) $g === 0 ? 'Off' : (int) $g.' min'); }
+  /** Stored settings of many employees: [uid => minutes|null], one query. */
+  public static function graceSettings(array $uids): array { return $uids ? array_map(static fn ($v) => $v === null ? null : (int) $v, DB::pairs('SELECT user_id, grace_minutes FROM payroll_employee_settings WHERE user_id IN '.DB::in($uids), $uids)) : []; }
+
+  /** Minutes regularised for a stored setting (null = company setting). */
+  public static function graceMinutes(?int $setting): int { return $setting === null ? self::graceDefault() : max(0, min(1440, $setting)); }
+
+  /** Short label: "Company setting (90 min)", "60 min", "Off". */
+  public static function graceLabel(?int $setting): string { return $setting === null ? 'Company setting ('.(self::graceDefault() ? self::graceDefault().' min' : 'off').')' : ($setting === 0 ? 'Off' : $setting.' min'); }
+
+  /** Save an employee's setting (null = company setting); audit-logged when it changes. */
+  public static function setGrace(int $uid, ?int $minutes): void {
+    $before = self::graceSetting($uid);
+    if ($before === $minutes && ($minutes !== null || !DB::value('SELECT 1 FROM payroll_employee_settings WHERE user_id=?', [$uid]))) { return; }
+    DB::query('INSERT INTO payroll_employee_settings (user_id, grace_minutes, updated_by, updated_at) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE grace_minutes=VALUES(grace_minutes), updated_by=VALUES(updated_by), updated_at=VALUES(updated_at)', [$uid, $minutes, Auth::id(), date('Y-m-d H:i:s')]);
+    if ($before !== $minutes) { Audit::log('payroll.grace.update', 'user', $uid, ['before' => $before, 'after' => $minutes]); } }
 
   public static function flexMode(): string { $m = (string) Settings::get('payroll.flex_mode', 'monthly'); return isset(self::FLEX[$m]) ? $m : 'monthly'; }
 
@@ -379,6 +392,7 @@ final class PayrollService {
       /* Hours-based pay needs time tracking: hourly pay is capped by the schedule, monthly salary only while "from tracked time" is on. */
       $byHours = array_merge(self::hoursPay() ? $hourly : [], self::trackedSalary() ? $monthly : []);
       $hx = self::hoursBreakdown($byHours, $from, $to);
+      $grace = self::graceSettings($monthly);
       $hpd = $byHours ? self::hoursPerDay($byHours) : [];
       $plain = array_values(array_diff($hourly, $byHours));
       $hours = self::approvedHours($plain, $from, $to);
@@ -396,7 +410,7 @@ final class PayrollService {
         $x = $hx[$u] ?? null;
         $calc = ['comp' => ['pay_type' => $c['pay_type'], 'amount' => (float) $c['amount']], 'wd' => $ownDays[$u] ?? $wd, 'unpaid' => $unpaid[$u] ?? 0.0, 'hours' => $x ? (float) $x['worked'] : ($hours[$u] ?? 0.0),
           'components' => array_map(static fn ($k) => array_diff_key($k, ['user_id' => 1]), [...$global, ...($personal[$u] ?? [])]), 'reimb' => array_sum(array_map(static fn ($r) => (float) $r['amount'], $mine)), 'hx' => $x, 'hpd' => $hpd[$u] ?? null,
-          'grace' => $x && $c['pay_type'] === 'monthly' ? round(self::graceMinutes($c) / 60, 4) : 0.0];
+          'grace' => $x && $c['pay_type'] === 'monthly' ? round(self::graceMinutes($grace[$u] ?? null) / 60, 4) : 0.0];
         $edits = $discardEdits ? [] : ($prev[$u]['edits'] ?? []);
         $s = self::computeSlip($calc, $edits, self::coverFor($calc, $u, $run['period_month'], true, !empty($prev[$u]['cover']['hours'])));
         $flagged += (int) $s['flagged']; $kept += (int) $s['edited']; $covered += (int) ($s['shortage_cover'] !== null);

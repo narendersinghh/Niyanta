@@ -31,6 +31,7 @@ final class CompensationController extends Controller {
     $current = null;
     foreach ($history as $h) { if ($h['effective_from'] <= date('Y-m-d')) { $current = $h; break; } }
     $personal = DB::all('SELECT * FROM pay_components WHERE user_id=? ORDER BY kind, name', [$id]);
+    $grace = \Modules\Payroll\Services\PayrollService::graceSetting($id);
     $global = DB::all('SELECT * FROM pay_components WHERE user_id IS NULL AND active=1 ORDER BY kind, name');
     $slips = DB::all('SELECT s.id, s.net, s.gross, r.period_month, r.status FROM payslips s JOIN payroll_runs r ON r.id=s.run_id WHERE s.user_id=? ORDER BY r.period_month DESC LIMIT 6', [$id]);
     $sched = self::schedules([$id])[$id] ?? null;
@@ -38,36 +39,28 @@ final class CompensationController extends Controller {
     if ($sched) { $cls = 'Modules\\Hr\\Services\\LeaveService'; $days = ['own' => $cls::workingDaysFor($id, date('Y-m-01'), date('Y-m-t')), 'company' => $cls::workingDays(date('Y-m-01'), date('Y-m-t'))]; }
     $est = null;
     if ($current) { try { $est = \Modules\Payroll\Services\PayrollService::estimate($current, date('Y-m-01'), date('Y-m-t')); } catch (\Throwable $e) { error_log('Payroll: estimate failed: '.$e->getMessage()); } }
-    return $this->view('payroll::employees/show', ['title' => $emp['name'].' · Compensation', 'emp' => $emp, 'history' => $history, 'current' => $current, 'personal' => $personal, 'global' => $global, 'slips' => $slips, 'sched' => $sched, 'days' => $days, 'est' => $est, 'styles' => ['css/payroll.css'], 'scripts' => ['js/payroll.js']]); }
+    return $this->view('payroll::employees/show', ['title' => $emp['name'].' · Compensation', 'emp' => $emp, 'history' => $history, 'current' => $current, 'grace' => $grace, 'personal' => $personal, 'global' => $global, 'slips' => $slips, 'sched' => $sched, 'days' => $days, 'est' => $est, 'styles' => ['css/payroll.css'], 'scripts' => ['js/payroll.js']]); }
 
   public function storeCompensation(int $id): Response {
     $emp = $this->findOr404('users', $id);
     $d = $this->validate(['pay_type' => 'required|in:monthly,hourly', 'amount' => 'required|numeric|min:0.01|max:999999999', 'effective_from' => 'required|date', 'note' => 'nullable|max:255'] + self::graceRules(), ['pay_type' => 'Pay type', 'effective_from' => 'Effective date', 'grace_minutes' => 'Regularisation minutes']);
+    if ($d['pay_type'] === 'monthly') { self::grace($d); } /* validates custom minutes before anything is saved */
     if (DB::value('SELECT 1 FROM compensations WHERE user_id=? AND effective_from=?', [$id, $d['effective_from']])) { throw new ValidationException(['effective_from' => 'A revision already exists for this date. Delete it first or choose another date.']); }
-    $cid = DB::insert('compensations', ['user_id' => $id, 'pay_type' => $d['pay_type'], 'amount' => round((float) $d['amount'], 2), 'grace_minutes' => self::grace($d), 'effective_from' => $d['effective_from'], 'note' => $d['note'], 'created_by' => $this->uid(), 'created_at' => date('Y-m-d H:i:s')]);
-    Audit::log('payroll.compensation.create', 'user', $id, ['compensation_id' => $cid, 'pay_type' => $d['pay_type'], 'amount' => round((float) $d['amount'], 2), 'grace_minutes' => self::grace($d), 'effective_from' => $d['effective_from']]);
+    $cid = DB::insert('compensations', ['user_id' => $id, 'pay_type' => $d['pay_type'], 'amount' => round((float) $d['amount'], 2), 'effective_from' => $d['effective_from'], 'note' => $d['note'], 'created_by' => $this->uid(), 'created_at' => date('Y-m-d H:i:s')]);
+    Audit::log('payroll.compensation.create', 'user', $id, ['compensation_id' => $cid, 'pay_type' => $d['pay_type'], 'amount' => round((float) $d['amount'], 2), 'effective_from' => $d['effective_from']]);
+    if ($d['pay_type'] === 'monthly' && array_key_exists('grace_mode', $d) && $d['grace_mode'] !== null) { \Modules\Payroll\Services\PayrollService::setGrace($id, self::grace($d)); }
     $this->flash('Compensation revision saved for '.$emp['name'].'.');
     return $this->redirect('/payroll/employees/'.$id); }
 
   private static function graceRules(): array { return ['grace_mode' => 'nullable|in:default,custom,off', 'grace_minutes' => 'nullable|integer|min:1|max:1440']; }
 
-  /** Time regularisation of a revision from the form: NULL company setting, 0 off, N custom minutes. */
+  /** Employee time regularisation from the salary form: NULL company setting, 0 off, N custom minutes. */
   private static function grace(array $d): ?int {
     $m = $d['grace_mode'] ?? 'default';
     if ($m === 'off') { return 0; }
     if ($m !== 'custom') { return null; }
     if (empty($d['grace_minutes'])) { throw new ValidationException(['grace_minutes' => 'Enter the minutes to regularise.']); }
     return (int) $d['grace_minutes']; }
-
-  /** Change the time regularisation of a salary revision in place (HR, audit-logged); draft runs pick it up when regenerated. */
-  public function updateGrace(int $id): Response {
-    $c = $this->findOr404('compensations', $id);
-    $d = $this->validate(self::graceRules(), ['grace_minutes' => 'Regularisation minutes']);
-    $g = self::grace($d);
-    DB::update('compensations', ['grace_minutes' => $g], 'id=?', [$id]);
-    Audit::log('payroll.compensation.grace', 'user', (int) $c['user_id'], ['compensation_id' => $id, 'before' => $c['grace_minutes'], 'after' => $g]);
-    $this->flash('Time regularisation saved. Regenerate a draft payroll run to apply it.');
-    return $this->redirect('/payroll/employees/'.$c['user_id']); }
 
   public function destroyCompensation(int $id): Response {
     $c = $this->findOr404('compensations', $id);
