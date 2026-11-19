@@ -252,3 +252,4 @@ input[type=file]::file-selector-button{font:inherit;font-weight:600;font-size:.8
 .feat-switch.is-off .feature-ic{filter:grayscale(1);opacity:.6}
 .feature-links{display:flex;gap:.7rem;flex-wrap:wrap;margin-top:3px}
 .feature-links a{font-size:.74rem;font-weight:650;display:inline-flex;align-items:center;gap:.25rem}
+.spin-dot{display:inline-block;width:10px;height:10px;border-radius:50%;border:2px solid var(--primary);border-right-color:transparent;vertical-align:-1px;margin-right:4px;animation:spin .8s linear infinite}

@@ -38,3 +38,6 @@ if(df)d.addEventListener("click",e=>{const b=e.target.closest("[data-del-url]");
 /* feature on/off switches (Settings › Features and each feature's settings header): confirm, revert when cancelled */
 d.addEventListener("change",e=>{const c=e.target;if(!c.matches("[data-feature-switch]"))return;const m=c.checked?c.dataset.confirmOn:c.dataset.confirmOff;if(m&&!confirm(m)){c.checked=!c.checked;return}c.form.requestSubmit()});
 })();
+(()=>{const pre=document.querySelector("[data-update-poll]");if(!pre)return;const url=pre.dataset.updatePoll;let fails=0;const esc=t=>t.replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+const tick=()=>fetch(url,{headers:{Accept:"application/json"},credentials:"same-origin"}).then(r=>{if(!r.ok)throw 0;return r.json()}).then(j=>{fails=0;pre.innerHTML=j.log.trimEnd().split("\n").map(l=>'<span class="'+(/FAILED/.test(l)?"err":/successfully|verified/.test(l)?"ok":"")+'">'+esc(l)+"</span>").join("\n");pre.scrollTop=pre.scrollHeight;if(j.status!=="running"){location.reload();return}setTimeout(tick,2000)}).catch(()=>{fails++;setTimeout(tick,Math.min(15000,2000*fails))});
+setTimeout(tick,1500)})();

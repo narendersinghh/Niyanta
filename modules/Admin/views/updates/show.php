@@ -15,7 +15,10 @@ $secs = $u['finished_at'] ? max(0, strtotime($u['finished_at']) - strtotime($u['
   <div class="card"><div class="card-head"><h3>Details</h3></div>
     <dl class="kv"><dt>Channel</dt><dd><?= e($u['channel']) ?></dd><dt>Reference</dt><dd class="mono"><?= e($u['ref'] ?? '-') ?></dd><dt>Started</dt><dd><?= e(fdatetime($u['started_at'])) ?> by <?= e($u['by_name'] ?? 'system') ?></dd><dt>Finished</dt><dd><?= e(fdatetime($u['finished_at'])) ?></dd></dl></div>
   <div class="card"><div class="card-head"><h3>Step log</h3><button class="btn sm ghost" data-copy="<?= e((string) $u['log']) ?>"><?= icon('copy', 'sm') ?> Copy</button></div>
-    <pre class="log-view"><?php foreach ($lines as $l): ?><span class="<?= str_contains($l, 'FAILED') ? 'err' : (str_contains($l, 'successfully') || str_contains($l, 'verified') ? 'ok' : '') ?>"><?= e($l) ?></span>
+    <?php $running = $u['status'] === 'running'; $stale = $running && strtotime($u['started_at']) < time() - 2700; ?>
+    <?php if ($running && !$stale): ?><p class="small muted mb"><span class="spin-dot" aria-hidden="true"></span> Updating. You can leave this page open; it refreshes by itself and shows the result when done.</p><?php endif ?>
+    <?php if ($stale): ?><div class="alert warn mb"><?= icon('alert', 'sm') ?> This update has been running for more than 45 minutes, so it probably stopped (the server ended the process). If the site shows a maintenance page, open Settings › Updates and apply the update again; the database backup from before it is on the Backups page.</div><?php endif ?>
+    <pre class="log-view"<?= $running && !$stale ? ' data-update-poll="'.e(url('/admin/updates/'.$u['id'].'?format=json')).'"' : '' ?>><?php foreach ($lines as $l): ?><span class="<?= str_contains($l, 'FAILED') ? 'err' : (str_contains($l, 'successfully') || str_contains($l, 'verified') ? 'ok' : '') ?>"><?= e($l) ?></span>
 <?php endforeach ?></pre>
     <?php if ($u['status'] === 'rolled_back'): ?><div class="alert warn mt mb0"><?= icon('alert', 'sm') ?> The code was rolled back. If a migration ran before the failure, restore the pre-update backup from the Backups page.</div><?php endif ?></div>
 </div>

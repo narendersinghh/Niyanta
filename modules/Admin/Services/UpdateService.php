@@ -103,11 +103,9 @@ final class UpdateService {
     return [$code, $saveTo ? '' : (string) $body]; }
 
   /** Download and install the update found by the last check. */
-  public static function apply(?int $by = null, bool $force = false): array {
-    $c = self::lastCheck();
-    if (empty($c['url']) || !empty($c['error'])) { throw new \RuntimeException('Check for updates first.'); }
-    if (empty($c['available']) && !$force) { throw new \RuntimeException('You are already on the latest version.'); }
-    $id = self::start($c['channel'], (string) $c['version'], (string) $c['ref'], $by);
+  public static function apply(?int $by = null, bool $force = false, ?int $id = null): array {
+    $c = self::ready($force);
+    $id ??= self::start($c['channel'], (string) $c['version'], (string) $c['ref'], $by);
     $zip = self::dir().'/'.$id.'.zip';
     $log = self::logger($id);
     try {
@@ -142,9 +140,19 @@ final class UpdateService {
     if (count($lines) === 1 && preg_match('/^([0-9a-f]{64})\b/i', $lines[0], $m)) { return strtolower($m[1]); }
     throw new \RuntimeException('The checksum file does not list '.$package.'.'); }
 
+  /** The last check if an update can be applied now (throws a readable reason otherwise). */
+  public static function ready(bool $force = false): array {
+    $c = self::lastCheck();
+    if (empty($c['url']) || !empty($c['error'])) { throw new \RuntimeException('Check for updates first.'); }
+    if (empty($c['available']) && !$force) { throw new \RuntimeException('You are already on the latest version.'); }
+    return $c; }
+
+  /** Create the update_logs row (status running) so the page can follow it while the work runs after the response. */
+  public static function begin(string $channel, ?string $to, ?string $ref, ?int $by): int { $id = self::start($channel, $to, $ref, $by); self::logger($id)('Update started; it continues in the background (this page refreshes by itself).'); return $id; }
+
   /** Offline/manual update from a local .zip (also used by tests). */
-  public static function applyLocal(string $zipPath, ?int $by = null, bool $force = false, string $label = 'upload'): array {
-    $id = self::start('upload', null, mb_substr(basename($label), 0, 120), $by);
+  public static function applyLocal(string $zipPath, ?int $by = null, bool $force = false, string $label = 'upload', ?int $id = null): array {
+    $id ??= self::start('upload', null, mb_substr(basename($label), 0, 120), $by);
     return self::run($id, $zipPath, ['channel' => 'upload', 'ref' => $label], $by, $force); }
 
   private static function start(string $channel, ?string $to, ?string $ref, ?int $by): int {
@@ -177,8 +185,9 @@ final class UpdateService {
       $need = $pkg['bytes'] * 2 + 52428800;
       if ($free !== false && $free < $need) { throw new \RuntimeException('Not enough disk space: '.BackupService::size((int) $free).' free, about '.BackupService::size($need).' needed.'); }
       $log('Disk space OK ('.($free === false ? 'unknown' : BackupService::size((int) $free)).' free)');
-      $log('Creating full backup (database, uploads, config)');
-      $b = BackupService::create('full', 'Before update to '.$pkg['version'], $by);
+      /* database only: an update never touches uploads (screenshots, documents can be gigabytes and made updates time out); the code gets its own backup below */
+      $log('Creating database backup (uploads are not changed by updates)');
+      $b = BackupService::create('database', 'Before update to '.$pkg['version'], $by);
       if ($b['status'] !== 'success') { throw new \RuntimeException('Backup failed: '.$b['note']); }
       DB::update('update_logs', ['backup_id' => $b['id']], 'id=?', [$id]);
       $log('Backup #'.$b['id'].' created: '.$b['filename']);

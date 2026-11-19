@@ -35,11 +35,18 @@ final class UpdateController extends Controller {
     catch (\Throwable $e) { $this->flash('Update check failed: '.mb_substr($e->getMessage(), 0, 250), 'error'); }
     return $this->redirect('/admin/updates'); }
 
+  /**
+   * Download, back up, install and migrate after the response (App::defer): the browser gets the update page at once and
+   * follows the log there, so a slow host never shows 504 Gateway Time-out. Without fastcgi/litespeed finish it runs inline.
+   */
   public function apply(): Response {
     if ($this->request->str('confirm') !== 'UPDATE') { $this->flash('Type UPDATE in capitals to confirm.', 'error'); return $this->redirect('/admin/updates'); }
-    try { $row = UpdateService::apply($this->uid(), (bool) $this->request->input('force')); }
+    $force = (bool) $this->request->input('force'); $uid = $this->uid();
+    try { $c = UpdateService::ready($force); }
     catch (\Throwable $e) { $this->flash(mb_substr($e->getMessage(), 0, 250), 'error'); return $this->redirect('/admin/updates'); }
-    return $this->finish($row); }
+    $id = UpdateService::begin($c['channel'], (string) $c['version'], (string) $c['ref'], $uid);
+    \Core\App::defer(static function () use ($uid, $force, $id): void { UpdateService::apply($uid, $force, $id); });
+    return $this->redirect('/admin/updates/'.$id); }
 
   public function upload(): Response {
     if ($this->request->str('confirm') !== 'UPDATE') { $this->flash('Type UPDATE in capitals to confirm.', 'error'); return $this->redirect('/admin/updates'); }
@@ -49,14 +56,10 @@ final class UpdateController extends Controller {
     if (strtolower(pathinfo((string) $f['name'], PATHINFO_EXTENSION)) !== 'zip' || !in_array($mime, ['application/zip', 'application/x-zip-compressed'], true)) { $this->flash('Please upload a .zip update package.', 'error'); return $this->redirect('/admin/updates'); }
     $path = UpdateService::dir().'/upload-'.bin2hex(random_bytes(8)).'.zip';
     if (!move_uploaded_file($f['tmp_name'], $path)) { $this->flash('Could not store the uploaded package.', 'error'); return $this->redirect('/admin/updates'); }
-    try { $row = UpdateService::applyLocal($path, $this->uid(), (bool) $this->request->input('force'), (string) $f['name']); }
-    finally { @unlink($path); }
-    return $this->finish($row); }
-
-  private function finish(array $row): Response {
-    $msg = ['success' => 'Updated to '.$row['to_version'].' successfully.', 'rolled_back' => 'The update failed and the previous code was restored. See the log for details.', 'failed' => 'The update could not be applied. Nothing was changed, see the log.'][$row['status']] ?? 'Update finished with status '.$row['status'].'.';
-    $this->flash($msg, $row['status'] === 'success' ? 'success' : 'error');
-    return $this->redirect('/admin/updates/'.$row['id']); }
+    $force = (bool) $this->request->input('force'); $uid = $this->uid(); $label = (string) $f['name'];
+    $id = UpdateService::begin('upload', null, mb_substr(basename($label), 0, 120), $uid);
+    \Core\App::defer(static function () use ($path, $uid, $force, $label, $id): void { try { UpdateService::applyLocal($path, $uid, $force, $label, $id); } finally { @unlink($path); } });
+    return $this->redirect('/admin/updates/'.$id); }
 
   public function migrate(): Response {
     try {
@@ -69,5 +72,8 @@ final class UpdateController extends Controller {
     return $this->redirect('/admin/updates'); }
 
   public function show(int $id): Response {
+    if ($this->request->query('format') === 'json') {
+      $r = DB::first('SELECT status, to_version, log, finished_at FROM update_logs WHERE id=?', [$id]) ?? $this->abort(404, 'Update not found.');
+      return $this->json(['status' => $r['status'], 'version' => $r['to_version'], 'log' => (string) $r['log'], 'finished' => $r['finished_at'] !== null]); }
     $row = DB::first('SELECT l.*, u.name AS by_name, b.filename AS backup_file FROM update_logs l LEFT JOIN users u ON u.id=l.started_by LEFT JOIN backups b ON b.id=l.backup_id WHERE l.id=?', [$id]) ?? $this->abort(404, 'Update not found.');
-    return $this->view('admin::updates/show', ['title' => 'Update #'.$id, 'u' => $row, 'tabs' => SettingsSchema::tabs(), 'tab' => 'updates', 'styles' => ['css/admin.css']]); } }
+    return $this->view('admin::updates/show', ['title' => 'Update #'.$id, 'u' => $row, 'tabs' => SettingsSchema::tabs(), 'tab' => 'updates', 'styles' => ['css/admin.css'], 'scripts' => ['js/admin.js']]); } }
