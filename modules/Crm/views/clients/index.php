@@ -3,7 +3,9 @@ use Modules\Crm\Services\{Hooks, Ui};
 $fin = can('crm.finance.view');
 $manage = can('crm.clients.manage');
 $statuses = ['lead' => 'Lead', 'active' => 'Active', 'on_hold' => 'On hold', 'inactive' => 'Inactive'];
-$filtered = ($_GET['q'] ?? '') !== '' || !empty($_GET['status']) || !empty($_GET['tag']) || !empty($_GET['manager']);
+$filtered = ($_GET['q'] ?? '') !== '' || ($tab === 'active' && !empty($_GET['status'])) || !empty($_GET['tag']) || !empty($_GET['manager']);
+$inact = $tab === 'inactive';
+$clear = url('/clients?view='.$view.($inact ? '&tab=inactive' : ''));
 $more = Ui::more([can('crm.reports.view') ? Ui::link('/crm/reports', 'chart', 'Financial reports') : '', can('crm.quotations.view') ? Ui::link('/quotations', 'file-text', 'Quotations') : '', $fin ? Ui::link('/invoices', 'receipt', 'Invoices') : '']);
 $actions = $more.($manage ? '<a class="btn primary" href="'.e(url('/clients/create')).'">'.icon('plus', 'sm').' New client</a>' : '');
 $tel = static fn (string $p) => 'tel:'.preg_replace('/[^\d+]/', '', $p);
@@ -21,19 +23,21 @@ $tel = static fn (string $p) => 'tel:'.preg_replace('/[^\d+]/', '', $p);
   <?= Ui::tile('pink', 'pause', (string) ((int) $k['total'] - (int) $k['active'] - (int) $k['leads']), 'On hold / inactive') ?>
   <?php endif ?>
 </div>
+<nav class="tabs mb crm-ltabs" aria-label="Client status"><?php foreach (['active' => ['Active', 'briefcase', (int) $k['total'] - (int) $k['inactive']], 'inactive' => ['Inactive', 'pause', (int) $k['inactive']]] as $t => [$l, $ic, $n]): ?><a href="<?= e(query_merge(['tab' => $t === 'inactive' ? 'inactive' : null, 'status' => null, 'page' => null])) ?>" class="<?= $tab === $t ? 'active' : '' ?>"<?= $tab === $t ? ' aria-current="page"' : '' ?>><?= icon($ic, 'sm') ?> <?= $l ?> <span class="crm-count"><?= $n ?></span></a><?php endforeach ?></nav>
 <div class="card crm-list">
   <form class="crm-bar" method="get">
     <input type="hidden" name="view" value="<?= e($view) ?>">
+    <?php if ($inact): ?><input type="hidden" name="tab" value="inactive"><?php endif ?>
     <label class="crm-search"><?= icon('search', 'sm') ?><input type="search" name="q" value="<?= e($_GET['q'] ?? '') ?>" placeholder="Search name, company, email or phone" aria-label="Search clients"></label>
-    <select name="status" data-autosubmit aria-label="Status"><option value="">All statuses</option><?php foreach ($statuses as $s => $l): ?><option value="<?= $s ?>"<?= selected($s, $_GET['status'] ?? '') ?>><?= e($l) ?></option><?php endforeach ?></select>
+    <?php if (!$inact): ?><select name="status" data-autosubmit aria-label="Status"><option value="">All statuses</option><?php foreach (array_diff_key($statuses, ['inactive' => 1]) as $s => $l): ?><option value="<?= $s ?>"<?= selected($s, $_GET['status'] ?? '') ?>><?= e($l) ?></option><?php endforeach ?></select><?php endif ?>
     <?php if ($tagOptions): ?><select name="tag" data-autosubmit aria-label="Tag"><option value="">All tags</option><?php foreach ($tagOptions as $tid => $tn): ?><option value="<?= (int) $tid ?>"<?= selected($tid, $_GET['tag'] ?? '') ?>><?= e($tn) ?></option><?php endforeach ?></select><?php endif ?>
     <?php if ($managerOptions): ?><select name="manager" data-autosubmit aria-label="Account manager"><option value="">Any manager</option><?php foreach ($managerOptions as $mid => $mn): ?><option value="<?= (int) $mid ?>"<?= selected($mid, $_GET['manager'] ?? '') ?>><?= e($mn) ?></option><?php endforeach ?></select><?php endif ?>
     <select name="sort" data-autosubmit aria-label="Sort"><option value="">Newest first</option><option value="name"<?= selected('name', $_GET['sort'] ?? '') ?>>Name A–Z</option><option value="oldest"<?= selected('oldest', $_GET['sort'] ?? '') ?>>Oldest first</option></select>
-    <?php if ($filtered): ?><a class="crm-clear" href="<?= e(url('/clients?view='.$view)) ?>"><?= icon('x', 'sm') ?> Clear</a><?php endif ?>
+    <?php if ($filtered): ?><a class="crm-clear" href="<?= e($clear) ?>"><?= icon('x', 'sm') ?> Clear</a><?php endif ?>
     <div class="tabs" role="group" aria-label="Layout"><a href="<?= e(query_merge(['view' => 'table', 'page' => null])) ?>" class="<?= $view === 'table' ? 'active' : '' ?>" title="Table view" aria-label="Table view"><?= icon('list', 'sm') ?></a><a href="<?= e(query_merge(['view' => 'cards', 'page' => null])) ?>" class="<?= $view === 'cards' ? 'active' : '' ?>" title="Card view" aria-label="Card view"><?= icon('grid', 'sm') ?></a></div>
   </form>
   <?php if (!$p['items']): ?>
-    <?= $filtered ? empty_state('No clients match', 'Try a different search term or clear the filters.', 'empty-box', '<a class="btn ghost" href="'.e(url('/clients?view='.$view)).'">'.icon('x', 'sm').' Clear filters</a>') : empty_state('No clients yet', 'Add your first client to start tracking conversations, documents'.(feature_on('invoices') ? ' and invoices' : '').'.', 'clients-handshake', $manage ? '<a class="btn primary" href="'.e(url('/clients/create')).'">'.icon('plus', 'sm').' Add your first client</a>' : '') ?>
+    <?= $filtered ? empty_state('No clients match', 'Try a different search term or clear the filters.', 'empty-box', '<a class="btn ghost" href="'.e($clear).'">'.icon('x', 'sm').' Clear filters</a>') : ($inact ? empty_state('No inactive clients', 'Clients you mark inactive move here, together with their projects.', 'empty-box') : empty_state('No clients yet', 'Add your first client to start tracking conversations, documents'.(feature_on('invoices') ? ' and invoices' : '').'.', 'clients-handshake', $manage ? '<a class="btn primary" href="'.e(url('/clients/create')).'">'.icon('plus', 'sm').' Add your first client</a>' : '')) ?>
   <?php elseif ($view === 'cards'): ?>
   <div class="crm-cards">
     <?php foreach ($p['items'] as $c): $cid = (int) $c['id']; $wa = $c['whatsapp'] ?: $c['phone']; ?>
@@ -41,7 +45,7 @@ $tel = static fn (string $p) => 'tel:'.preg_replace('/[^\d+]/', '', $p);
       <div class="crm-ccard-top">
         <?= avatar($c['company'] ?: $c['name'], null, 'lg') ?>
         <a class="grow" href="<?= e(url('/clients/'.$cid)) ?>"><b class="truncate"><?= e($c['company'] ?: $c['name']) ?></b><div class="crm-sub truncate"><?= e(implode(' · ', array_filter([$c['company'] ? $c['name'] : null, $c['industry'], $c['city']])) ?: '-') ?></div></a>
-        <?= badge($c['status'], $statuses[$c['status']] ?? null) ?>
+        <?= Ui::status($c, $manage, $open[$cid] ?? 0) ?>
       </div>
       <div class="chips"><?php foreach (array_slice($tags[$cid] ?? [], 0, 4) as $t): ?><span class="pill pill-<?= e($t['color']) ?>"><?= e($t['name']) ?></span><?php endforeach ?></div>
       <div class="crm-ccard-stats">
@@ -70,7 +74,7 @@ $tel = static fn (string $p) => 'tel:'.preg_replace('/[^\d+]/', '', $p);
         <td class="rt-hide"><div class="chips"><?php foreach (array_slice($tags[$cid] ?? [], 0, 3) as $t): ?><span class="pill pill-<?= e($t['color']) ?>"><?= e($t['name']) ?></span><?php endforeach ?><?php if (count($tags[$cid] ?? []) > 3): ?><span class="pill pill-gray">+<?= count($tags[$cid]) - 3 ?></span><?php endif ?><?= empty($tags[$cid]) ? '<span class="muted">-</span>' : '' ?></div></td>
         <td data-l="Team"><div class="avatars"><?php foreach (array_slice($managers[$cid] ?? [], 0, 4) as $m): ?><?= avatar($m['name'], $m['avatar'], 'sm') ?><?php endforeach ?><?php if (empty($managers[$cid])): ?><span class="crm-sub">Unassigned</span><?php endif ?></div></td>
         <?php if ($fin): ?><td class="amt" data-l="Outstanding"><?= !empty($due[$cid]) ? '<b>'.e(money($due[$cid])).'</b>' : '<span class="muted">-</span>' ?></td><?php endif ?>
-        <td class="rt-side"><?= badge($c['status'], $statuses[$c['status']] ?? null) ?></td>
+        <td class="rt-side"><?= Ui::status($c, $manage, $open[$cid] ?? 0) ?></td>
         <td class="actions rt-hide"><span class="crm-row-actions"><?php if ($manage): ?><a class="crm-go" href="<?= e(url('/clients/'.$cid.'/edit')) ?>" title="Edit" aria-label="Edit"><?= icon('edit', 'sm') ?></a><?php endif ?><a class="crm-go" href="<?= e(url('/clients/'.$cid)) ?>" title="Open" aria-label="Open"><?= icon('chevron-right', 'sm') ?></a></span></td>
       </tr>
     <?php endforeach ?></tbody>

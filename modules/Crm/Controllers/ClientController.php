@@ -11,10 +11,11 @@ final class ClientController extends CrmController {
     $q = mb_substr($this->request->str('q'), 0, 100); $status = $this->request->str('status'); $tag = $this->request->int('tag'); $mgr = $this->request->int('manager');
     $view = $this->request->str('view') === 'cards' ? 'cards' : 'table';
     $sort = $this->request->str('sort');
+    $tab = $this->request->str('tab') === 'inactive' ? 'inactive' : 'active';
     [$w, $p] = $this->scope();
-    $sql = "SELECT c.id, c.name, c.company, c.email, c.phone, c.whatsapp, c.industry, c.status, c.city, c.country, c.created_at FROM clients c WHERE $w";
+    $sql = "SELECT c.id, c.name, c.company, c.email, c.phone, c.whatsapp, c.industry, c.status, c.city, c.country, c.created_at FROM clients c WHERE $w AND c.status".($tab === 'inactive' ? '=' : '<>')."'inactive'";
     if ($q !== '') { $sql .= ' AND (c.name LIKE ? OR c.company LIKE ? OR c.email LIKE ? OR c.phone LIKE ?)'; array_push($p, DB::like($q), DB::like($q), DB::like($q), DB::like($q)); }
-    if (isset(self::STATUSES[$status])) { $sql .= ' AND c.status=?'; $p[] = $status; }
+    if ($tab === 'active' && isset(self::STATUSES[$status]) && $status !== 'inactive') { $sql .= ' AND c.status=?'; $p[] = $status; }
     if ($tag) { $sql .= ' AND EXISTS (SELECT 1 FROM client_tags ct WHERE ct.client_id=c.id AND ct.tag_id=?)'; $p[] = $tag; }
     if ($mgr) { $sql .= ' AND EXISTS (SELECT 1 FROM client_managers cmf WHERE cmf.client_id=c.id AND cmf.user_id=?)'; $p[] = $mgr; }
     $order = match ($sort) { 'name' => 'COALESCE(NULLIF(c.company,\'\'), c.name)', 'oldest' => 'c.id', default => 'c.id DESC' };
@@ -26,13 +27,13 @@ final class ClientController extends CrmController {
       foreach (DB::all('SELECT cm.client_id, u.id, u.name, u.avatar FROM client_managers cm JOIN users u ON u.id=cm.user_id WHERE cm.client_id IN '.DB::in($ids).' ORDER BY u.name', $ids) as $r) { $managers[$r['client_id']][] = $r; }
       if ($this->can('crm.finance.view')) { $due = DB::pairs('SELECT client_id, SUM(total-amount_paid) FROM invoices WHERE client_id IN '.DB::in($ids).' AND status IN '.Finance::OPEN.' GROUP BY client_id', $ids); } }
     [$w2, $p2] = $this->scope();
-    $k = DB::first("SELECT COUNT(*) AS total, COALESCE(SUM(c.status='active'),0) AS active, COALESCE(SUM(c.status='lead'),0) AS leads FROM clients c WHERE $w2", $p2);
+    $k = DB::first("SELECT COUNT(*) AS total, COALESCE(SUM(c.status='active'),0) AS active, COALESCE(SUM(c.status='lead'),0) AS leads, COALESCE(SUM(c.status='inactive'),0) AS inactive FROM clients c WHERE $w2", $p2);
     if ($this->can('crm.finance.view')) {
       [$w3, $p3] = $this->scope('i.client_id');
       $k['outstanding'] = (float) DB::value('SELECT COALESCE(SUM(i.total-i.amount_paid),0) FROM invoices i WHERE i.status IN '.Finance::OPEN." AND $w3", $p3);
       [$w4, $p4] = $this->scope('py.client_id');
       $k['collected'] = (float) DB::value("SELECT COALESCE(SUM(py.amount),0) FROM payments py WHERE py.paid_on>=? AND $w4", [date('Y-m-01'), ...$p4]); }
-    return $this->view('crm::clients/index', ['title' => 'Clients', 'p' => $page, 'tags' => $tags, 'managers' => $managers, 'due' => $due, 'k' => $k, 'view' => $view,
+    return $this->view('crm::clients/index', ['title' => 'Clients', 'p' => $page, 'tags' => $tags, 'managers' => $managers, 'due' => $due, 'k' => $k, 'view' => $view, 'tab' => $tab, 'open' => $this->openProjects($ids),
       'tagOptions' => DB::pairs('SELECT t.id, t.name FROM tags t WHERE EXISTS (SELECT 1 FROM client_tags ct WHERE ct.tag_id=t.id) ORDER BY t.name'), 'managerOptions' => $this->managerCandidates(), 'styles' => ['css/crm.css'], 'scripts' => ['js/crm.js']]); }
 
   public function create(): Response {
@@ -83,6 +84,24 @@ final class ClientController extends CrmController {
     $this->flash('Client deleted.');
     return $this->redirect('/clients'); }
 
+  /** Quick status change from the profile header or the list; projects of an inactive client are inactive too (derived, see ProjectService::activeSql). */
+  public function status(int $id): Response {
+    $c = $this->client($id);
+    $to = $this->request->str('status');
+    if (!isset(self::STATUSES[$to])) { throw new ValidationException(['status' => 'Choose a valid status.']); }
+    $ret = $this->request->str('return');
+    $back = preg_match('#^/clients(?:[/?][^\s]*)?$#', $ret) && !str_contains($ret, '//') ? $ret : '/clients/'.$id;
+    if ($to === $c['status']) { return $this->redirect($back); }
+    DB::update('clients', ['status' => $to, 'updated_at' => $this->now()], 'id=?', [$id]);
+    $n = in_array('inactive', [$to, $c['status']], true) ? ($this->openProjects([$id])[$id] ?? 0) : 0;
+    Audit::log('crm.client.status', 'client', $id, ['before' => $c['status'], 'after' => $to] + ($n ? ['projects' => $n] : []));
+    $pl = $n === 1 ? '1 project is' : $n.' projects are';
+    $this->flash(($c['company'] ?: $c['name']).' is now '.self::STATUSES[$to].'.'.($n ? ' '.$pl.($to === 'inactive' ? ' inactive too.' : ' active again.') : ''));
+    return $this->redirect($back); }
+
+  /** Projects that follow the client's active/inactive state (projects feature on): [client_id => n]. */
+  private function openProjects(array $ids): array { return feature_on('projects') && class_exists(\Modules\Projects\Services\ProjectService::class) ? \Modules\Projects\Services\ProjectService::openForClients($ids) : []; }
+
   public function show(int $id): Response {
     $c = $this->client($id);
     // Quotations and invoices are separate features: each part of the Finance tab follows its own permission.
@@ -105,6 +124,7 @@ final class ClientController extends CrmController {
       $data['invoices'] = DB::all('SELECT id, number, title, issue_date, due_date, status, total, amount_paid FROM invoices WHERE client_id=? ORDER BY id DESC LIMIT 50', [$id]);
       $data['payments'] = DB::all('SELECT py.*, i.number FROM payments py JOIN invoices i ON i.id=py.invoice_id WHERE py.client_id=? ORDER BY py.paid_on DESC, py.id DESC LIMIT 50', [$id]); }
     $data['projectOptions'] = array_column($data['projects'], 'name', 'id');
+    $data['open'] = count(array_filter($data['projects'], static fn ($r) => !in_array($r['status'], ['completed', 'cancelled'], true)));
     return $this->view('crm::clients/show', $data); }
 
   /** Active users who may be account managers: manager / super admin roles or anyone holding crm.clients.manage. */

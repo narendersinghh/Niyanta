@@ -26,6 +26,25 @@ final class Ui {
     foreach ($hidden as $k => $v) { $h .= '<input type="hidden" name="'.e($k).'" value="'.e($v).'">'; }
     return '<form method="post" action="'.e(url($action)).'"'.($confirm !== '' ? ' data-confirm="'.e($confirm).'"' : '').'>'.csrf_field().$h.'<button type="submit"'.($danger ? ' class="crm-danger"' : '').'>'.icon($icon, 'sm').' '.e($label).'</button></form>'; }
 
+  /**
+   * Client status badge; with $manage it opens a menu that changes the status (POST /clients/{id}/status, back to the current page).
+   * $open = projects that go inactive with the client, named in the confirmation.
+   */
+  public static function status(array $c, bool $manage, int $open = 0): string {
+    $labels = \Modules\Crm\Controllers\ClientController::STATUSES; $cur = (string) $c['status'];
+    $badge = badge($cur, $labels[$cur] ?? null);
+    if (!$manage) { return $badge; }
+    $q = (string) ($_SERVER['QUERY_STRING'] ?? '');
+    $ret = \Core\Request::current()->path().($q !== '' ? '?'.$q : '');
+    $dot = ['lead' => 'crm-c-lav', 'active' => 'crm-c-mint', 'on_hold' => 'crm-c-lemon', 'inactive' => 'off'];
+    $h = '';
+    foreach ($labels as $s => $l) {
+      $mark = '<i class="crm-st-dot '.$dot[$s].'"></i> '.e($l);
+      if ($s === $cur) { $h .= '<span class="crm-st-cur">'.$mark.icon('check', 'sm').'</span>'; continue; }
+      $confirm = $s === 'inactive' && $open ? 'Mark this client inactive? '.($open === 1 ? '1 project becomes' : $open.' projects become').' inactive too.' : '';
+      $h .= '<form method="post" action="'.e(url('/clients/'.(int) $c['id'].'/status')).'"'.($confirm !== '' ? ' data-confirm="'.e($confirm).'"' : '').'>'.csrf_field().'<input type="hidden" name="status" value="'.$s.'"><input type="hidden" name="return" value="'.e($ret).'"><button type="submit">'.$mark.'</button></form>'; }
+    return '<details class="dd crm-more crm-st"><summary title="Change status" aria-label="Status '.e($labels[$cur] ?? $cur).', change status">'.$badge.icon('chevron-down', 'sm').'</summary><div class="dd-menu"><div class="crm-st-h">Change status</div>'.$h.'</div></details>'; }
+
   /** Coloured file-type badge for document lists. */
   public static function ext(string $name): string {
     $x = strtolower(pathinfo($name, PATHINFO_EXTENSION));

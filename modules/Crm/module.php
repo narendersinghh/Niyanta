@@ -31,6 +31,7 @@ return [
     $r->get('/clients/{id}', [ClientController::class, 'show'], $v);
     $r->get('/clients/{id}/edit', [ClientController::class, 'edit'], $m);
     $r->post('/clients/{id}', [ClientController::class, 'update'], $m);
+    $r->post('/clients/{id}/status', [ClientController::class, 'status'], $m);
     $r->post('/clients/{id}/delete', [ClientController::class, 'destroy'], 'crm.clients.delete');
     $r->post('/clients/{id}/contacts', [JourneyController::class, 'saveContact'], $m);
     $r->post('/clients/{id}/contacts/{contact_id}', [JourneyController::class, 'saveContact'], $m);

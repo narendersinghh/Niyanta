@@ -23,7 +23,7 @@ final class MeetingController extends Controller {
     [$w, $p] = ClientAccess::where($u, 'c.id');
     $clients = $this->can('crm.clients.manage') ? DB::pairs("SELECT c.id, COALESCE(NULLIF(c.company,''), c.name) FROM clients c WHERE $w AND c.status<>'inactive' ORDER BY 2 LIMIT 2000", $p) : [];
     $projects = [];
-    if (feature_on('projects') && $this->can('crm.clients.manage')) { [$pw, $pp] = PA::scope($u, 'p.id'); $projects = DB::all("SELECT p.id, p.name, p.client_id FROM projects p WHERE $pw AND p.status NOT IN ('completed','cancelled') ORDER BY p.name LIMIT 2000", $pp); }
+    if (feature_on('projects') && $this->can('crm.clients.manage')) { [$pw, $pp] = PA::scope($u, 'p.id'); $projects = DB::all("SELECT p.id, p.name, p.client_id FROM projects p WHERE $pw AND p.status NOT IN ('completed','cancelled') AND ".PS::activeSql('p').' ORDER BY p.name LIMIT 2000', $pp); }
     return ['clientOptions' => $clients, 'projectRows' => array_values(array_filter($projects, static fn ($r) => !$r['client_id'] || isset($clients[$r['client_id']])))]; }
 
   /** Validated [client id, project id]: the project decides the client; both must be visible and writable for the user. */

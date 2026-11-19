@@ -22,6 +22,21 @@ final class ProjectService {
       'crm' => feature_on('clients') && can('crm.clients.view'),
       default => false }; }
 
+  /**
+   * A project is inactive while its client is inactive (derived, projects.status is never changed, so reactivating the client
+   * restores everything). One rule for every picker, list, widget and the desktop app: SQL condition on a projects alias.
+   */
+  public static function activeSql(string $a = 'p'): string { return "($a.client_id IS NULL OR NOT EXISTS (SELECT 1 FROM clients ic WHERE ic.id=$a.client_id AND ic.status='inactive'))"; }
+  public static function inactiveSql(string $a = 'p'): string { return "EXISTS (SELECT 1 FROM clients ic WHERE ic.id=$a.client_id AND ic.status='inactive')"; }
+
+  /** Is the project active work (not under an inactive client)? Missing projects count as active (visibility is checked elsewhere). */
+  public static function isActive(int $id): bool { return !DB::value('SELECT 1 FROM projects p WHERE p.id=? AND '.self::inactiveSql('p'), [$id]); }
+
+  /** Projects that go inactive with their client (not completed or cancelled), per client: [client_id => n]. */
+  public static function openForClients(array $ids): array {
+    $ids = array_values(array_unique(array_map('intval', $ids)));
+    return $ids ? array_map('intval', DB::pairs("SELECT client_id, COUNT(*) FROM projects WHERE status NOT IN ('completed','cancelled') AND client_id IN ".DB::in($ids).' GROUP BY client_id', $ids)) : []; }
+
   /** Client name, linked to the client page only when Client Management is on and the user may open it. */
   public static function client(?int $id, ?string $name, string $fallback = 'Internal project'): string {
     if (!$id || !$name) { return '<span class="muted">'.e($fallback).'</span>'; }
@@ -88,7 +103,7 @@ final class ProjectService {
     $today = date('Y-m-d');
     if (Settings::get('projects.reminders_sent_on') === $today) { return 'already sent today'; }
     $tomorrow = date('Y-m-d', strtotime('+1 day'));
-    $rows = DB::all("SELECT t.id, t.title, t.due_date, t.assignee_id, p.name AS project FROM tasks t JOIN projects p ON p.id=t.project_id JOIN users u ON u.id=t.assignee_id AND u.status='active' WHERE t.status<>'done' AND t.due_date IS NOT NULL AND t.due_date<=? AND p.status NOT IN ('completed','cancelled') ORDER BY t.due_date", [$tomorrow]);
+    $rows = DB::all("SELECT t.id, t.title, t.due_date, t.assignee_id, p.name AS project FROM tasks t JOIN projects p ON p.id=t.project_id JOIN users u ON u.id=t.assignee_id AND u.status='active' WHERE t.status<>'done' AND t.due_date IS NOT NULL AND t.due_date<=? AND p.status NOT IN ('completed','cancelled') AND ".self::activeSql('p').' ORDER BY t.due_date', [$tomorrow]);
     $by = [];
     foreach ($rows as $r) { $by[(int) $r['assignee_id']][$r['due_date'] === $tomorrow ? 'soon' : ($r['due_date'] < $today ? 'late' : 'today')][] = $r; }
     foreach ($by as $uid => $g) {

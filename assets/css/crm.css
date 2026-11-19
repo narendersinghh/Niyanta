@@ -325,3 +325,15 @@ button.crm-go{border:0;background:none;cursor:pointer;font:inherit;padding:0}
 .crm-fixed-proj{display:flex;align-items:center;gap:8px;padding:10px 12px;border-radius:12px;background:var(--sky-s);color:var(--sky-d);font-size:.85rem}
 .crm-fixed-proj span{opacity:.8}
 @media (max-width:560px){.crm-proj-h{margin-left:-44px}}
+/* client status quick change (badge opens a menu); list tabs */
+.crm-st{display:inline-block}
+.crm-st>summary{display:inline-flex;align-items:center;gap:3px;border-radius:99px;padding:2px 4px 2px 2px}
+.crm-st>summary:hover,.crm-st[open]>summary{background:var(--surface-2)}
+.crm-st>summary .ic{color:var(--muted)}
+.crm-st .dd-menu{min-width:190px;text-align:left}
+.crm-st-h{padding:6px 12px 4px;font-size:.72rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+.crm-st-cur{display:flex;gap:.6rem;align-items:center;padding:9px 12px;font-weight:650;color:var(--text)}
+.crm-st-cur .ic{margin-left:auto;color:var(--mint-d)}
+.crm-st-dot{flex:none;width:9px;height:9px;border-radius:50%;background:var(--c)}
+.crm-st-dot.off{background:var(--muted)}
+.crm-ltabs a{gap:.45rem}

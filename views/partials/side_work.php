@@ -10,7 +10,7 @@ $rows = Core\DB::all("SELECT p.id, p.name, p.color, p.deadline,
     (SELECT MIN(t.due_date) FROM tasks t WHERE t.project_id=p.id AND t.assignee_id=? AND t.status<>'done' AND t.due_date IS NOT NULL) AS task_due,
     (SELECT COUNT(*) FROM tasks t WHERE t.project_id=p.id AND t.assignee_id=? AND t.status<>'done') AS open_n,
     (SELECT COUNT(*) FROM tasks t WHERE t.project_id=p.id AND t.assignee_id=? AND t.status<>'done' AND t.due_date<?) AS late_n
-  FROM projects p WHERE p.status<>'completed' AND (p.manager_id=? OR p.id IN (SELECT pm.project_id FROM project_members pm WHERE pm.user_id=?) OR p.id IN (SELECT t.project_id FROM tasks t WHERE t.assignee_id=? AND t.status<>'done'))
+  FROM projects p WHERE p.status<>'completed' AND ".Modules\Projects\Services\ProjectService::activeSql('p')." AND (p.manager_id=? OR p.id IN (SELECT pm.project_id FROM project_members pm WHERE pm.user_id=?) OR p.id IN (SELECT t.project_id FROM tasks t WHERE t.assignee_id=? AND t.status<>'done'))
   LIMIT 50", [$uid, $uid, $uid, $today, $uid, $uid, $uid]);
 foreach ($rows as &$r) {
   $c = array_filter([['Project deadline', $r['deadline']], [$r['ms_title'] ? 'Milestone: '.$r['ms_title'] : 'Milestone', $r['ms_due']], ['Your next task', $r['task_due']]], static fn ($x) => $x[1]);

@@ -9,7 +9,6 @@ $qManage = $qv && can('crm.quotations.manage');
 $docManage = can('crm.documents.manage');
 $wa = $c['whatsapp'] ?: $c['phone'];
 $types = JourneyController::TYPES;
-$statuses = ['lead' => 'Lead', 'active' => 'Active', 'on_hold' => 'On hold', 'inactive' => 'Inactive'];
 $errs = errors();
 $base = '/clients/'.$cid;
 $openFu = count($followUps);
@@ -31,7 +30,7 @@ $moreMenu = Ui::more([
   <div class="crm-prof-main">
     <?= avatar($label, null, 'xl') ?>
     <div class="crm-prof-id">
-      <div class="flex wrap"><h1><?= e($label) ?></h1><?= badge($c['status'], $statuses[$c['status']] ?? null) ?></div>
+      <div class="flex wrap"><h1><?= e($label) ?></h1><?= Ui::status($c, $manage, $open) ?></div>
       <div class="crm-sub"><?= e(implode(' · ', array_filter([$c['company'] ? $c['name'] : null, $c['industry'], $place ?: null, $c['source'] ? 'via '.$c['source'] : null])) ?: 'No details yet') ?></div>
     </div>
     <div class="crm-prof-acts">

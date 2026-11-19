@@ -159,7 +159,7 @@ final class Assistant {
     elseif ($mgr || Scope::isSuper($u)) {
       if ($first) { $out[] = 'Summarise '.$first.'\'s work this week'; }
       if (Scope::can('crm.finance.view', $u)) { $out[] = 'Which invoices are overdue?'; }
-      if (Scope::can('projects.view', $u)) { $p = []; $name = (string) DB::value("SELECT name FROM projects WHERE status='active'".Scope::where(Scope::projectIds($u), 'id', $p).' ORDER BY updated_at DESC LIMIT 1', $p); $out[] = $name ? 'Status of the '.$name.' project' : 'Which projects are behind schedule?'; }
+      if (Scope::can('projects.view', $u)) { $p = []; $name = (string) DB::value("SELECT name FROM projects WHERE status='active' AND ".Scope::activeProject('projects').Scope::where(Scope::projectIds($u), 'id', $p).' ORDER BY updated_at DESC LIMIT 1', $p); $out[] = $name ? 'Status of the '.$name.' project' : 'Which projects are behind schedule?'; }
       if (Scope::can('hr.directory.view', $u) && feature_on('leave')) { $out[] = 'Who is on leave today?'; } }
     if (count($out) < 4) {
       if (Scope::can('projects.view', $u)) { $out[] = 'What are my tasks this week?'; }

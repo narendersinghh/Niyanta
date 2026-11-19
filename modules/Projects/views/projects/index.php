@@ -1,7 +1,9 @@
 <?php
 use Modules\Projects\Services\ProjectService as PS;
 $f = ['status' => (string) ($_GET['status'] ?? ''), 'client' => (string) ($_GET['client'] ?? ''), 'q' => (string) ($_GET['q'] ?? '')];
-$total = array_sum($stats);
+$total = $tabCounts[$tab];
+$inact = $tab === 'inactive';
+$clear = url('/projects?view='.$viewMode.($inact ? '&tab=inactive' : ''));
 $manage = can('projects.manage');
 $today = date('Y-m-d');
 $actions = $manage ? '<a class="btn primary" href="'.e(url('/projects/create')).'">'.icon('plus', 'sm').' New project</a>' : '';
@@ -22,12 +24,14 @@ $showClient = PS::on('crm') || $clients;
   <a class="tile bg-sky" href="<?= e(url('/projects?status=completed')) ?>"><span class="tile-ic"><?= icon('check-circle') ?></span><div><div class="num"><?= (int) ($stats['completed'] ?? 0) ?></div><div class="lbl">Completed</div></div></a>
   <a class="tile bg-peach" href="<?= e(url('/projects?status=open')) ?>"><span class="tile-ic"><?= icon('alert') ?></span><div><div class="num"><?= (int) $overdue ?></div><div class="lbl">Past deadline</div></div></a>
 </div>
+<nav class="tabs mb" aria-label="Project state"><?php foreach (['active' => ['Active', 'zap'], 'inactive' => ['Inactive', 'pause']] as $t => [$l, $ic]): ?><a href="<?= e(query_merge(['tab' => $t === 'inactive' ? 'inactive' : null, 'client' => null, 'page' => null])) ?>" class="<?= $tab === $t ? 'active' : '' ?>"<?= $tab === $t ? ' aria-current="page"' : '' ?><?= $t === 'inactive' ? ' title="Projects of inactive clients"' : '' ?>><?= icon($ic, 'sm') ?> <?= $l ?> <span class="tab-n"><?= (int) $tabCounts[$t] ?></span></a><?php endforeach ?></nav>
 <form class="toolbar" method="get" role="search">
   <input type="hidden" name="view" value="<?= e($viewMode) ?>">
+  <?php if ($inact): ?><input type="hidden" name="tab" value="inactive"><?php endif ?>
   <label class="search-in"><?= icon('search') ?><input type="search" name="q" value="<?= e($f['q']) ?>" placeholder="Search name, code or client" aria-label="Search projects"></label>
   <select name="status" data-autosubmit aria-label="Status"><option value="">All statuses</option><option value="open"<?= selected('open', $f['status']) ?>>Open (not closed)</option><?php foreach (PS::STATUSES as $k => $l): ?><option value="<?= e($k) ?>"<?= selected($k, $f['status']) ?>><?= e($l) ?></option><?php endforeach ?></select>
   <?php if ($clients): ?><select name="client" data-autosubmit aria-label="Client"><option value="">All clients</option><?php foreach ($clients as $cid => $n): ?><option value="<?= (int) $cid ?>"<?= selected($cid, $f['client']) ?>><?= e($n) ?></option><?php endforeach ?></select><?php endif ?>
-  <?php if (array_filter($f)): ?><a class="clear" href="<?= e(url('/projects?view='.$viewMode)) ?>">Clear filters</a><?php endif ?>
+  <?php if (array_filter($f)): ?><a class="clear" href="<?= e($clear) ?>">Clear filters</a><?php endif ?>
   <noscript><button class="btn ghost sm">Apply</button></noscript>
   <nav class="tabs view-toggle ml-a" aria-label="Layout">
     <a href="<?= e(query_merge(['view' => 'cards', 'page' => 1])) ?>" class="<?= $viewMode === 'cards' ? 'active' : '' ?>" title="Card view" aria-label="Card view"><?= icon('grid', 'sm') ?></a>
@@ -35,7 +39,7 @@ $showClient = PS::on('crm') || $clients;
   </nav>
 </form>
 <?php if (!$p['items']): ?>
-  <div class="card"><?= empty_state($total ? 'No projects match these filters' : 'No projects yet', $total ? 'Try a different search or clear the filters to see everything.' : ($manage ? 'Create your first project to plan milestones, assign tasks and track progress.' : 'Projects you are added to will show up here.'), $total ? 'empty-box' : 'rocket', $total ? '<a class="btn ghost mt" href="'.e(url('/projects')).'">Clear filters</a>' : ($manage ? '<a class="btn primary mt" href="'.e(url('/projects/create')).'">'.icon('plus', 'sm').' New project</a>' : '')) ?></div>
+  <div class="card"><?= $inact && !$total ? empty_state('No inactive projects', 'Projects of clients marked inactive show up here.', 'empty-box') : empty_state($total ? 'No projects match these filters' : 'No projects yet', $total ? 'Try a different search or clear the filters to see everything.' : ($manage ? 'Create your first project to plan milestones, assign tasks and track progress.' : 'Projects you are added to will show up here.'), $total ? 'empty-box' : 'rocket', $total ? '<a class="btn ghost mt" href="'.e($clear).'">Clear filters</a>' : ($manage ? '<a class="btn primary mt" href="'.e(url('/projects/create')).'">'.icon('plus', 'sm').' New project</a>' : '')) ?></div>
 <?php elseif ($viewMode === 'cards'): ?>
 <div class="pgrid">
   <?php foreach ($p['items'] as $pr): $c = $counts[$pr['id']] ?? ['total' => 0, 'done' => 0]; $ms = $members[$pr['id']] ?? []; [$cd, $tone] = PS::countdown($pr['deadline'], $pr['status']); $bu = $budget($pr); ?>
@@ -48,7 +52,7 @@ $showClient = PS::on('crm') || $clients;
       </div>
       <div class="ring pring" style="--v:<?= (int) $pr['progress'] ?>" data-label="<?= (int) $pr['progress'] ?>%" role="img" aria-label="<?= (int) $pr['progress'] ?>% complete"></div>
     </div>
-    <div class="pc-pills"><?= badge($pr['status'], PS::STATUSES[$pr['status']]) ?><?php if (in_array($pr['priority'], ['high', 'urgent'], true)): ?><?= badge($pr['priority'], PS::PRIORITIES[$pr['priority']].' priority') ?><?php endif ?></div>
+    <div class="pc-pills"><?= ($inact ? badge('inactive', 'Inactive') : badge($pr['status'], PS::STATUSES[$pr['status']])) ?><?php if (in_array($pr['priority'], ['high', 'urgent'], true)): ?><?= badge($pr['priority'], PS::PRIORITIES[$pr['priority']].' priority') ?><?php endif ?></div>
     <div class="pc-stats">
       <div class="pc-stat"><span>Tasks done</span><b><?= (int) $c['done'] ?> / <?= (int) $c['total'] ?></b></div>
       <div class="pc-stat"><span><?= $pr['deadline'] ? e(fdate($pr['deadline'], 'd M Y')) : 'Deadline' ?></span><b class="<?= e($tone) ?>"><?= e($cd) ?></b></div>
@@ -87,7 +91,7 @@ $showClient = PS::on('crm') || $clients;
         <td><div class="mini-prog"><div class="progress"><span style="width:<?= (int) $pr['progress'] ?>%"></span></div><b><?= (int) $pr['progress'] ?>%</b></div></td>
         <td class="num-r"><?php if ($bu): ?><?= e(money($bu[1])) ?><div class="xs <?= $bu[2] >= 100 ? 'late-text' : 'muted' ?>"><?= $bu[2] ?>% used</div><?php elseif ((float) $pr['budget'] > 0): ?><?= e(money($pr['budget'])) ?><?php else: ?><span class="muted">-</span><?php endif ?></td>
         <td><?php if ($pr['deadline']): ?><div class="small"><?= e(fdate($pr['deadline'])) ?></div><?php endif ?><span class="pill pill-<?= e($tone) ?>"><?= e($cd) ?></span></td>
-        <td><?= badge($pr['status'], PS::STATUSES[$pr['status']]) ?></td>
+        <td><?= ($inact ? badge('inactive', 'Inactive') : badge($pr['status'], PS::STATUSES[$pr['status']])) ?></td>
       </tr>
     <?php endforeach ?></tbody>
   </table></div>

@@ -18,7 +18,7 @@ final class Widgets {
     if (self::$counts !== null) { return self::$counts; }
     [$w, $p] = ProjectAccess::scope($u, 't.project_id');
     $today = date('Y-m-d'); $sun = date('Y-m-d', strtotime('sunday this week'));
-    $r = DB::first("SELECT COUNT(*) AS open, IFNULL(SUM(t.due_date<=?),0) AS week, IFNULL(SUM(t.due_date<?),0) AS late FROM tasks t WHERE $w AND t.assignee_id=? AND t.status<>'done'", [$sun, $today, ...$p, (int) $u['id']]);
+    $r = DB::first("SELECT COUNT(*) AS open, IFNULL(SUM(t.due_date<=?),0) AS week, IFNULL(SUM(t.due_date<?),0) AS late FROM tasks t JOIN projects p ON p.id=t.project_id WHERE $w AND ".ProjectService::activeSql('p')." AND t.assignee_id=? AND t.status<>'done'", [$sun, $today, ...$p, (int) $u['id']]);
     return self::$counts = array_map('intval', $r); }
 
   private static function tile(string $color, string $icon, int $num, string $label, string $url, string $sub = ''): string {
@@ -32,14 +32,14 @@ final class Widgets {
 
   public static function activeProjects(array $u): string {
     [$w, $p] = ProjectAccess::scope($u, 'p.id');
-    return self::tile('mint', 'folder', (int) DB::value("SELECT COUNT(*) FROM projects p WHERE $w AND p.status='active'", $p), 'Active projects', '/projects?status=active'); }
+    return self::tile('mint', 'folder', (int) DB::value("SELECT COUNT(*) FROM projects p WHERE $w AND p.status='active' AND ".ProjectService::activeSql('p'), $p), 'Active projects', '/projects?status=active'); }
 
   public static function myTasks(array $u): string {
     [$w, $p] = ProjectAccess::scope($u, 'p.id');
-    $tasks = DB::all("SELECT t.id, t.title, t.status, t.priority, t.due_date, p.name AS project, p.color FROM tasks t JOIN projects p ON p.id=t.project_id WHERE $w AND t.assignee_id=? AND t.status<>'done' ORDER BY t.due_date IS NULL, t.due_date, FIELD(t.priority,'urgent','high','medium','low') LIMIT 6", [...$p, (int) $u['id']]);
+    $tasks = DB::all("SELECT t.id, t.title, t.status, t.priority, t.due_date, p.name AS project, p.color FROM tasks t JOIN projects p ON p.id=t.project_id WHERE $w AND ".ProjectService::activeSql('p')." AND t.assignee_id=? AND t.status<>'done' ORDER BY t.due_date IS NULL, t.due_date, FIELD(t.priority,'urgent','high','medium','low') LIMIT 6", [...$p, (int) $u['id']]);
     return View::partial('projects::widgets/my_tasks', ['tasks' => $tasks, 'counts' => self::counts($u), 'css' => self::css()]); }
 
   public static function projectProgress(array $u): string {
     [$w, $p] = ProjectAccess::scope($u, 'p.id');
-    $projects = DB::all("SELECT p.id, p.name, p.color, p.progress, p.deadline, p.status, c.name AS client FROM projects p LEFT JOIN clients c ON c.id=p.client_id WHERE $w AND p.status IN ('active','planning','on_hold') ORDER BY p.deadline IS NULL, p.deadline LIMIT 5", $p);
+    $projects = DB::all("SELECT p.id, p.name, p.color, p.progress, p.deadline, p.status, c.name AS client FROM projects p LEFT JOIN clients c ON c.id=p.client_id WHERE $w AND p.status IN ('active','planning','on_hold') AND ".ProjectService::activeSql('p')." ORDER BY p.deadline IS NULL, p.deadline LIMIT 5", $p);
     return View::partial('projects::widgets/progress', ['projects' => $projects, 'css' => self::css()]); } }

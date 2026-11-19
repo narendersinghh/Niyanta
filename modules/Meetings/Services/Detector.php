@@ -140,5 +140,5 @@ final class Detector {
 
   /** Active projects the user manages or belongs to (within the visible set). */
   private static function mine(int $uid, array $projects): array {
-    $ids = array_map('intval', DB::column("SELECT p.id FROM projects p WHERE p.status IN ('active','planning','on_hold') AND (p.manager_id=? OR EXISTS (SELECT 1 FROM project_members pm WHERE pm.project_id=p.id AND pm.user_id=?))", [$uid, $uid]));
+    $ids = array_map('intval', DB::column("SELECT p.id FROM projects p WHERE p.status IN ('active','planning','on_hold') AND ".\Modules\Projects\Services\ProjectService::activeSql('p')." AND (p.manager_id=? OR EXISTS (SELECT 1 FROM project_members pm WHERE pm.project_id=p.id AND pm.user_id=?))", [$uid, $uid]));
     return array_values(array_filter($ids, static fn ($id) => isset($projects[$id]))); } }

@@ -29,7 +29,7 @@ $vars = get_defined_vars();
       <nav class="crumbs" aria-label="Breadcrumb"><span>Work</span><span>/</span><a href="<?= e(url('/projects')) ?>">Projects</a><span>/</span><span><?= e(str_limit($pr['name'], 40)) ?></span></nav>
       <h1><?= e($pr['name']) ?></h1>
       <div class="phead-meta">
-        <?= badge($pr['status'], PS::STATUSES[$pr['status']]) ?>
+        <?= ($pr['client_status'] ?? '') === 'inactive' ? badge('inactive', 'Inactive') : badge($pr['status'], PS::STATUSES[$pr['status']]) ?>
         <?php if (in_array($pr['priority'], ['high', 'urgent'], true)): ?><?= badge($pr['priority'], PS::PRIORITIES[$pr['priority']].' priority') ?><?php endif ?>
         <?php if ($pr['code']): ?><span class="mono"><?= e($pr['code']) ?></span><?php endif ?>
         <span><?= icon('briefcase', 'sm') ?> <?= PS::client($pr['client_id'] ? (int) $pr['client_id'] : null, $pr['client_name']) ?></span>
@@ -47,6 +47,7 @@ $vars = get_defined_vars();
   </div>
   <?php endif ?>
 </header>
+<?php if (($pr['client_status'] ?? '') === 'inactive'): ?><div class="alert warn"><?= icon('pause') ?><div><b>Inactive:</b> client <?= PS::client((int) $pr['client_id'], $pr['client_name']) ?> is inactive. Its time cannot be tracked until the client is active again.</div></div><?php endif ?>
 <div class="tabs-wrap"><nav class="tabs" aria-label="Project sections"><?php foreach ($tabs as $k => [$l, $ic, $n]): ?><a href="<?= e(url('/projects/'.$id.'?tab='.$k)) ?>" class="<?= $tab === $k ? 'active' : '' ?>"<?= $tab === $k ? ' aria-current="page"' : '' ?>><?= icon($ic, 'sm') ?> <?= e($l) ?><?php if ($n): ?><span class="tab-n<?= $k === 'changes' ? ' hot' : '' ?>"><?= (int) $n ?></span><?php endif ?></a><?php endforeach ?></nav></div>
 <?= partial('projects::projects/tabs/'.$tab, $vars) ?>
 <?php if ($logWrite): ?><div class="crm"><?= partial('crm::partials/activity_modal', ['action' => '/projects/'.$id.'/activities', 'fixedProject' => ['id' => $id, 'name' => $pr['name']], 'clientId' => $pr['client_id'] ? (int) $pr['client_id'] : null]) ?></div><?= class_exists(\Modules\Meetings\Services\Ui::class) ? \Modules\Meetings\Services\Ui::newDialog(['client_id' => $pr['client_id'] ? (int) $pr['client_id'] : null, 'project_id' => $id, 'return' => 'project']) : '' ?><?php endif ?>

@@ -40,6 +40,9 @@ final class Scope {
     $ids = self::projectIds($u);
     return $ids === null ? (bool) DB::value('SELECT 1 FROM projects WHERE id=?', [$id]) : in_array($id, $ids, true); }
 
+  /** SQL condition: the project (alias $a) is active work, not under an inactive client (one rule, see ProjectService::activeSql). */
+  public static function activeProject(string $a = 'p'): string { return class_exists('Modules\\Projects\\Services\\ProjectService') ? \Modules\Projects\Services\ProjectService::activeSql($a) : '1=1'; }
+
   /** SQL fragment restricting $col to visible ids ('' when unrestricted). Appends params by reference. */
   public static function where(?array $ids, string $col, array &$p): string {
     if ($ids === null) { return ''; }

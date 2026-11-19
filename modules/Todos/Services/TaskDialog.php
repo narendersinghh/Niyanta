@@ -16,7 +16,7 @@ final class TaskDialog {
   public static function projects(array $u, ?int $keep = null): array {
     if (!feature_on('projects') || !Gate::allows('projects.tasks.manage', $u)) { return []; }
     [$w, $p] = PA::scope($u, 'p.id');
-    return DB::pairs("SELECT p.id, p.name FROM projects p WHERE $w AND (p.status NOT IN ('completed','cancelled') OR p.id=?) ORDER BY p.name", [...$p, (int) $keep]); }
+    return DB::pairs("SELECT p.id, p.name FROM projects p WHERE $w AND ((p.status NOT IN ('completed','cancelled') AND ".PS::activeSql('p').') OR p.id=?) ORDER BY p.name', [...$p, (int) $keep]); }
 
   /** Whether the dialog has anything to offer (show the New task button). */
   public static function available(array $u): bool { return self::todos($u) || (bool) self::projects($u); }

@@ -93,6 +93,7 @@ final class Todos {
     if (!feature_on('projects')) { return 'Projects is switched off'; }
     $st = DB::value('SELECT status FROM projects WHERE id=?', [$pid]);
     if ($st === null || in_array($st, ['completed', 'cancelled'], true)) { return 'the project is '.($st ?: 'gone'); }
+    if (!PS::isActive($pid)) { return 'the client of the project is inactive'; }
     PA::flush();
     $c = DB::first("SELECT u.id, u.role_id, r.slug AS role_slug FROM users u JOIN roles r ON r.id=u.role_id WHERE u.id=? AND u.status='active'", [(int) $s['created_by']]);
     if (!$c || !PA::canManageTasks($c, $pid)) { return 'the creator can no longer add tasks to the project'; }

@@ -7,7 +7,7 @@ use Modules\Projects\Services\{ProjectAccess as PA, ProjectService as PS};
 final class ProjectController extends Controller {
   /** Load a project the current user may see, or 404 (never reveal projects outside scope). */
   private function visible(int $id): array {
-    $p = DB::first('SELECT p.*, c.name AS client_name, c.company AS client_company, m.name AS manager_name, m.avatar AS manager_avatar FROM projects p LEFT JOIN clients c ON c.id=p.client_id LEFT JOIN users m ON m.id=p.manager_id WHERE p.id=?', [$id]);
+    $p = DB::first('SELECT p.*, c.name AS client_name, c.company AS client_company, c.status AS client_status, m.name AS manager_name, m.avatar AS manager_avatar FROM projects p LEFT JOIN clients c ON c.id=p.client_id LEFT JOIN users m ON m.id=p.manager_id WHERE p.id=?', [$id]);
     if (!$p || !PA::canSee($this->user(), $id)) { $this->abort(404, 'Project not found.'); }
     return $p; }
 
@@ -21,7 +21,11 @@ final class ProjectController extends Controller {
     [$w, $wp] = PA::scope($u, 'p.id');
     $status = $this->request->str('status'); $client = $this->request->int('client'); $q = $this->request->str('q');
     $view = $this->request->str('view') === 'table' ? 'table' : 'cards';
-    $sql = "SELECT p.id, p.name, p.code, p.status, p.priority, p.deadline, p.start_date, p.color, p.progress, p.budget, p.billing_type, p.hourly_rate, p.estimated_hours, p.client_id, c.name AS client_name, m.name AS manager_name, m.avatar AS manager_avatar FROM projects p LEFT JOIN clients c ON c.id=p.client_id LEFT JOIN users m ON m.id=p.manager_id WHERE $w";
+    /* Active / Inactive tabs: a project is inactive while its client is inactive (derived from the client, see PS::activeSql). */
+    $tab = $this->request->str('tab') === 'inactive' ? 'inactive' : 'active';
+    $act = PS::activeSql('p'); $in = PS::inactiveSql('p');
+    $tw = $w.' AND '.($tab === 'inactive' ? $in : $act);
+    $sql = "SELECT p.id, p.name, p.code, p.status, p.priority, p.deadline, p.start_date, p.color, p.progress, p.budget, p.billing_type, p.hourly_rate, p.estimated_hours, p.client_id, c.name AS client_name, m.name AS manager_name, m.avatar AS manager_avatar FROM projects p LEFT JOIN clients c ON c.id=p.client_id LEFT JOIN users m ON m.id=p.manager_id WHERE $tw";
     $p = $wp;
     if (isset(PS::STATUSES[$status])) { $sql .= ' AND p.status=?'; $p[] = $status; }
     elseif ($status === 'open') { $sql .= " AND p.status IN ('planning','active','on_hold')"; }
@@ -34,13 +38,17 @@ final class ProjectController extends Controller {
       foreach (DB::all('SELECT pm.project_id, u.name, u.avatar FROM project_members pm JOIN users u ON u.id=pm.user_id WHERE pm.project_id IN '.DB::in($ids).' ORDER BY u.name', $ids) as $m) { $members[$m['project_id']][] = $m; }
       $counts = DB::all("SELECT project_id, COUNT(*) AS total, SUM(status='done') AS done FROM tasks WHERE parent_id IS NULL AND project_id IN ".DB::in($ids).' GROUP BY project_id', $ids);
       $counts = array_column($counts, null, 'project_id'); }
-    $stats = DB::pairs("SELECT p.status, COUNT(*) FROM projects p WHERE $w GROUP BY p.status", $wp);
-    $overdue = (int) DB::value("SELECT COUNT(*) FROM projects p WHERE $w AND p.deadline<? AND p.status NOT IN ('completed','cancelled')", [...$wp, date('Y-m-d')]);
-    $clients = DB::pairs("SELECT DISTINCT c.id, c.name FROM clients c JOIN projects p ON p.client_id=c.id WHERE $w ORDER BY c.name", $wp);
-    return $this->view('projects::projects/index', ['title' => 'Projects', 'p' => $page, 'members' => $members, 'counts' => $counts, 'stats' => $stats, 'overdue' => $overdue, 'clients' => $clients, 'sec' => $sec, 'viewMode' => $view, 'styles' => ['css/projects.css']]); }
+    /* KPI tiles count active work only, whichever tab is open */
+    $stats = DB::pairs("SELECT p.status, COUNT(*) FROM projects p WHERE $w AND $act GROUP BY p.status", $wp);
+    $overdue = (int) DB::value("SELECT COUNT(*) FROM projects p WHERE $w AND $act AND p.deadline<? AND p.status NOT IN ('completed','cancelled')", [...$wp, date('Y-m-d')]);
+    $tabs = DB::first("SELECT COUNT(*) AS total, COALESCE(SUM($in),0) AS inactive FROM projects p WHERE $w", $wp);
+    $clients = DB::pairs("SELECT DISTINCT c.id, c.name FROM clients c JOIN projects p ON p.client_id=c.id WHERE $tw ORDER BY c.name", $wp);
+    return $this->view('projects::projects/index', ['title' => 'Projects', 'p' => $page, 'members' => $members, 'counts' => $counts, 'stats' => $stats, 'overdue' => $overdue, 'clients' => $clients, 'sec' => $sec, 'viewMode' => $view, 'tab' => $tab,
+      'tabCounts' => ['active' => (int) $tabs['total'] - (int) $tabs['inactive'], 'inactive' => (int) $tabs['inactive']], 'styles' => ['css/projects.css']]); }
 
-  private function lookups(?int $id): array {
-    return ['clients' => DB::pairs("SELECT id, CONCAT(name, IF(company IS NULL OR company='', '', CONCAT(', ', company))) FROM clients WHERE status<>'inactive' ORDER BY name"),
+  /** Form lookups; an inactive client stays selectable on its own projects (saving must not detach them). */
+  private function lookups(?int $id, ?int $client = null): array {
+    return ['clients' => DB::pairs("SELECT id, CONCAT(name, IF(company IS NULL OR company='', '', CONCAT(', ', company))) FROM clients WHERE status<>'inactive' OR id=? ORDER BY name", [(int) $client]),
       'users' => PS::users(), 'memberIds' => $id ? array_map('intval', DB::column('SELECT user_id FROM project_members WHERE project_id=?', [$id])) : [], 'styles' => ['css/projects.css']]; }
 
   public function create(): Response {
@@ -49,7 +57,7 @@ final class ProjectController extends Controller {
 
   public function edit(int $id): Response {
     $pr = $this->manageable($id);
-    return $this->view('projects::projects/form', ['title' => 'Edit '.$pr['name'], 'pr' => $pr] + $this->lookups($id)); }
+    return $this->view('projects::projects/form', ['title' => 'Edit '.$pr['name'], 'pr' => $pr] + $this->lookups($id, $pr['client_id'] ? (int) $pr['client_id'] : null)); }
 
   private function data(?int $id): array {
     $d = $this->validate(['name' => 'required|max:190', 'code' => 'nullable|max:30|regex:/^[A-Za-z0-9._-]+$/|unique:projects,code'.($id ? ",$id" : ''), 'client_id' => 'nullable|integer|exists:clients,id',

@@ -67,7 +67,7 @@ final class TodoController extends Controller {
   private function projectTasks(array $u): array {
     if (!feature_on('projects') || !($this->can('projects.view') || $this->can('projects.view_all'))) { return []; }
     [$w, $wp] = \Modules\Projects\Services\ProjectAccess::scope($u, 'p.id');
-    $rows = DB::all("SELECT t.id, t.title, t.status, t.priority, t.due_date, t.assignee_id, t.project_id, t.parent_id, p.name AS project, p.color, pt.title AS parent_title FROM tasks t JOIN projects p ON p.id=t.project_id LEFT JOIN tasks pt ON pt.id=t.parent_id WHERE $w AND t.assignee_id=? AND t.status<>'done' ORDER BY t.due_date IS NULL, t.due_date, t.id LIMIT 300", [...$wp, (int) $u['id']]);
+    $rows = DB::all("SELECT t.id, t.title, t.status, t.priority, t.due_date, t.assignee_id, t.project_id, t.parent_id, p.name AS project, p.color, pt.title AS parent_title FROM tasks t JOIN projects p ON p.id=t.project_id LEFT JOIN tasks pt ON pt.id=t.parent_id WHERE $w AND ".PS::activeSql('p')." AND t.assignee_id=? AND t.status<>'done' ORDER BY t.due_date IS NULL, t.due_date, t.id LIMIT 300", [...$wp, (int) $u['id']]);
     foreach ($rows as &$r) { $r['editable'] = \Modules\Projects\Services\ProjectAccess::canEditTask($u, $r) || ($r['parent_id'] && (int) $r['assignee_id'] === (int) $u['id']); }
     return $rows; }
 
@@ -86,7 +86,7 @@ final class TodoController extends Controller {
     $proj = $who === 'mine' && feature_on('projects') && ($this->can('projects.view') || $this->can('projects.view_all'));
     if ($proj) {
       [$pw, $pp] = \Modules\Projects\Services\ProjectAccess::scope($u, 't.project_id');
-      $sql .= " UNION ALL SELECT 'task', t.id, t.title, t.description, t.priority, t.assignee_id, t.created_by, t.due_date, IF(t.status='done','done','open'), t.completed_at, NULL, NULL, c.name, a.name, a.avatar, NULL, NULL, NULL, NULL, t.project_id, p.name, p.color, pt.title, t.status, NULL, NULL, NULL FROM tasks t JOIN projects p ON p.id=t.project_id JOIN users c ON c.id=t.created_by JOIN users a ON a.id=t.assignee_id LEFT JOIN tasks pt ON pt.id=t.parent_id WHERE t.created_by=? AND t.assignee_id<>? AND p.status<>'cancelled' AND $pw";
+      $sql .= " UNION ALL SELECT 'task', t.id, t.title, t.description, t.priority, t.assignee_id, t.created_by, t.due_date, IF(t.status='done','done','open'), t.completed_at, NULL, NULL, c.name, a.name, a.avatar, NULL, NULL, NULL, NULL, t.project_id, p.name, p.color, pt.title, t.status, NULL, NULL, NULL FROM tasks t JOIN projects p ON p.id=t.project_id JOIN users c ON c.id=t.created_by JOIN users a ON a.id=t.assignee_id LEFT JOIN tasks pt ON pt.id=t.parent_id WHERE t.created_by=? AND t.assignee_id<>? AND p.status<>'cancelled' AND ".PS::activeSql('p')." AND $pw";
       $bp = [...$bp, $uid, $uid, ...$pp]; }
     $from = "FROM ($sql) x";
     $people = DB::pairs("SELECT DISTINCT x.assignee_id, x.assignee $from ORDER BY x.assignee", $bp);

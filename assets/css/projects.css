@@ -374,3 +374,4 @@ span.tick{cursor:default}
 .pj .phead .btn.ghost,.pj .phead .head-actions summary{background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.2);color:#fff}
 .pj .phead .btn.primary{background:#fff;color:var(--primary)}
 .pj .phead .btn.primary:hover{background:#fff;opacity:.92;color:var(--primary)}
+.alert .client-link{color:inherit;text-decoration:underline}

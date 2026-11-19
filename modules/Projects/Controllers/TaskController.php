@@ -228,7 +228,7 @@ final class TaskController extends Controller {
     $teamAllowed = PA::unrestricted($u) || (bool) DB::value('SELECT 1 FROM projects WHERE manager_id=? LIMIT 1', [$uid]);
     $mode = $teamAllowed && $this->request->str('view') === 'team' ? 'team' : 'mine';
     [$w, $wp] = PA::scope($u, 'p.id');
-    $sql = "SELECT t.id, t.title, t.status, t.priority, t.due_date, t.assignee_id, t.project_id, t.parent_id, p.name AS project, p.color, u.name AS assignee, u.avatar, pt.title AS parent_title FROM tasks t JOIN projects p ON p.id=t.project_id LEFT JOIN users u ON u.id=t.assignee_id LEFT JOIN tasks pt ON pt.id=t.parent_id WHERE $w AND t.status<>'done' AND p.status NOT IN ('cancelled')";
+    $sql = "SELECT t.id, t.title, t.status, t.priority, t.due_date, t.assignee_id, t.project_id, t.parent_id, p.name AS project, p.color, u.name AS assignee, u.avatar, pt.title AS parent_title FROM tasks t JOIN projects p ON p.id=t.project_id LEFT JOIN users u ON u.id=t.assignee_id LEFT JOIN tasks pt ON pt.id=t.parent_id WHERE $w AND t.status<>'done' AND p.status NOT IN ('cancelled') AND ".PS::activeSql('p');
     $p = $wp;
     $assignee = $this->request->int('assignee');
     $project = $this->request->int('project');
@@ -245,6 +245,6 @@ final class TaskController extends Controller {
     for ($i = 0; $i < 7; $i++) { $week[date('Y-m-d', strtotime("$mon +$i day"))] = 0; }
     foreach ($tasks as $t) { if ($t['due_date'] && isset($week[$t['due_date']])) { $week[$t['due_date']]++; } }
     $doneWeek = (int) DB::value('SELECT COUNT(*) FROM tasks t JOIN projects p ON p.id=t.project_id WHERE '.$w.' AND t.status=\'done\' AND t.completed_at>=?'.($mode === 'mine' ? ' AND t.assignee_id=?' : ''), [...$wp, $mon.' 00:00:00', ...($mode === 'mine' ? [$uid] : [])]);
-    $projects = DB::pairs("SELECT p.id, p.name FROM projects p WHERE $w AND p.status NOT IN ('completed','cancelled')".($mode === 'team' && !PA::unrestricted($u) ? ' AND p.manager_id='.(int) $uid : '').' ORDER BY p.name', $wp);
+    $projects = DB::pairs("SELECT p.id, p.name FROM projects p WHERE $w AND p.status NOT IN ('completed','cancelled') AND ".PS::activeSql('p').($mode === 'team' && !PA::unrestricted($u) ? ' AND p.manager_id='.(int) $uid : '').' ORDER BY p.name', $wp);
     $people = $mode === 'team' ? DB::pairs('SELECT DISTINCT u.id, u.name FROM users u JOIN tasks t ON t.assignee_id=u.id JOIN projects p ON p.id=t.project_id WHERE '.$w.(PA::unrestricted($u) ? '' : ' AND p.manager_id='.(int) $uid)." AND t.status<>'done' ORDER BY u.name", $wp) : [];
     return $this->view('projects::tasks/mine', ['title' => $mode === 'team' ? 'Team tasks' : 'My tasks', 'groups' => $groups, 'total' => count($tasks), 'week' => $week, 'doneWeek' => $doneWeek, 'mode' => $mode, 'teamAllowed' => $teamAllowed, 'projects' => $projects, 'people' => $people, 'project' => $project, 'assignee' => $assignee, 'styles' => ['css/projects.css', 'css/todos.css'], 'scripts' => ['js/projects.js', 'js/taskdialog.js']]); } }

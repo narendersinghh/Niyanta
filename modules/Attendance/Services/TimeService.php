@@ -88,12 +88,15 @@ final class TimeService {
   /** Title of a time entry: its project (while projects are on), else a neutral label. */
   public static function label(array $e): string { return feature_on('projects') ? (string) ($e['project_name'] ?? 'No project') : 'Tracked time'; }
 
-  /** id => name of open projects for pickers. */
+  /** SQL condition: the project (alias $a) is active work, i.e. its client is not inactive (one rule, see ProjectService::activeSql). */
+  private static function activeSql(string $a): string { return class_exists(\Modules\Projects\Services\ProjectService::class) ? \Modules\Projects\Services\ProjectService::activeSql($a) : '1=1'; }
+
+  /** id => name of open projects for pickers and the desktop app (projects of inactive clients are left out). */
   public static function projects(array $user): array {
     if (!feature_on('projects')) { return []; }
     $ids = self::visibleProjectIds($user);
     if ($ids === []) { return []; }
-    $sql = "SELECT id, name FROM projects WHERE status IN ('planning','active','on_hold')";
+    $sql = "SELECT id, name FROM projects WHERE status IN ('planning','active','on_hold') AND ".self::activeSql('projects');
     $p = [];
     if ($ids !== null) { $sql .= ' AND id IN '.DB::in($ids); $p = $ids; }
     return DB::pairs($sql.' ORDER BY name LIMIT 500', $p); }
@@ -103,16 +106,20 @@ final class TimeService {
     $ids = self::visibleProjectIds($user);
     return ($ids === null || in_array($pid, $ids, true)) && (bool) DB::value('SELECT 1 FROM projects WHERE id=? LIMIT 1', [$pid]); }
 
-  /** Open tasks of a visible project (assigned to the user first). */
+  /** Open tasks of a visible, active project (assigned to the user first). */
   public static function tasks(array $user, int $pid): array {
-    if (!self::projectVisible($user, $pid)) { return []; }
+    if (!self::projectVisible($user, $pid) || !DB::value('SELECT 1 FROM projects p WHERE p.id=? AND '.self::activeSql('p'), [$pid])) { return []; }
     return DB::all("SELECT id, title, status, assignee_id=? AS mine FROM tasks WHERE project_id=? AND status<>'done' ORDER BY (assignee_id=?) DESC, position, id LIMIT 300", [$user['id'], $pid, $user['id']]); }
 
-  /** Validate project/task ids against visibility. Returns [project_id|null, task_id|null]. */
-  public static function checkTarget(array $user, ?int $pid, ?int $tid): array {
+  /**
+   * Validate project/task ids against visibility. Returns [project_id|null, task_id|null].
+   * New time cannot go to a project of an inactive client; $keep (the project an edited entry already has) stays allowed.
+   */
+  public static function checkTarget(array $user, ?int $pid, ?int $tid, ?int $keep = null): array {
     $pid = $pid ?: null; $tid = $tid ?: null;
     if (!feature_on('projects')) { return [null, null]; }
     if ($pid && !self::projectVisible($user, $pid)) { throw new \DomainException('You cannot log time on that project.'); }
+    if ($pid && $pid !== $keep && !DB::value('SELECT 1 FROM projects p WHERE p.id=? AND '.self::activeSql('p'), [$pid])) { throw new \DomainException('This project is inactive because its client is inactive. Time cannot be logged on it.'); }
     if ($tid) {
       if (!$pid) { throw new \DomainException('Choose the project of the task.'); }
       if (!DB::value('SELECT 1 FROM tasks WHERE id=? AND project_id=? LIMIT 1', [$tid, $pid])) { throw new \DomainException('That task does not belong to the selected project.'); } }
@@ -282,7 +289,8 @@ final class TimeService {
 
   /** Validate & normalise manual entry input. Returns row data. */
   public static function manualData(array $user, array $d, ?int $ignoreId = null): array {
-    [$pid, $tid] = self::checkTarget($user, $d['project_id'] ? (int) $d['project_id'] : null, $d['task_id'] ? (int) $d['task_id'] : null);
+    $keep = $ignoreId ? (int) DB::value('SELECT project_id FROM time_entries WHERE id=?', [$ignoreId]) : null;
+    [$pid, $tid] = self::checkTarget($user, $d['project_id'] ? (int) $d['project_id'] : null, $d['task_id'] ? (int) $d['task_id'] : null, $keep ?: null);
     $start = strtotime($d['date'].' '.$d['start_time']);
     if ($d['end_time']) { $end = strtotime($d['date'].' '.$d['end_time']); if ($end <= $start) { $end += 86400; } }
     elseif ($d['duration']) {

@@ -53,7 +53,7 @@ final class WorkReportController extends Controller {
   /** Visible, open projects for the report's project picker. */
   private function projectOptions(): array {
     [$w, $p] = PA::scope($this->user(), 'p.id');
-    return DB::pairs("SELECT p.id, p.name FROM projects p WHERE $w AND p.status IN ('planning','active','on_hold') ORDER BY p.name", $p); }
+    return DB::pairs("SELECT p.id, p.name FROM projects p WHERE $w AND p.status IN ('planning','active','on_hold') AND ".PS::activeSql('p').' ORDER BY p.name', $p); }
 
   /** [start, end] for a report type and chosen start date. */
   private function period(string $type, string $start): array {

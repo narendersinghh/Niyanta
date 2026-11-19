@@ -164,7 +164,7 @@ final class Schedule {
     [$w, $p] = ClientAccess::where($u, 'c.id');
     $clients = DB::pairs("SELECT c.id, COALESCE(NULLIF(c.company,''), c.name) FROM clients c WHERE $w AND (c.status<>'inactive' OR c.id=?) ORDER BY 2 LIMIT 2000", [...$p, (int) $cid]);
     $projects = [];
-    if (feature_on('projects')) { [$pw, $pp] = ProjectAccess::scope($u, 'p.id'); $projects = DB::all("SELECT p.id, p.name, p.client_id FROM projects p WHERE $pw AND (p.status NOT IN ('completed','cancelled') OR p.id=?) ORDER BY p.name LIMIT 2000", [...$pp, (int) $pid]); }
+    if (feature_on('projects')) { [$pw, $pp] = ProjectAccess::scope($u, 'p.id'); $projects = DB::all("SELECT p.id, p.name, p.client_id FROM projects p WHERE $pw AND ((p.status NOT IN ('completed','cancelled') AND ".\Modules\Projects\Services\ProjectService::activeSql('p').') OR p.id=?) ORDER BY p.name LIMIT 2000', [...$pp, (int) $pid]); }
     $projects = array_values(array_filter($projects, static fn ($r) => $cid ? (int) $r['client_id'] === $cid : !$r['client_id'] || isset($clients[$r['client_id']])));
     $cids = $cid ? [$cid] : array_map('intval', array_keys($clients));
     $contacts = $cids ? DB::all('SELECT id, client_id, name, email, designation FROM client_contacts WHERE client_id IN '.DB::in(array_slice($cids, 0, 2000)).' ORDER BY is_primary DESC, name LIMIT 3000', array_slice($cids, 0, 2000)) : [];
