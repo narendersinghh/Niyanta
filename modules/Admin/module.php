@@ -42,6 +42,7 @@ return [
     $r->post('/admin/settings/demo/delete', [DemoController::class, 'delete'], $sa + ['throttle' => [5, 600]]);
     $r->get('/admin/audit', [AuditController::class, 'index'], 'admin.audit.view');
     $r->get('/admin/audit/errors', [Modules\Admin\Controllers\ErrorLogController::class, 'index'], 'admin.audit.view');
+    $r->get('/admin/audit/errors/export', [Modules\Admin\Controllers\ErrorLogController::class, 'export'], ['perm' => 'admin.audit.view', 'throttle' => [20, 300]]);
     $r->post('/admin/audit/errors/{id}/resolve', [Modules\Admin\Controllers\ErrorLogController::class, 'resolve'], 'admin.audit.view');
     $r->post('/admin/audit/errors/clear', [Modules\Admin\Controllers\ErrorLogController::class, 'clear'], '__super_admin');
     $r->get('/admin/backups', [BackupController::class, 'index'], $sa);

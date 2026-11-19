@@ -1,6 +1,6 @@
 <?php $srcC = ['server' => ['lav', 'server'], 'browser' => ['sky', 'globe'], 'desktop' => ['peach', 'monitor']]; ?>
 <?= partial('partials/page_head', ['title' => 'Error logs', 'subtitle' => 'Errors from the server, browsers and the desktop tracker. Repeats are grouped; resolved errors reopen if they happen again.', 'crumbs' => [['System'], ['Audit log', '/admin/audit'], ['Error logs']],
-  'actions' => user()['role_slug'] === 'super_admin' ? '<form method="post" action="'.e(url('/admin/audit/errors/clear')).'" data-confirm="Permanently delete all resolved errors?">'.csrf_field().'<button class="btn ghost">'.icon('trash', 'sm').' Clear resolved</button></form>' : '']) ?>
+  'actions' => '<a class="btn ghost" href="'.e(url('/admin/audit/errors/export?'.http_build_query(array_filter($f, static fn ($v) => $v !== '')))).'" title="Download the errors matching the current filters as a text file">'.icon('download', 'sm').' Download .txt</a>'.(user()['role_slug'] === 'super_admin' ? '<form method="post" action="'.e(url('/admin/audit/errors/clear')).'" data-confirm="Permanently delete all resolved errors?">'.csrf_field().'<button class="btn ghost">'.icon('trash', 'sm').' Clear resolved</button></form>' : '')]) ?>
 <?= partial('admin::audit/_tabs', ['active' => 'errors']) ?>
 <div class="grid g4 mb">
   <div class="tile dark"><span class="tile-ic"><?= icon('alert') ?></span><div><div class="num"><?= (int) $stats['open'] ?></div><div class="lbl">Open errors</div></div></div>
