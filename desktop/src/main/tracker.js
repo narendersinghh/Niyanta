@@ -126,7 +126,8 @@ class Tracker extends EventEmitter {
     this.queue.on('unauthorized', () => this.signedOutRemotely());
     this.queue.on('done', (job, res) => { if (this.signedIn && (job.type === 'action' || job.type === 'heartbeat' || job.type === 'idle') && res && res.state && !this.inflight && !this.queue.jobs.some(j => j.type === 'action')) { this.setSnap(res.state); this.reconcile(); } });
     this.queue.on('rejected', (job, err) => this.onRejected(job, err));
-    this.queue.on('stuck', (job, err) => this.report('queue', err, { job: job.type, path: job.path, tries: job.tries }));
+    /* only a server that keeps failing is worth a report: no network or a timeout just waits (the data stays queued on disk) */
+    this.queue.on('stuck', (job, err) => { if (err.status >= 500) this.report('queue', err, { job: job.type, path: job.path, tries: job.tries, status: err.status }, 'warning'); });
     this.queue.on('dropped', (job, why) => this.report('queue', new Error(`Queued ${job.type} dropped (${why})`), { path: job.path }, 'warning')); }
 
   /* ---------- session ---------- */
@@ -171,7 +172,7 @@ class Tracker extends EventEmitter {
       return { ok: true }; }
     catch (e) {
       this.error = e.message;
-      if (!(e.status && e.status < 500) && e.body && e.body.code !== 'input') this.report('signin', e, { status: e.status });
+      if (e.status >= 500) this.report('signin', e, { status: e.status }, 'warning'); /* wrong credentials, no network or a timeout: shown to the person, not an app error */
       return { ok: false, error: e.message }; }
     finally { this.busy = false; this.changed(); } }
 

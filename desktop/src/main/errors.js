@@ -55,11 +55,19 @@ function report(where, err, context = {}, level = 'error') {
   } catch (x) { console.error('report failed', x); }
 }
 
+/* Windows ends helper processes this way when it shuts down, restarts or signs out (0x40010004 DBG_TERMINATE_PROCESS,
+   0xC000026B STATUS_DLL_INIT_FAILED_LOGOFF): not a crash of the app, so not reported */
+const SHUTDOWN_EXIT = new Set([0x40010004, 0xC000026B - 0x100000000, 0xC000026B]);
+let shuttingDown = false;
+function ignoredExit(d) { return d.reason === 'clean-exit' || shuttingDown || SHUTDOWN_EXIT.has(d.exitCode); }
+
 function installGlobalHandlers() {
+  app.on('before-quit', () => { shuttingDown = true; });
+  app.whenReady().then(() => { try { require('electron').powerMonitor.on('shutdown', () => { shuttingDown = true; }); } catch (e) { /* powerMonitor unavailable */ } });
   process.on('uncaughtException', e => report('main', e, {}, 'exception'));
   process.on('unhandledRejection', e => report('main', e instanceof Error ? e : new Error('Unhandled rejection: ' + String(e)), {}, 'rejection'));
   app.on('render-process-gone', (_ev, _wc, d) => report('renderer', new Error('Renderer process gone: ' + d.reason), { exitCode: d.exitCode }, 'fatal'));
-  app.on('child-process-gone', (_ev, d) => { if (d.reason !== 'clean-exit') report('process', new Error(`${d.type} process gone: ${d.reason}`), { exitCode: d.exitCode }, 'warning'); });
+  app.on('child-process-gone', (_ev, d) => { if (!ignoredExit(d)) report('process', new Error(`${d.type} process gone: ${d.reason}`), { exitCode: d.exitCode }, 'warning'); });
 }
 
 module.exports = { report, log, attach, installGlobalHandlers, logFile, scrub };

@@ -68,7 +68,7 @@ final class DesktopApp {
     if (is_array($hit) && array_key_exists('ok', $hit)) { return $hit; }
     if (defined('NY_TESTING') && self::$fetcher === null) { return ['ok' => false, 'release' => null, 'checked_at' => date('c'), 'error' => 'GitHub is not contacted in tests']; }
     try {
-      [$code, $body] = self::http('https://api.github.com/repos/'.self::repo().'/releases?per_page=50', 'application/vnd.github+json');
+      [$code, $body] = self::http('https://api.github.com/repos/'.self::repo().'/releases?per_page=20', 'application/vnd.github+json'); /* app and tracker releases alternate: 20 always include the newest tracker one, and keep the answer small */
       if ($code !== 200) { throw new \RuntimeException('GitHub answered HTTP '.$code.($code === 401 || $code === 404 ? ' (check the token in Settings › Updates: it needs read access to Contents of '.self::repo().')' : '')); }
       $list = json_decode($body, true);
       if (!is_array($list) || !array_is_list($list)) { throw new \RuntimeException('unexpected GitHub response'); }
@@ -88,7 +88,7 @@ final class DesktopApp {
     $h = ['User-Agent: Niyanta/'.NY_VERSION, 'Accept: '.$accept, 'X-GitHub-Api-Version: 2022-11-28'];
     if ($t = (string) Settings::get('updates.github_token', '')) { $h[] = 'Authorization: Bearer '.$t; }
     $c = curl_init($url); $fp = null;
-    $opts = [CURLOPT_HTTPHEADER => $h, CURLOPT_FOLLOWLOCATION => true, CURLOPT_MAXREDIRS => 5, CURLOPT_UNRESTRICTED_AUTH => false, CURLOPT_CONNECTTIMEOUT => 10, CURLOPT_TIMEOUT => $saveTo ? 1800 : 20, CURLOPT_SSL_VERIFYPEER => true, CURLOPT_SSL_VERIFYHOST => 2,
+    $opts = [CURLOPT_HTTPHEADER => $h, CURLOPT_FOLLOWLOCATION => true, CURLOPT_MAXREDIRS => 5, CURLOPT_UNRESTRICTED_AUTH => false, CURLOPT_CONNECTTIMEOUT => 10, CURLOPT_TIMEOUT => $saveTo ? 1800 : 60, CURLOPT_LOW_SPEED_LIMIT => 1024, CURLOPT_LOW_SPEED_TIME => 60, CURLOPT_SSL_VERIFYPEER => true, CURLOPT_SSL_VERIFYHOST => 2,
       CURLOPT_NOPROGRESS => false, CURLOPT_XFERINFOFUNCTION => static fn ($ch, $total, $now) => $now > self::MAX_ASSET ? 1 : 0];
     if (defined('CURLOPT_PROTOCOLS_STR')) { $opts[CURLOPT_PROTOCOLS_STR] = 'https'; $opts[CURLOPT_REDIR_PROTOCOLS_STR] = 'https'; }
     if ($saveTo) { $fp = fopen($saveTo, 'wb'); if (!$fp) { throw new \RuntimeException('Cannot write '.basename($saveTo)); } $opts[CURLOPT_FILE] = $fp; }
@@ -132,7 +132,13 @@ final class DesktopApp {
    */
   public static function sync(bool $refresh = false): array {
     $res = ['ok' => false, 'version' => null, 'downloaded' => 0, 'error' => null, 'at' => date('Y-m-d H:i:s')];
+    /* one mirror run at a time: a slow download outlasting the 30-minute schedule (or a manual Refresh) must not write or delete the same files */
+    $lockFile = self::dir().'/.sync.lock';
+    if (!is_dir(self::dir())) { @mkdir(self::dir(), 0775, true); }
+    $lock = @fopen($lockFile, 'c');
+    if ($lock && !flock($lock, LOCK_EX | LOCK_NB)) { fclose($lock); return ['ok' => true, 'version' => null, 'downloaded' => 0, 'error' => null, 'busy' => true, 'at' => date('Y-m-d H:i:s')] + self::syncStatus(); }
     try {
+      foreach (glob(self::dir().'/*/*.part') ?: [] as $old) { if (filemtime($old) < time() - 7200) { @unlink($old); } } /* leftovers of a run that was killed */
       $r = self::release($refresh);
       if (!$r['ok']) { throw new \RuntimeException((string) ($r['error'] ?? 'GitHub could not be reached')); }
       $rel = $r['release'];
@@ -166,13 +172,14 @@ final class DesktopApp {
     catch (\Throwable $e) {
       $res['error'] = $e->getMessage();
       ErrorLog::record('server', 'warning', 'Desktop app mirror failed: '.$e->getMessage(), __FILE__, __LINE__); }
+    finally { if ($lock) { flock($lock, LOCK_UN); fclose($lock); } }
     return self::remember($res); }
 
   private static function remember(array $res): array { Settings::set('tracker.sync', $res); return $res; }
   public static function syncStatus(): array { return Settings::json('tracker.sync'); }
 
   private static function download(array $a, string $name, string $dir): void {
-    $part = $dir.'/'.$name.'.part';
+    $part = $dir.'/'.$name.'.'.getmypid().'.part'; /* per process: a leftover or a parallel run never shares it */
     try {
       if (self::$fetcher) { file_put_contents($part, (self::$fetcher)($a + ['name' => $name])); }
       else {
@@ -180,7 +187,9 @@ final class DesktopApp {
         [$code] = self::http('https://api.github.com/repos/'.self::repo().'/releases/assets/'.$a['id'], 'application/octet-stream', $part);
         if ($code !== 200) { throw new \RuntimeException('HTTP '.$code); } }
       clearstatcache(true, $part);
-      if ($a['size'] && (int) filesize($part) !== $a['size']) { throw new \RuntimeException('size '.filesize($part).' instead of '.$a['size']); }
+      $got = is_file($part) ? (int) filesize($part) : -1;
+      if ($got < 0) { throw new \RuntimeException('the download was interrupted (no file)'); }
+      if ($a['size'] && $got !== $a['size']) { throw new \RuntimeException('incomplete download: '.$got.' of '.$a['size'].' bytes'); }
       if (!rename($part, $dir.'/'.$name)) { throw new \RuntimeException('cannot move into place'); } }
     catch (\Throwable $e) { @unlink($part); throw new \RuntimeException('Download of '.$name.' failed: '.$e->getMessage(), 0, $e); } }
 

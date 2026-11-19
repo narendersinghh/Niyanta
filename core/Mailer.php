@@ -15,14 +15,24 @@ final class Mailer {
 
   /** Process pending queue (cron). */
   public static function processQueue(int $limit = 20): int {
-    $sent = 0;
+    $sent = 0; $failed = [];
     foreach (DB::all("SELECT * FROM mail_queue WHERE status='pending' AND attempts<5 ORDER BY id LIMIT ".(int) $limit) as $m) {
       try { self::send($m['to_email'], $m['subject'], $m['body_html'], $m['to_name']); DB::update('mail_queue', ['status' => 'sent', 'sent_at' => date('Y-m-d H:i:s'), 'attempts' => $m['attempts'] + 1], 'id=?', [$m['id']]); $sent++; }
-      catch (\Throwable $e) { DB::update('mail_queue', ['attempts' => $m['attempts'] + 1, 'last_error' => mb_substr($e->getMessage(), 0, 500), 'status' => $m['attempts'] + 1 >= 5 ? 'failed' : 'pending'], 'id=?', [$m['id']]); } }
+      catch (\Throwable $e) { DB::update('mail_queue', ['attempts' => $m['attempts'] + 1, 'last_error' => mb_substr($e->getMessage(), 0, 500), 'status' => $m['attempts'] + 1 >= 5 ? 'failed' : 'pending'], 'id=?', [$m['id']]); $failed[] = $e->getMessage(); } }
+    /* one log entry per run (not one per email and attempt) */
+    if ($failed) { ErrorLog::record('server', 'warning', count($failed).' email'.(count($failed) === 1 ? '' : 's').' could not be sent: '.mb_substr($failed[0], 0, 400), __FILE__, __LINE__); }
     return $sent; }
 
+  /** The site's domain for the default sender: app_url from config, else the request host, else this machine's name. */
+  public static function domain(): string {
+    $h = (string) parse_url((string) App::config('app_url', ''), PHP_URL_HOST);
+    if ($h === '') { $h = (string) preg_replace('/:\d+$/', '', (string) ($_SERVER['HTTP_HOST'] ?? '')); }
+    if ($h === '' || $h === 'localhost' || filter_var($h, FILTER_VALIDATE_IP)) { $h = (string) (gethostname() ?: 'localhost'); }
+    return strtolower(preg_replace('/^www\./i', '', $h)); }
+
   public static function send(string $to, string $subject, string $html, ?string $toName = null): void {
-    $from = (string) Settings::get('email.from_address', 'no-reply@'.($_SERVER['HTTP_HOST'] ?? 'localhost'));
+    $from = trim((string) Settings::get('email.from_address', ''));
+    if (!filter_var($from, FILTER_VALIDATE_EMAIL)) { $from = 'no-reply@'.self::domain(); } /* cron has no HTTP_HOST: never no-reply@localhost, which hosts reject */
     $fromName = (string) Settings::get('email.from_name', company_name());
     if (!filter_var($to, FILTER_VALIDATE_EMAIL)) { throw new \InvalidArgumentException('Invalid recipient'); }
     $enc = static fn (string $s) => '=?UTF-8?B?'.base64_encode($s).'?=';
@@ -30,7 +40,9 @@ final class Mailer {
     $body = chunk_split(base64_encode($html));
     if (Settings::get('email.driver', 'smtp') !== 'smtp' || !Settings::get('email.smtp_host')) {
       $h = $headers; unset($h['To'], $h['Subject']);
-      if (!mail($to, $headers['Subject'], $body, implode("\r\n", array_map(static fn ($k, $v) => "$k: $v", array_keys($h), $h)))) { throw new \RuntimeException('mail() failed'); }
+      /* envelope sender = From (-f): shared hosts (Hostinger, cPanel) refuse mail whose sender is not on the site's domain */
+      $ok = @mail($to, $headers['Subject'], $body, implode("\r\n", array_map(static fn ($k, $v) => "$k: $v", array_keys($h), $h)), '-f'.$from);
+      if (!$ok) { $err = error_get_last(); throw new \RuntimeException('mail() failed'.($err && str_contains((string) $err['message'], 'mail') ? ': '.preg_replace('/^mail\(\): /', '', (string) $err['message']) : '').' (sender '.$from.'). Set up SMTP in Settings › Email for reliable delivery.'); }
       return; }
     self::smtp($from, $to, implode("\r\n", array_map(static fn ($k, $v) => "$k: $v", array_keys($headers), $headers))."\r\n\r\n".$body); }
 

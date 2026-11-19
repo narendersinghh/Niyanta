@@ -104,7 +104,7 @@ class Updater extends EventEmitter {
   onError(err) {
     const msg = String(err && err.message || err);
     /* 401/404/503 from the workspace: signed out, nothing mirrored yet, or GitHub not connected. Not an app error. */
-    const benign = /\b(401|403|404|503)\b|Cannot find channel|net::ERR_(INTERNET_DISCONNECTED|NETWORK_CHANGED|NAME_NOT_RESOLVED|CONNECTION_REFUSED|TIMED_OUT)/i.test(msg);
+    const benign = /\b(401|403|404|503)\b|Cannot find channel|net::ERR_(INTERNET_DISCONNECTED|NETWORK_CHANGED|NAME_NOT_RESOLVED|CONNECTION_REFUSED|CONNECTION_RESET|CONNECTION_CLOSED|CONNECTION_TIMED_OUT|TIMED_OUT|QUIC_PROTOCOL_ERROR|HTTP2_PROTOCOL_ERROR|ADDRESS_UNREACHABLE|PROXY_CONNECTION_FAILED)/i.test(msg);
     if (!benign) this.report('updater', err instanceof Error ? err : new Error(msg), { feed: this.feed, mode: this.mode }, 'warning');
     /* a background check or download failed: nothing to show, the click retries (and falls back to the manual download) */
     if (!this.state.want) { this.set({ bg: false, status: this.state.status === 'ready' ? 'ready' : (this.state.version ? 'available' : 'idle') }); return; }

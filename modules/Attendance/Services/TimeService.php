@@ -25,7 +25,7 @@ final class TimeService {
    */
   public static function secondsSql(string $t = ''): string {
     $hb = "COALESCE({$t}last_heartbeat_at, {$t}started_at)"; $s = self::STALE_SECONDS;
-    return "CASE WHEN {$t}is_running=1 THEN GREATEST(0, TIMESTAMPDIFF(SECOND, {$t}started_at, IF($hb < NOW() - INTERVAL $s SECOND AND NOT ({$t}last_heartbeat_at <=> {$t}started_at AND {$t}created_at >= NOW() - INTERVAL $s SECOND), $hb, NOW())) - {$t}discarded_seconds) ELSE {$t}duration_seconds END"; }
+    return "CASE WHEN {$t}is_running=1 THEN GREATEST(0, TIMESTAMPDIFF(SECOND, {$t}started_at, IF($hb < NOW() - INTERVAL $s SECOND AND NOT ({$t}last_heartbeat_at <=> {$t}started_at AND {$t}created_at >= NOW() - INTERVAL $s SECOND), $hb, NOW())) - CAST({$t}discarded_seconds AS SIGNED)) ELSE {$t}duration_seconds END"; }
 
   /** Seconds tracked by a user between two dates (inclusive), optionally by entry status. Running entries count up to now. */
   public static function secondsForUser(int $userId, string $from, string $to, ?string $status = null): int {

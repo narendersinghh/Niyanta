@@ -20,6 +20,9 @@ const capture = lazy('./capture'), toast = lazy('./toast'), badge = lazy('./badg
 /* Every renderer runs in the Chromium sandbox (also set per window; the fuses of the packaged app turn off runAsNode,
    NODE_OPTIONS and --inspect). The variables below never reach a relaunch or the helper processes we spawn. */
 app.enableSandbox();
+/* no HTTP/3 (QUIC, UDP): some networks and firewalls break it half way (net::ERR_QUIC_PROTOCOL_ERROR in update checks and
+   downloads); plain HTTPS over TCP works everywhere */
+app.commandLine.appendSwitch('disable-quic');
 for (const k of ['ELECTRON_RUN_AS_NODE', 'ELECTRON_ENABLE_LOGGING', 'NODE_OPTIONS', 'NODE_EXTRA_CA_CERTS']) delete process.env[k];
 
 app.setName('Niyanta Tracker');
@@ -272,7 +275,7 @@ const hm = s => { s = Math.max(0, Math.floor(s || 0)); return `${Math.floor(s / 
 let trayKey = '';
 
 function updateTray(ui) {
-  if (!tray || !ui) return;
+  if (!tray || tray.isDestroyed() || !ui) return;
   const st = ui.state;
   const kind = ui.screen === 'signin' ? 'signed-out' : ui.chip;
   const label = { tracking: 'Tracking', idle: 'Idle', paused: 'Paused', offline: 'Offline', ended: 'Not started', stopped: 'Not tracking', not_started: 'Not started', remote: `Tracking on ${(ui.remote && ui.remote.device) || 'another computer'}`, 'signed-out': 'Signed out' }[kind] || 'Niyanta Tracker';
