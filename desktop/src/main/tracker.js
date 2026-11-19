@@ -105,6 +105,9 @@ class Tracker extends EventEmitter {
     this.updater.on('available', v => this.emit('update-available', v));
     this.updater.on('restart', () => this.emit('update-restart'));
     this.autoPaused = false;
+    /* tracking actions sent straight to the server (not through the queue) and when the last one started: a state answer to
+       a request sent before it (heartbeat, GET /state, bootstrap) is out of date and must not undo it (fresh()) */
+    this.inflight = 0; this.actionSeq = 0;
     this.permission = process.platform === 'darwin' ? capture().screenPermission() : 'granted';
     /* macOS: Screen Recording is reset once per version after an update that changed the app's code identity (ad-hoc
        builds) or a capture failing while "granted" (permfix.js); builds signed with the project's own certificate keep it */
@@ -121,7 +124,7 @@ class Tracker extends EventEmitter {
     this.queue.on('change', () => this.changed());
     this.queue.on('online', on => { this.offline = !on; this.changed(); if (on) this.refreshState(); });
     this.queue.on('unauthorized', () => this.signedOutRemotely());
-    this.queue.on('done', (job, res) => { if (this.signedIn && (job.type === 'action' || job.type === 'heartbeat' || job.type === 'idle') && res && res.state && !this.queue.jobs.some(j => j.type === 'action')) { this.setSnap(res.state); this.reconcile(); } });
+    this.queue.on('done', (job, res) => { if (this.signedIn && (job.type === 'action' || job.type === 'heartbeat' || job.type === 'idle') && res && res.state && !this.inflight && !this.queue.jobs.some(j => j.type === 'action')) { this.setSnap(res.state); this.reconcile(); } });
     this.queue.on('rejected', (job, err) => this.onRejected(job, err));
     this.queue.on('stuck', (job, err) => this.report('queue', err, { job: job.type, path: job.path, tries: job.tries }));
     this.queue.on('dropped', (job, why) => this.report('queue', new Error(`Queued ${job.type} dropped (${why})`), { path: job.path }, 'warning')); }
@@ -373,15 +376,17 @@ class Tracker extends EventEmitter {
     if (name === 'pause') this.flushHeartbeat(atMs, !!durable);
     const before = this.snap;
     this.project(name, body);
+    this.actionSeq++;
     this.localTracking = this.state === 'tracking';
     if (name !== 'pause') { this.autoPaused = false; this.idlePause = null; }
     if ((name === 'start' || name === 'resume') && this.consentNeeded()) this.emit('consent-needed');
     const job = { type: 'action', path: ACTIONS[name], json: body };
     if (durable) { const j = this.queue.add(job); const sent = await this.queue.sent(j.id, durable); return { ok: true, queued: !sent }; }
     if (this.queue.size) { this.queue.add(job); return { ok: true, queued: true }; }
+    this.inflight++;
     try {
       const res = await this.api.post(job.path, body);
-      this.offline = false;
+      this.offline = false; this.actionSeq++;
       if (res.state) { this.quietMove = name !== 'pause'; try { this.setSnap(res.state); } finally { this.quietMove = false; } }
       /* Start / Resume while the entry was already on another computer (this one did not know yet): nothing changed there */
       if (this.remote && name !== 'pause') return { ok: false, remote: this.remoteInfo() };
@@ -391,8 +396,13 @@ class Tracker extends EventEmitter {
       if (e.status === 401) { this.signedOutRemotely(); return { ok: false }; }
       this.snap = before; this.changed();
       if (!quiet) this.flash(e.message, 'error');
+      this.localTracking = this.state === 'tracking';
       this.refreshState();
-      return { ok: false, error: e.message }; } }
+      return { ok: false, error: e.message }; }
+    finally { this.inflight--; } }
+
+  /** May a state answer to a request sent at action sequence `seq` be applied? Not while a tracking action is on its way, nor when one started or finished after it was sent. */
+  fresh(seq) { return !this.inflight && seq === this.actionSeq; }
 
   /**
    * The periodic GET /state (every 60 s) is skipped while heartbeats (which answer with the same state) are flowing, except
@@ -408,16 +418,18 @@ class Tracker extends EventEmitter {
   async refreshState() {
     if (!this.signedIn || this.refreshing) return;
     this.refreshing = true;
+    const sentAt = this.actionSeq;
     try {
       const r = await this.api.get('state', { timeout: 15000 });
       this.offline = false; this.lastFullState = Date.now(); this.stateWait = STATE_EVERY_MS;
-      if (!this.queue.jobs.some(j => j.type === 'action')) this.setSnap(r.state);
+      const ok = this.fresh(sentAt) && !this.queue.jobs.some(j => j.type === 'action');
+      if (ok) this.setSnap(r.state);
       const had = !!(this.boot && this.boot.consent);
       if (!this.boot) return;
       if (r.settings && typeof r.settings === 'object') this.boot.settings = r.settings;
       if (had && !r.consent) { this.boot.consent = null; this.queue.dropScreenshots(); this.flash('Screen monitoring consent was revoked. No more screenshots are taken.', 'info'); }
       if (!had && r.consent) this.refreshBoot();
-      this.reconcile();
+      if (ok) this.reconcile();
       this.changed(); }
     catch (e) {
       if (e.status === 401) return this.signedOutRemotely();
@@ -426,7 +438,8 @@ class Tracker extends EventEmitter {
 
   async refreshBoot() {
     if (!this.signedIn) return;
-    try { const b = await this.api.get('bootstrap'); this.applyBoot(b); this.reconcile(); }
+    const sentAt = this.actionSeq;
+    try { const b = await this.api.get('bootstrap'); const ok = this.fresh(sentAt); if (!ok) delete b.state; this.applyBoot(b); if (ok) this.reconcile(); }
     catch (e) { if (e.status === 401) this.signedOutRemotely(); } }
 
   /**
@@ -596,9 +609,10 @@ class Tracker extends EventEmitter {
 
   sendHeartbeat(json, queued = false) {
     if (this.queue.size || queued) { this.queue.add({ type: 'heartbeat', path: 'heartbeat', json }); return; }
+    const sentAt = this.actionSeq;
     this.api.post('heartbeat', json, { timeout: 15000 }).then(r => {
       this.offline = false; this.lastBeatAt = Date.now();
-      if (r.state && !this.queue.jobs.some(j => j.type === 'action')) { this.setSnap(r.state); this.reconcile(); } }).catch(e => {
+      if (r.state && this.fresh(sentAt) && !this.queue.jobs.some(j => j.type === 'action')) { this.setSnap(r.state); this.reconcile(); } }).catch(e => {
       if (e.status === 401) return this.signedOutRemotely();
       if (e.retryable) { this.offline = !!e.offline; this.queue.add({ type: 'heartbeat', path: 'heartbeat', json }); }
       this.changed(); }); }
@@ -730,8 +744,9 @@ class Tracker extends EventEmitter {
     if (!this.remote) return this.state === 'tracking' ? { ok: true } : this.action(['not_started', 'ended'].includes(this.state) ? 'start' : 'resume', this.selection);
     this.busy = true; this.changed();
     try {
+      this.actionSeq++;
       const res = await this.api.post('takeover', { at: new Date().toISOString() }, { timeout: 20000 });
-      this.offline = false;
+      this.offline = false; this.actionSeq++;
       this.autoPaused = false; this.idlePause = null;
       if (res.state) this.setSnap(res.state);
       const r = this.snap && this.snap.running;

@@ -294,6 +294,31 @@ async function main() {
   eq(t.state, 'remote', 'A back online: the replayed beat says the entry moved, A stops');
   const m2 = server.log.length; run(t, 300); await flush();
   eq(server.log.slice(m2).map(x => x.path), [], 'and sends nothing more');
+  t.stop();
+
+  /* 16. a status answer sent before Resume but arriving after it (unlock / wake): it is out of date, never "paused from another device" */
+  t = make();
+  const pausedSt = st => Object.assign(JSON.parse(JSON.stringify(st)), { state: 'paused', label: 'Paused', running: null });
+  const trackSt = tracking(t); t.setSnap(pausedSt(trackSt)); t.localTracking = false;
+  const flashes = []; t.flash = m => flashes.push(m);
+  let release; const slow = new Promise(r => { release = r; });
+  const realGet = t.api.get.bind(t.api);
+  t.api.get = (p, o) => (p === 'state' ? slow.then(() => ({ ok: true, state: pausedSt(trackSt) })) : realGet(p, o));
+  const poll = t.refreshState();
+  server.answer = () => trackSt;
+  await t.action('resume'); await flush();
+  eq(t.state, 'tracking', 'resumed');
+  release(); await poll; await flush();
+  eq(t.state, 'tracking', 'the late "paused" answer is ignored');
+  ok(!flashes.some(m => /another device/.test(m)), 'no "paused from another device" notice: ' + JSON.stringify(flashes));
+  const late = t.api.post.bind(t.api); let hbRelease; const hbSlow = new Promise(r => { hbRelease = r; });
+  t.api.post = (p, j, o) => (p === 'heartbeat' ? hbSlow.then(() => ({ ok: true, state: pausedSt(trackSt) })) : late(p, j, o));
+  t.setSnap(pausedSt(trackSt)); t.localTracking = false; t.sendHeartbeat({ active_seconds: 1, idle_seconds: 0, at: iso(clock) });
+  await t.action('resume'); hbRelease(); await flush();
+  eq(t.state, 'tracking', 'a heartbeat answer from before Resume is ignored too');
+  ok(!flashes.some(m => /another device/.test(m)), 'still no notice');
+  t.api.get = realGet; server.answer = () => pausedSt(trackSt); await t.refreshState(); await flush();
+  ok(flashes.some(m => /another device/.test(m)), 'a real pause elsewhere (answer sent after Resume) still shows the notice');
   t.stop(); }
 
 main().catch(e => { bad++; console.error('FAIL ' + (e && e.stack || e)); }).then(() => {
