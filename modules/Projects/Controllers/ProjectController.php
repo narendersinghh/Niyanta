@@ -1,9 +1,9 @@
 <?php
 namespace Modules\Projects\Controllers;
 use Core\{Audit, Controller, DB, Notify, Response, Storage, ValidationException};
-use Modules\Projects\Services\{ProjectAccess as PA, ProjectService as PS};
+use Modules\Projects\Services\{ProjectAccess as PA, ProjectBrief, ProjectService as PS};
 
-/** Projects: list, create/edit, detail tabs (overview, board, list, milestones, change requests, files). */
+/** Projects: list, create/edit, detail tabs (overview, brief, board, list, milestones, change requests, files). */
 final class ProjectController extends Controller {
   /** Load a project the current user may see, or 404 (never reveal projects outside scope). */
   private function visible(int $id): array {
@@ -123,24 +123,29 @@ final class ProjectController extends Controller {
     if (!$this->can('projects.manage') && !$this->can('projects.tasks.manage') && !$this->can('projects.tasks.update_own')) { $this->abort(403, 'You cannot upload files to this project.'); }
     $f = $this->request->file('file') ?? throw new ValidationException(['file' => 'Choose a file to upload.']);
     $cat = in_array($c = $this->request->str('category'), ['general', 'brief', 'design', 'contract', 'deliverable'], true) ? $c : 'general';
-    Storage::attach($f, 'projects', 'project', $id, $cat);
+    $fid = Storage::attach($f, 'projects', 'project', $id, $cat);
+    if ($this->request->wantsJson()) { /* the brief editor uploads pasted / dropped files and inserts an image or a link */
+      $row = DB::find('files', $fid);
+      return $this->json(['id' => $fid, 'name' => $row['original_name'], 'size' => (int) $row['size'], 'image' => in_array($row['mime'], ['image/png', 'image/jpeg', 'image/webp', 'image/gif'], true), 'url' => url('/files/'.$fid.'/view'), 'download' => url('/files/'.$fid)]); }
     $this->flash('File uploaded.');
-    return $this->redirect('/projects/'.$id.'?tab=files'); }
+    return $this->redirect('/projects/'.$id.'?tab='.($this->request->str('return') === 'brief' ? 'brief' : 'files')); }
 
   public function show(int $id): Response {
     $u = $this->user();
     $pr = $this->visible($id);
     [$logView, $logWrite] = class_exists(\Modules\Crm\Services\ProjectLog::class) ? \Modules\Crm\Services\ProjectLog::access($u, $pr) : [false, false];
-    $tab = in_array($t = $this->request->str('tab', 'overview'), ['overview', 'board', 'list', 'milestones', 'changes', 'files', ...($logView ? ['log'] : [])], true) ? $t : 'overview';
+    $tab = in_array($t = $this->request->str('tab', 'overview'), ['overview', 'brief', 'board', 'list', 'milestones', 'changes', 'files', ...($logView ? ['log'] : [])], true) ? $t : 'overview';
     $team = DB::all('SELECT u.id, u.name, u.avatar, u.designation, pm.role FROM project_members pm JOIN users u ON u.id=pm.user_id WHERE pm.project_id=? ORDER BY u.name', [$id]);
     $sc = DB::pairs('SELECT status, COUNT(*) FROM tasks WHERE project_id=? AND parent_id IS NULL GROUP BY status', [$id]);
     $nums = DB::first("SELECT (SELECT COUNT(*) FROM milestones WHERE project_id=?) AS ms, (SELECT COUNT(*) FROM milestones WHERE project_id=? AND status='completed') AS ms_done, (SELECT COUNT(*) FROM change_requests WHERE project_id=? AND status='pending') AS cr, (SELECT COUNT(*) FROM files WHERE module='projects' AND entity_type='project' AND entity_id=?) AS files", [$id, $id, $id, $id]);
     $nums['log'] = $logView ? \Modules\Crm\Services\ProjectLog::count($id) : 0;
+    $isBrief = $tab === 'brief';
     $data = ['title' => $pr['name'], 'pr' => $pr, 'tab' => $tab, 'team' => $team, 'sc' => $sc, 'nums' => array_map('intval', $nums), 'logView' => $logView, 'logWrite' => $logWrite,
-      'styles' => ['css/projects.css', 'css/todos.css', ...($logView ? ['css/crm.css'] : []), ...($logWrite && feature_on('meetings') ? ['css/meetings.css'] : [])], 'scripts' => ['js/projects.js', 'js/taskdialog.js', ...($logWrite ? ['js/crm.js'] : []), ...($logWrite && feature_on('meetings') ? ['js/meetings.js'] : [])],
+      'styles' => ['css/projects.css', 'css/todos.css', ...($isBrief ? ['css/editor.css'] : []), ...($logView ? ['css/crm.css'] : []), ...($logWrite && feature_on('meetings') ? ['css/meetings.css'] : [])], 'scripts' => ['js/projects.js', 'js/taskdialog.js', ...($isBrief ? ['js/editor.js'] : []), ...($logWrite ? ['js/crm.js'] : []), ...($logWrite && feature_on('meetings') ? ['js/meetings.js'] : [])],
       'canManage' => PA::canManageProject($u, $id), 'canTasks' => PA::canManageTasks($u, $id), 'canCr' => $this->can('projects.change_requests.manage'), 'canDelete' => $this->can('projects.delete')];
     $data += match ($tab) {
       'overview' => $this->overview($pr),
+      'brief' => ProjectBrief::tab($pr, $this->request, PA::canManageProject($u, $id)),
       'board' => $this->board($id),
       'list' => $this->taskList($id),
       'milestones' => ['milestones' => $this->milestones($id)],
@@ -158,7 +163,8 @@ final class ProjectController extends Controller {
     $load = DB::pairs("SELECT assignee_id, COUNT(*) FROM tasks WHERE project_id=? AND status<>'done' AND assignee_id IS NOT NULL GROUP BY assignee_id", [$id]);
     $estTasks = (float) DB::value('SELECT IFNULL(SUM(estimated_hours),0) FROM tasks WHERE project_id=? AND parent_id IS NULL', [$id]);
     $upcoming = DB::all("SELECT t.id, t.title, t.due_date, t.status, t.priority, u.name AS assignee, u.avatar FROM tasks t LEFT JOIN users u ON u.id=t.assignee_id WHERE t.project_id=? AND t.status<>'done' AND t.due_date IS NOT NULL ORDER BY t.due_date LIMIT 6", [$id]);
-    return ['milestones' => $this->milestones($id), 'sec' => $sec, 'load' => $load, 'estTasks' => $estTasks, 'upcoming' => $upcoming]; }
+    $brief = DB::first('SELECT b.body_html, b.updated_at, u.name AS updated_name FROM project_briefs b LEFT JOIN users u ON u.id=b.updated_by WHERE b.project_id=?', [$id]);
+    return ['brief' => $brief, 'milestones' => $this->milestones($id), 'sec' => $sec, 'load' => $load, 'estTasks' => $estTasks, 'upcoming' => $upcoming]; }
 
   private function board(int $id): array {
     $tasks = DB::all("SELECT t.id, t.title, t.status, t.priority, t.due_date, t.assignee_id, t.position, t.project_id, u.name AS assignee, u.avatar, IFNULL(s.total,0) AS sub_total, IFNULL(s.done,0) AS sub_done, IFNULL(c.n,0) AS comments, IFNULL(d.open_deps,0) AS open_deps

@@ -108,6 +108,9 @@
 .sec-ic .ic{width:16px;height:16px}
 .scope-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:16px}
 .scope-box{border:1px solid var(--border);border-radius:16px;padding:14px 16px;background:var(--surface-2)}
+.brief-ex{border:1px solid var(--border);border-radius:16px;padding:14px 16px;background:var(--surface-2);margin-bottom:14px}
+.brief-ex p{margin:.45rem 0 .7rem;line-height:1.6;color:var(--text)}
+.brief-ex .xs{font-weight:500}
 .checklist{list-style:none;padding:0;margin:0;display:grid;gap:7px}
 .checklist li{display:flex;gap:.5rem;align-items:flex-start}
 .checklist .ic{margin-top:2px;color:var(--mint-d);width:15px;height:15px}

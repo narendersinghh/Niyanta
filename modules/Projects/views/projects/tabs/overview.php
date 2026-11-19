@@ -27,7 +27,10 @@ if ($pr['manager_id'] && !in_array((int) $pr['manager_id'], array_map('intval', 
   <div class="stack">
     <section class="card ac-<?= e($pr['color']) ?>">
       <div class="sec-head"><span class="sec-ic"><?= icon('file-text') ?></span><h3>About this project</h3><?php if ($nums['cr'] && $time): ?><a class="pill pill-lemon ml-a" href="<?= e(url('/projects/'.$id.'?tab=changes')) ?>"><?= icon('refresh', 'sm') ?> <?= $nums['cr'] ?> pending change request<?= $nums['cr'] > 1 ? 's' : '' ?></a><?php endif ?></div>
-      <?php if (!$pr['description'] && !$pr['scope'] && !$deliv): ?><p class="muted mb0">No description yet.<?= $canManage ? ' Add a description, scope and deliverables from <a href="'.e(url('/projects/'.$id.'/edit')).'">Edit project</a>.' : '' ?></p><?php endif ?>
+      <?php if ($brief): $bx = \Core\Html::excerpt((string) $brief['body_html'], 320); ?>
+      <div class="brief-ex"><div class="flex between wrap"><b class="flex"><?= icon('book', 'sm') ?> Brief</b><span class="xs muted">Last edited<?= $brief['updated_name'] ? ' by '.e($brief['updated_name']) : '' ?>, <?= e(ago($brief['updated_at'])) ?></span></div><p class="small"><?= $bx !== '' ? e($bx) : '<span class="muted">Images and tables only.</span>' ?></p><a class="btn sm soft" href="<?= e(url('/projects/'.$id.'?tab=brief')) ?>"><?= icon('book', 'sm') ?> Open brief</a></div>
+      <?php endif ?>
+      <?php if (!$brief && !$pr['description'] && !$pr['scope'] && !$deliv): ?><p class="muted mb0">No description yet.<?= $canManage ? ' Write the scope, requirements and links in the <a href="'.e(url('/projects/'.$id.'?tab=brief')).'">Brief</a>, or add a short description from <a href="'.e(url('/projects/'.$id.'/edit')).'">Edit project</a>.' : '' ?></p><?php endif ?>
       <?php if ($pr['description']): ?><div class="prose"><?= nl2br(e($pr['description'])) ?></div><?php endif ?>
       <?php if ($pr['scope'] || $deliv): ?>
       <div class="scope-grid">

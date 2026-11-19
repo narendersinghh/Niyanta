@@ -5,12 +5,13 @@ $total = array_sum($sc); $done = (int) ($sc['done'] ?? 0);
 [$cd, $tone] = PS::countdown($pr['deadline'], $pr['status']);
 $initials = mb_strtoupper(implode('', array_map(static fn ($w) => mb_substr($w, 0, 1), array_slice(preg_split('/\s+/', trim($pr['name'])) ?: [], 0, 2))));
 $canUpload = can('projects.manage') || can('projects.tasks.manage') || can('projects.tasks.update_own');
-$tabs = ['overview' => ['Overview', 'grid', null], 'board' => ['Board', 'kanban', $total], 'list' => ['List', 'list', null], 'milestones' => ['Milestones', 'flag', $nums['ms']], 'changes' => ['Change requests', 'refresh', $nums['cr']], 'files' => ['Files', 'paperclip', $nums['files']]] + ($logView ? ['log' => ['Client log', 'activity', $nums['log']]] : []);
+$tabs = ['overview' => ['Overview', 'grid', null], 'brief' => ['Brief', 'book', null], 'board' => ['Board', 'kanban', $total], 'list' => ['List', 'list', null], 'milestones' => ['Milestones', 'flag', $nums['ms']], 'changes' => ['Change requests', 'refresh', $nums['cr']], 'files' => ['Files', 'paperclip', $nums['files']]] + ($logView ? ['log' => ['Client log', 'activity', $nums['log']]] : []);
 $taskTab = in_array($tab, ['board', 'list', 'overview'], true);
 $primary = match (true) {
   $taskTab && $canTasks => '<button type="button" class="btn primary" data-modal="task-new" data-status="todo">'.icon('plus', 'sm').' Add task</button>',
   $tab === 'milestones' && $canManage => '<button type="button" class="btn primary" data-modal="ms-new">'.icon('plus', 'sm').' Add milestone</button>',
   $tab === 'changes' && $canCr => '<button type="button" class="btn primary" data-modal="cr-new">'.icon('plus', 'sm').' Log change request</button>',
+  $tab === 'brief' && $canManage && ($briefMode ?? '') === 'read' && !empty($brief) => '<a class="btn primary" href="'.e(url('/projects/'.$id.'?tab=brief&mode=edit')).'">'.icon('edit', 'sm').' Edit brief</a>',
   $tab === 'files' && $canUpload => '<button type="button" class="btn primary" data-modal="file-new">'.icon('upload', 'sm').' Upload file</button>',
   $tab === 'log' && $logWrite => '<button type="button" class="btn primary" data-modal="activity-modal" data-activity-new>'.icon('plus', 'sm').' Log activity</button>',
   default => '' };

@@ -1,10 +1,10 @@
 <?php
-use Modules\Projects\Controllers\{ProjectController, TaskController, MilestoneController, ChangeRequestController, WorkReportController};
+use Modules\Projects\Controllers\{BriefController, ProjectController, TaskController, MilestoneController, ChangeRequestController, WorkReportController};
 use Modules\Projects\Services\{ProjectAccess, ProjectService, Widgets};
 
 return [
   'key' => 'projects', 'name' => 'Project & Work Management', 'icon' => 'folder', 'order' => 20, 'version' => '1.0.0',
-  'description' => 'Projects, milestones, tasks & subtasks, Kanban, dependencies, comments, attachments, change requests and work reports.',
+  'description' => 'Projects, rich text project briefs, milestones, tasks & subtasks, Kanban, dependencies, comments, attachments, change requests and work reports.',
   'permissions' => [
     'projects.view' => ['label' => 'View projects they are a member of', 'roles' => ['manager', 'employee']],
     'projects.view_all' => ['label' => 'View all projects', 'roles' => []],
@@ -33,6 +33,8 @@ return [
     $r->post('/projects/{id}', [ProjectController::class, 'update'], 'projects.manage');
     $r->post('/projects/{id}/delete', [ProjectController::class, 'destroy'], 'projects.delete');
     $r->post('/projects/{id}/files', [ProjectController::class, 'upload'], $view);
+    $r->post('/projects/{id}/brief', [BriefController::class, 'save'], $view);
+    $r->post('/projects/{id}/brief/revisions/{rev_id}/restore', [BriefController::class, 'restore'], $view);
     $r->post('/projects/{id}/tasks', [TaskController::class, 'store'], 'projects.tasks.manage');
     $r->get('/projects/{id}/task-form', [TaskController::class, 'formData'], 'projects.tasks.manage');
     $r->post('/projects/{id}/milestones', [MilestoneController::class, 'store'], 'projects.manage');
