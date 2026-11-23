@@ -70,7 +70,9 @@ final class DesktopInstall {
     $url = self::fileBase().rawurlencode($name).'?k='.$key;
     $get = '$f = "$env:USERPROFILE\\Downloads\\'.$name.'"; Invoke-WebRequest -Uri '.self::pq($url).' -OutFile $f -UseBasicParsing; ';
     $sha = strtoupper((string) ($w['sha512'] ?? ''));
-    return $get.(preg_match('/^[0-9A-F]{128}$/', $sha) ? 'if ((Get-FileHash -Algorithm SHA512 -LiteralPath $f).Hash -eq '.self::pq($sha).') { Start-Process -FilePath $f } else { Write-Host '.self::pq('The download is damaged. Run the command again.').' }' : 'Start-Process -FilePath $f'); }
+    /* Windows Security removing the file mid-download shows as "used by another process" then "not found": say so instead of "damaged" */
+    $blocked = 'if (-not (Test-Path -LiteralPath $f)) { Write-Host '.self::pq('Windows Security blocked the setup. Open Windows Security, Protection history, choose the Niyanta Tracker entry, Actions, Allow on device, then run the command again.').' } else';
+    return $get.$blocked.(preg_match('/^[0-9A-F]{128}$/', $sha) ? 'if ((Get-FileHash -Algorithm SHA512 -LiteralPath $f).Hash -eq '.self::pq($sha).') { Start-Process -FilePath $f } else { Write-Host '.self::pq('The download is damaged. Run the command again.').' }' : ' { Start-Process -FilePath $f }'); }
 
   /* ---------- what the scripts download ---------- */
 
