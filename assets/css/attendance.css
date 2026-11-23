@@ -623,6 +623,8 @@ a.ta-stat:focus-visible{outline:3px solid color-mix(in srgb,var(--primary) 45%,t
 .dk-files>summary{cursor:pointer;color:#5B4CF5;display:inline-flex;align-items:center;gap:4px;list-style:none;font-weight:600}
 .dk-files>summary::-webkit-details-marker{display:none}
 .dk-files .os-btns{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 6px}
+.dk-alt{margin-top:10px;padding:8px 10px;border:1px dashed var(--border);border-radius:10px;background:var(--surface-2)}
+.dk-alt .os-btns{margin:6px 0}
 .dk .cx-actions{margin:8px 0 0;display:flex}.dk .cx-actions .btn{width:auto;flex:0 0 auto}
 .dk .token-box{margin-top:6px}
 [data-theme=dark] .dk-files>summary,[data-theme=dark] .dk-n{color:#9d8fff}

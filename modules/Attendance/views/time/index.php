@@ -31,18 +31,29 @@ ob_start(); ?>
         <?php foreach ($dkOs as $ok => [$ol, $oh, $pks]): ?>
         <div class="dk-panel" data-dk-panel="<?= e($ok) ?>">
           <div class="dk-step"><span class="dk-n">1</span><div class="grow">
-            <?php if ($ok === 'windows'): /* Windows: the browser download is the main way (no irm | iex: antivirus flags download cradles) */ $files = $app['platforms']['windows'] ?? []; $cmd = $install['commands']['windows'] ?? null; ?>
+            <?php if ($ok === 'windows'): /* Windows: the browser download is the main way (no irm | iex: antivirus flags download cradles) */ $cmd = $install['commands']['windows'] ?? null;
+              $byExt = []; foreach ($app['platforms']['windows'] ?? [] as $f) { $byExt[$f['ext']] ??= $f; }
+              $files = isset($byExt['exe']) ? [$byExt['exe']] : [];
+              /* the same app as an MSI (Windows Installer) and as a portable zip: when Windows Security quarantines the setup (an unsigned NSIS setup is a common false positive) */
+              $sz = static fn (array $f): string => $size((int) $f['size']) ? ' <span class="muted">'.e($size((int) $f['size'])).'</span>' : '';
+              $winAlt = isset($byExt['msi']) || isset($byExt['zip']) ? '<div class="dk-alt"><p class="xs mb0"><b>If Windows Security blocks the setup</b></p><div class="os-btns">'
+                .(isset($byExt['msi']) ? '<a class="btn sm ghost" href="'.e($byExt['msi']['url']).'" title="'.e($byExt['msi']['name']).'" download>'.icon('download', 'sm').' Download the MSI installer'.$sz($byExt['msi']).'</a>' : '')
+                .(isset($byExt['zip']) ? '<a class="btn sm ghost" href="'.e($byExt['zip']['url']).'" title="'.e($byExt['zip']['name']).'" download>'.icon('download', 'sm').' Portable version (.zip)'.$sz($byExt['zip']).'</a>' : '').'</div>'
+                .'<p class="xs muted mb0">'.(isset($byExt['msi']) ? '<b>MSI installer</b>: the same app, installed for your account by Windows Installer; it updates itself from the app. ' : '')
+                .(isset($byExt['zip']) ? '<b>Portable version (.zip)</b>: extract it and run <span class="mono">Niyanta Tracker.exe</span>, no installation; to update, download the new zip here. ' : '')
+                .'Install only one of them. If your browser says the file is not commonly downloaded, choose <b>Keep</b>; if Windows says <i>Windows protected your PC</i>, click <b>More info</b>, then <b>Run anyway</b>.</p></div>' : ''; ?>
             <?php $store = trim((string) setting('attendance.tracker_store_url', '')); if ($store !== '' && preg_match('~^https://[a-z]+\.microsoft\.com/~', $store)): /* published in the Microsoft Store: signed by Microsoft, the safest way, so it is the default */ ?>
             <b>Install from the Microsoft Store</b> <span class="pill pill-mint">No security warnings</span>
             <div class="os-btns"><a class="btn sm primary" href="<?= e($store) ?>" target="_blank" rel="noopener"><?= icon('download', 'sm') ?> Get it from Microsoft Store</a></div>
             <p class="xs muted mb0">Opens the Store: click <b>Get</b> or <b>Install</b>. Updates come through the Store.</p>
-            <?php if ($files): ?><details class="dk-files"><summary class="xs"><?= icon('download', 'sm') ?> Or download the installer</summary><div class="os-btns"><?php foreach ($files as $f): ?><a class="btn sm" href="<?= e($f['url']) ?>" download><?= icon('download', 'sm') ?> Download for Windows</a><?php endforeach ?></div><p class="xs muted mb0">If Windows says <i>Windows protected your PC</i>, click <b>More info</b>, then <b>Run anyway</b>.</p></details><?php endif ?>
+            <?php if ($files): ?><details class="dk-files"><summary class="xs"><?= icon('download', 'sm') ?> Or download the installer</summary><div class="os-btns"><?php foreach ($files as $f): ?><a class="btn sm" href="<?= e($f['url']) ?>" download><?= icon('download', 'sm') ?> Download for Windows</a><?php endforeach ?></div><p class="xs muted mb0">If Windows says <i>Windows protected your PC</i>, click <b>More info</b>, then <b>Run anyway</b>.</p><?= $winAlt ?></details><?php endif ?>
             <?php else: ?>
             <b>Download and install</b>
             <?php if ($files): ?>
             <div class="os-btns"><?php foreach ($files as $f): ?><a class="btn sm primary" href="<?= e($f['url']) ?>" title="<?= e($f['name']) ?>" download><?= icon('download', 'sm') ?> Download for Windows<?= $size((int) $f['size']) ? ' <span class="muted">'.e($size((int) $f['size'])).'</span>' : '' ?></a><?php endforeach ?></div>
             <p class="xs muted mb0">Open the downloaded file<?= $files[0]['version'] ? ' (v'.e($files[0]['version']).')' : '' ?>. If Windows says <i>Windows protected your PC</i>, click <b>More info</b>, then <b>Run anyway</b>. If your browser says the file is not commonly downloaded, choose <b>Keep</b>. It installs for your account only, no administrator rights needed.</p>
             <?php else: ?><p class="xs muted mb0"><?= $app['ok'] ? 'Not in this release.' : 'Not available yet.' ?></p><?php endif ?>
+            <?= $winAlt ?>
             <?php endif ?>
             <?php if ($cmd && $store === ''): ?>
             <details class="dk-files"><summary class="xs"><?= icon('copy', 'sm') ?> Or use PowerShell</summary>

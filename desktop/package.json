@@ -18,7 +18,7 @@
     "simulate": "node scripts/simulate.js",
     "icons": "electron scripts/icons.js",
     "dist": "electron-builder",
-    "dist:win": "electron-builder --win nsis --x64 --publish never",
+    "dist:win": "node scripts/dist-win.js",
     "dist:mac": "electron-builder --mac dmg zip --x64 --arm64 --publish never",
     "dist:linux": "electron-builder --linux AppImage deb --x64 --publish never"
   },
@@ -91,6 +91,16 @@
       "uninstallDisplayName": "Niyanta Tracker",
       "deleteAppDataOnUninstall": false,
       "menuCategory": false
+    },
+    "msi": {
+      "oneClick": false,
+      "perMachine": false,
+      "runAfterFinish": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Niyanta Tracker",
+      "upgradeCode": "3DA671E5-EA0D-45AD-8213-F904EAE95F9F",
+      "artifactName": "niyanta-tracker-${version}-win-${arch}.${ext}"
     },
     "mac": {
       "target": [

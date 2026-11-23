@@ -13,7 +13,7 @@ use Core\{App, Audit, Cache, ErrorLog, Settings};
 final class DesktopApp {
   /** platform => [label, hint, extensions, icon] */
   public const PLATFORMS = [
-    'windows' => ['Windows', 'Windows 10 and 11 (64-bit) installer', ['exe'], 'monitor'],
+    'windows' => ['Windows', 'Windows 10 and 11 (64-bit): setup, MSI installer, portable zip', ['exe', 'msi', 'zip'], 'monitor'],
     'mac' => ['macOS', 'macOS 11 or later, Apple silicon and Intel', ['dmg', 'zip'], 'monitor'],
     'linux' => ['Linux AppImage', 'Any modern distribution, no install needed', ['appimage'], 'monitor'],
     'deb' => ['Linux .deb', 'Debian, Ubuntu, Mint and derivatives', ['deb'], 'monitor']];
@@ -44,11 +44,15 @@ final class DesktopApp {
     if (!is_file($d.'/.htaccess')) { @file_put_contents($d.'/.htaccess', "Require all denied\nDeny from all\n"); }
     return $d; }
 
-  /** Platform, architecture and version from an official asset name: niyanta-tracker-<version>-<os>-<arch>.<ext>. */
+  /**
+   * Platform, architecture and version from an official asset name: niyanta-tracker-<version>-<os>-<arch>.<ext>. Windows has
+   * three: the NSIS setup (.exe, the one electron-updater updates), the MSI installer (.msi) and the portable app (.zip); the
+   * os part keeps the Windows zip apart from the macOS zips.
+   */
   public static function classify(string $name): ?array {
-    if (!preg_match('/^niyanta-tracker-(\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?)-(win|mac|linux)-([a-z0-9_]+)\.(exe|dmg|zip|appimage|deb)$/i', $name, $m)) { return null; }
+    if (!preg_match('/^niyanta-tracker-(\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?)-(win|mac|linux)-([a-z0-9_]+)\.(exe|msi|dmg|zip|appimage|deb)$/i', $name, $m)) { return null; }
     [$os, $ext] = [strtolower($m[2]), strtolower($m[4])];
-    $platform = match (true) { $os === 'win' && $ext === 'exe' => 'windows', $os === 'mac' && ($ext === 'dmg' || $ext === 'zip') => 'mac', $os === 'linux' && $ext === 'appimage' => 'linux', $os === 'linux' && $ext === 'deb' => 'deb', default => null };
+    $platform = match (true) { $os === 'win' && in_array($ext, ['exe', 'msi', 'zip'], true) => 'windows', $os === 'mac' && ($ext === 'dmg' || $ext === 'zip') => 'mac', $os === 'linux' && $ext === 'appimage' => 'linux', $os === 'linux' && $ext === 'deb' => 'deb', default => null };
     if (!$platform) { return null; }
     $a = strtolower($m[3]);
     $arch = match ($a) { 'x64', 'x86_64', 'amd64' => 'x64', 'arm64', 'aarch64' => 'arm64', default => $a };
@@ -128,6 +132,8 @@ final class DesktopApp {
   /**
    * Mirror the newest release into storage/desktop/<version>/: each asset once via the API asset endpoint, streamed to a
    * .part file, size checked against GitHub and sha512 against latest*.yml, then renamed. Keeps the newest 2 versions.
+   * Every installer's sha512 is recorded in the manifest, also for files no update file lists (the Windows .msi and .zip):
+   * /api/agent/version hands it to the app, which checks the MSI it downloads for an update against it.
    * Returns and stores (tracker.sync) ['ok', 'version', 'downloaded', 'error', 'at'].
    */
   public static function sync(bool $refresh = false): array {
@@ -271,7 +277,8 @@ final class DesktopApp {
     foreach ($m['files'] as $n => $f) { if (isset($f['platform'])) { $all[] = $f + ['name' => $n, 'version' => $m['version'], 'date' => $m['published_at'], 'url' => url('/time/desktop/download/'.rawurlencode($n))]; } }
     foreach (array_keys(self::PLATFORMS) as $p) {
       $mine = array_values(array_filter($all, static fn ($f) => $f['platform'] === $p));
-      usort($mine, static fn ($a, $b) => [$a['ext'] === 'zip', $a['arch'] !== 'x64' && $p !== 'mac', $a['arch']] <=> [$b['ext'] === 'zip', $b['arch'] !== 'x64' && $p !== 'mac', $b['arch']]);
+      $rank = array_flip(self::PLATFORMS[$p][2]); /* Windows: setup, MSI, zip; macOS: dmg before zip */
+      usort($mine, static fn ($a, $b) => [$rank[$a['ext']] ?? 9, $a['arch'] !== 'x64' && $p !== 'mac', $a['arch']] <=> [$rank[$b['ext']] ?? 9, $b['arch'] !== 'x64' && $p !== 'mac', $b['arch']]);
       $out['platforms'][$p] = $mine; }
     return $out; }
 

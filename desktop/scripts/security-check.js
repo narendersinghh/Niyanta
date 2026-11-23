@@ -120,6 +120,20 @@ has('src/main/updater.js', /STALL_MS/, 'download stall timeout');
 has('src/main/updater.js', /createWriteStream\(part, \{ mode: 0o600 \}\)/, 'downloads written with mode 600');
 has('src/main/updater.js', /allowDowngrade = false/, 'electron-updater: no downgrades');
 has('src/main/updater.js', /allowPrerelease = false/, 'electron-updater: no prereleases');
+/* Windows MSI / portable copies: electron-updater (NSIS only) is never used for them; the MSI is checked and opened visibly */
+has('src/main/updater.js', /if \(process\.platform === 'win32'\) \{\n\s*const kind = su\.windowsInstallKind\([^]*?return \{ nsis: 'electron', msi: 'msi', portable: 'portable' \}\[kind\] \|\| 'manual'; \}/, 'Windows: electron-updater only for the NSIS setup; MSI and zip copies have their own mode');
+has('src/main/updater.js', /async prepareMsi\(\) \{[^]*?if \(typeof f\.sha512 !== 'string' \|\| f\.sha512\.length < 64\) throw new Error[^]*?safeFileName\(f\.name, \['msi'\]\)[^]*?if \(await su\.sha512File\(dest\) !== f\.sha512\) \{ fs\.rmSync\(dest/, 'MSI update: a checksum is required, the name sanitised, a mismatch deleted');
+has('src/main/updater.js', /return shell\.openPath\(msi\)\.then\(err => \{\n\s*if \(!err\) return 'quit';/, 'MSI update: opened with Windows Installer (shell.openPath), the app quits only once it is open');
+not('src/main/updater.js', /msiexec|\/qn\b|\/quiet\b|\/passive\b|\/norestart\b/i, 'no msiexec command line and no silent / passive MSI switches');
+has('src/main/updater.js', /if \(this\.mode === 'portable'\) return this\.downloadPage\(\);[^]*if \(this\.mode === 'portable'\) return this\.downloadPage\(\);/, 'portable zip: Update and Download open the workspace page, nothing is installed');
+has('src/main/main.js', /tracker\.on\('download-page', \(\) => openTarget\('download'\)\);/, 'the download page goes through openTarget (workspace allowlist)');
+has('src/main/main.js', /const how = install \? await tracker\.updater\.apply\(\) : false;/, 'the app waits until the MSI installer is open before quitting');
+ok((src['src/main/updater.js'].match(/shell\.openPath\(/g) || []).length === 2, 'updater.js opens files in two places only (the downloaded installer, the MSI update)');
+{
+  const dw = read('scripts/dist-win.js');
+  ok(/build\(\['--win', 'nsis', '--x64'\]\)\) process\.exit\(1\)/.test(dw) && /'--win', 'msi', '--x64', '--prepackaged', unpacked/.test(dw) && /'--win', 'zip', '--x64', '--prepackaged', unpacked/.test(dw), 'dist-win: the setup must build; MSI and zip from the same packed app');
+  ok(/finally \{ fs\.rmSync\(marker, \{ force: true \}\); \}/.test(dw) && dw.indexOf("'msi'") < dw.indexOf('writeFileSync(marker'), 'dist-win: the portable marker exists only while the zip is made (never in the MSI or the setup)');
+}
 
 /* ---------- data at rest ---------- */
 has('src/main/store.js', /safeStorage\.encryptString\(secret\)/, 'secrets sealed with safeStorage');
@@ -441,6 +455,10 @@ function uninstallChecks() {
   r = pl(Object.assign({ exists: () => true }, wctx));
   ok(r.ok && r.kind === 'nsis' && r.uninstaller === 'C:\\Users\\ana\\AppData\\Local\\Programs\\niyanta-tracker\\Uninstall Niyanta Tracker.exe', 'Windows plan: the NSIS uninstaller next to the exe');
   eq(pl(Object.assign({ exists: () => false }, wctx)).ok, false, 'Windows: no uninstaller found, refused');
+  r = pl(Object.assign({ exists: () => false }, wctx));
+  ok(!r.ok && /MSI installer[^]*Windows Settings/.test(r.error), 'Windows MSI copy: nothing removed by the app, Windows Settings removes it');
+  r = pl(Object.assign({ exists: p => /niyanta-portable$/.test(p), resourcesPath: 'C:\\Users\\ana\\Desktop\\nt\\resources' }, wctx, { execPath: 'C:\\Users\\ana\\Desktop\\nt\\Niyanta Tracker.exe' }));
+  ok(!r.ok && /portable version[^]*delete its folder \(C:\\Users\\ana\\Desktop\\nt\)/.test(r.error), 'Windows portable copy: told to delete its folder, nothing removed');
   /* scripts */
   const sh = un.shScript({ pid: 4242, remove: [{ path: "/home/ana/it's/Niyanta Tracker" }], dir: '/tmp/ny-uninstall-AbC123', log: '/tmp/ny-uninstall-AbC123/uninstall.log', platform: 'linux' });
   ok(sh.includes("gone '/home/ana/it'\\''s/Niyanta Tracker'") && /kill -0 "\$PID"/.test(sh) && /rm -rf -- "\$DIR"/.test(sh) && !/\beval\b|`/.test(sh), 'sh helper: single-quoted paths, waits for the app, removes its folder, no eval');

@@ -33,7 +33,9 @@ if (!app.requestSingleInstanceLock()) { app.quit(); return; } // eslint-disable-
 
 /* ---------- niyanta-tracker:// links ("Sign in with your browser", src/main/connect.js) ---------- */
 /* The scheme is registered by the installers too (package.json build.protocols: macOS CFBundleURLTypes, the Linux .desktop
-   MimeType; build/installer.nsh: the Windows registry); here for development runs and AppImages. A link arrives with
+   MimeType; build/installer.nsh: the Windows registry); here, on every start, for development runs, AppImages and the
+   Windows MSI and portable zip copies (no installer script of ours: Electron writes HKCU\Software\Classes\niyanta-tracker
+   for the running exe, so a moved zip folder is picked up at its next start). A link arrives with
    open-url (macOS, also before ready), the argv of a second instance (Windows, Linux) or the argv of the first launch.
    Everything is parsed strictly by guard.parseDeepLink before anything happens. */
 function registerProtocol() {
@@ -450,7 +452,7 @@ let removing = false;
  */
 async function uninstallApp() {
   if (removing || !tracker) return { ok: false };
-  const ctx = { platform: process.platform, packaged: app.isPackaged, execPath: process.execPath, appImage: process.env.APPIMAGE || null, home: os.homedir(), userData: app.getPath('userData'), tmp: os.tmpdir(), exists: p => fs.existsSync(p) };
+  const ctx = { platform: process.platform, packaged: app.isPackaged, execPath: process.execPath, appImage: process.env.APPIMAGE || null, home: os.homedir(), userData: app.getPath('userData'), tmp: os.tmpdir(), exists: p => fs.existsSync(p), resourcesPath: process.resourcesPath, windowsStore: !!process.windowsStore };
   const p = uninstall().plan(ctx);
   if (!p.ok) { tracker.uninstall = { step: null, error: p.error }; tracker.changed(); return { ok: false, error: p.error }; }
   removing = true;
@@ -507,8 +509,9 @@ async function uninstallApp() {
 /**
  * The update is downloaded and verified (or the person restarts after installing a .deb): remember whether tracking was on,
  * pause it (as on every quit, waiting up to 15 s for the server), then install and restart. electron-updater quits by itself
- * ('self'); the macOS helper needs us to quit ('quit'); when the install could not start, the current version restarts and
- * the tracker shows the manual download. Tracking resumes after the restart (tracker.afterUpdateRestart).
+ * ('self'); the macOS helper and the Windows MSI installer need us to quit ('quit'; the MSI's last page starts the new
+ * version); when the install could not start, the current version restarts and the tracker shows the manual download.
+ * Tracking resumes after the restart (tracker.afterUpdateRestart).
  */
 let restarting = false;
 async function restartToUpdate(install = true) {
@@ -516,7 +519,7 @@ async function restartToUpdate(install = true) {
   restarting = true;
   tracker.markUpdateRestart();
   await prepareQuit(15000);
-  const how = install ? tracker.updater.apply() : false;
+  const how = install ? await tracker.updater.apply() : false;
   if (how === 'self') { setTimeout(() => { app.relaunch(); app.exit(0); }, 20000); return; }
   if (how !== 'quit') app.relaunch();
   app.quit(); }
@@ -532,6 +535,7 @@ app.whenReady().then(async () => {
   tracker.on('consent-needed', () => showWindow());
   tracker.on('update-available', v => updateAvailable(v));
   tracker.on('update-restart', () => restartToUpdate(true));
+  tracker.on('download-page', () => openTarget('download'));
   tracker.on('quit-sync-show', () => showWindow());
   tracker.on('app-moved', () => { if (store.get('launchAtLogin', true)) setLaunchAtLogin(true); });
   connect = new Connect({ tracker, store, open: openConnectPage, focus: showWindow, device: os.hostname(), platform: process.platform, normalise: normaliseUrl, log: errors.log });

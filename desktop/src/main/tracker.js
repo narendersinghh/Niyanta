@@ -104,6 +104,7 @@ class Tracker extends EventEmitter {
     this.updater.on('change', () => this.changed());
     this.updater.on('available', v => this.emit('update-available', v));
     this.updater.on('restart', () => this.emit('update-restart'));
+    this.updater.on('download-page', () => this.emit('download-page'));
     this.autoPaused = false;
     /* tracking actions sent straight to the server (not through the queue) and when the last one started: a state answer to
        a request sent before it (heartbeat, GET /state, bootstrap) is out of date and must not undo it (fresh()) */

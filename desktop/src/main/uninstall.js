@@ -7,7 +7,8 @@
  *     the person clicks Uninstall), with electron-builder's documented --delete-app-data (NSIS_ARGS). Never silent: a
  *     program that quietly runs an uninstaller is a pattern antivirus behaviour rules watch for. Nothing is written to a
  *     temporary folder and no script or shell runs: the same uninstaller Settings › Apps uses. build/installer.nsh removes
- *     the update cache and the niyanta-tracker:// key.
+ *     the update cache and the niyanta-tracker:// key. The MSI and the portable zip (selfupdate.windowsInstallKind) are
+ *     not removed by the app: the plan says where to remove them (Windows Settings › Apps; delete the zip's folder).
  * macOS / Linux: a /bin/sh helper (shScript) in its own temporary folder waits for the app's process to end, removes what
  * plan() lists (every path checked by guard.uninstallPath: absolute, expected name, expected place, never the home folder
  * or above), logs each step and deletes its folder at the end. When something could not be removed it keeps the log and
@@ -18,6 +19,7 @@
  */
 const path = require('path');
 const guard = require('./guard');
+const { windowsInstallKind } = require('./selfupdate');
 
 const APP = 'Niyanta Tracker';
 const DEB_COMMAND = 'sudo apt remove niyanta-tracker';
@@ -42,6 +44,11 @@ function plan(ctx) {
   if (platform === 'win32') {
     const local = process.env.LOCALAPPDATA || P.join(home, 'AppData', 'Local');
     add('cache', P.join(local, 'niyanta-tracker-updater'));
+    /* the MSI and the portable zip have no uninstaller of ours: Windows Settings removes an MSI, a zip is a folder to delete */
+    const how = ctx.exists ? windowsInstallKind({ windowsStore: ctx.windowsStore, execPath: ctx.execPath, resourcesPath: ctx.resourcesPath, exists: ctx.exists }) : 'nsis';
+    if (how === 'msi') return { ok: false, error: 'Niyanta Tracker was installed with the MSI installer. Remove it in Windows Settings › Apps › Installed apps.' };
+    if (how === 'portable') return { ok: false, error: `This is the portable version of Niyanta Tracker: quit it and delete its folder (${P.dirname(ctx.execPath || '')}). Your settings are in ${userData}.` };
+    if (how === 'store') return { ok: false, error: 'Niyanta Tracker came from the Microsoft Store. Remove it in Windows Settings › Apps › Installed apps.' };
     const un = guard.uninstallPath(P.join(P.dirname(ctx.execPath || ''), 'Uninstall Niyanta Tracker.exe'), 'uninstaller', ctx);
     if (!un || (ctx.exists && !ctx.exists(un))) return { ok: false, error: 'The Niyanta Tracker uninstaller was not found next to the app. Remove it in Windows Settings › Apps › Installed apps.' };
     out.kind = 'nsis'; out.uninstaller = un;

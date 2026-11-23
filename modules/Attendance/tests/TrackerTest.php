@@ -169,7 +169,7 @@ return [
       assert_true(str_contains($html, "The desktop app isn't available yet. An administrator needs to connect GitHub in") && str_contains($html, 'Not available yet'), 'no token: friendly message');
       assert_eq('skipped: no GitHub token', DesktopApp::cron());
 
-      $bin = ['niyanta-tracker-1.2.10-win-x64.exe' => 'MZ'.str_repeat('w', 300), 'niyanta-tracker-1.2.10-win-x64.exe.blockmap' => 'bm-win', 'niyanta-tracker-1.2.10-mac-arm64.dmg' => 'dmg-arm', 'niyanta-tracker-1.2.10-mac-x64.dmg' => 'dmg-x64', 'niyanta-tracker-1.2.10-mac-arm64.zip' => 'PKzip',
+      $bin = ['niyanta-tracker-1.2.10-win-x64.exe' => 'MZ'.str_repeat('w', 300), 'niyanta-tracker-1.2.10-win-x64.exe.blockmap' => 'bm-win', 'niyanta-tracker-1.2.10-win-x64.msi' => "\xd0\xcf\x11\xe0msi", 'niyanta-tracker-1.2.10-win-x64.zip' => 'PKwinzip', 'niyanta-tracker-1.2.10-mac-arm64.dmg' => 'dmg-arm', 'niyanta-tracker-1.2.10-mac-x64.dmg' => 'dmg-x64', 'niyanta-tracker-1.2.10-mac-arm64.zip' => 'PKzip',
         'niyanta-tracker-1.2.10-linux-x86_64.AppImage' => "\x7fELF".str_repeat('a', 500), 'niyanta-tracker-1.2.10-linux-amd64.deb' => '!<arch>deb'];
       $sha = static fn (string $c): string => base64_encode(hash('sha512', $c, true));
       $bin['latest-linux.yml'] = "version: 1.2.10\nfiles:\n  - url: niyanta-tracker-1.2.10-linux-x86_64.AppImage\n    sha512: ".$sha($bin['niyanta-tracker-1.2.10-linux-x86_64.AppImage'])."\n    size: 504\n    blockMapSize: 98765\npath: niyanta-tracker-1.2.10-linux-x86_64.AppImage\nsha512: ".$sha($bin['niyanta-tracker-1.2.10-linux-x86_64.AppImage'])."\nreleaseDate: '2026-10-20T08:00:00.000Z'\n";
@@ -187,6 +187,10 @@ return [
       assert_true($rel['version'] === '1.2.10' && count($rel['assets']) === count($bin) && !isset($rel['assets']['notes.txt']), 'newest by semver, drafts/prereleases/other files ignored');
       assert_eq(['platform' => 'mac', 'arch' => 'arm64', 'ext' => 'dmg', 'version' => '1.2.0'], DesktopApp::classify('niyanta-tracker-1.2.0-mac-arm64.dmg'));
       assert_true(DesktopApp::classify('setup.exe') === null && DesktopApp::classify('niyanta-tracker-1.2.0-win-x64.exe.blockmap') === null, 'only official installer names');
+      assert_eq(['platform' => 'windows', 'arch' => 'x64', 'ext' => 'msi', 'version' => '1.2.0'], DesktopApp::classify('niyanta-tracker-1.2.0-win-x64.msi'), 'Windows MSI installer');
+      assert_eq(['platform' => 'windows', 'arch' => 'x64', 'ext' => 'zip', 'version' => '1.2.0'], DesktopApp::classify('niyanta-tracker-1.2.0-win-x64.zip'), 'Windows portable zip');
+      assert_eq('mac', DesktopApp::classify('niyanta-tracker-1.2.0-mac-x64.zip')['platform'] ?? null, 'a macOS zip stays macOS');
+      assert_true(DesktopApp::classify('niyanta-tracker-1.2.0-mac-x64.msi') === null && DesktopApp::classify('niyanta-tracker-1.2.0-linux-x64.zip') === null && DesktopApp::classify('niyanta-tracker-1.2.0-win-x64.msi.blockmap') === null, 'no MSI or zip for the wrong system');
 
       // stubbed GitHub: metadata in the cache, assets through the fetcher
       $fetched = [];
@@ -202,6 +206,12 @@ return [
       assert_eq('up to date 1.2.10', DesktopApp::cron());
       $l = DesktopApp::latest();
       assert_true($l['ok'] && $l['version'] === '1.2.10' && count($l['platforms']['mac']) === 3 && $l['platforms']['mac'][0]['ext'] === 'dmg' && str_contains($l['platforms']['windows'][0]['url'], '/time/desktop/download/niyanta-tracker-1.2.10-win-x64.exe'), json_encode($l['platforms']));
+      assert_eq(['exe', 'msi', 'zip'], array_column($l['platforms']['windows'], 'ext'), 'Windows: setup first, then the MSI and the portable zip');
+      $man = json_decode((string) file_get_contents("$root/1.2.10/manifest.json"), true);
+      foreach (['niyanta-tracker-1.2.10-win-x64.msi', 'niyanta-tracker-1.2.10-win-x64.zip'] as $n) { assert_eq($sha($bin[$n]), $man['files'][$n]['sha512'] ?? null, 'sha512 recorded for '.$n.' (no update file lists it)'); }
+      assert_eq($sha($bin['niyanta-tracker-1.2.10-win-x64.msi']), DesktopApp::sha512('niyanta-tracker-1.2.10-win-x64.msi'), 'MSI sha512 served from the manifest');
+      $winf = \Modules\Attendance\Services\DesktopInstall::files();
+      assert_true($winf['windows']['name'] === 'niyanta-tracker-1.2.10-win-x64.exe' && $winf['windows_msi']['sha512'] === hash('sha512', $bin['niyanta-tracker-1.2.10-win-x64.msi']) && $winf['windows_zip']['name'] === 'niyanta-tracker-1.2.10-win-x64.zip', 'install files: setup, MSI and zip with sha512 (hex)');
 
       // sha512 mismatch is rejected
       $bad = $rel; $bad['version'] = '1.3.0'; $bad['tag'] = 'tracker-v1.3.0';
@@ -229,6 +239,8 @@ return [
       [$code, $j] = trk_api('GET', '/api/agent/version', [], $tok, [], '1.0.0');
       assert_true($code === 200 && $j['latest'] === '1.2.10' && $j['update_available'] === true && str_ends_with($j['updates_feed'], '/api/agent/updates/'), json_encode($j));
       assert_eq(false, trk_api('GET', '/api/agent/version', [], $tok, [], '1.2.10')[1]['update_available'], 'up to date');
+      $wf = array_column($j['files']['windows'] ?? [], null, 'ext');
+      assert_true(array_keys($wf) === ['exe', 'msi', 'zip'] && $wf['msi']['sha512'] === $sha($bin['niyanta-tracker-1.2.10-win-x64.msi']) && $wf['msi']['version'] === '1.2.10' && $wf['exe']['name'] === 'niyanta-tracker-1.2.10-win-x64.exe', 'version answer: the MSI with its sha512 for MSI installs; the setup stays first for older apps: '.json_encode($j['files']['windows'] ?? null));
       assert_eq(401, trk_api('GET', '/api/agent/updates/latest-linux.yml', [], null)[0], 'feed needs the device token');
       $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer '.$tok;
       $r = http('GET', '/api/agent/updates/latest-linux.yml', [], false);
@@ -238,6 +250,10 @@ return [
       $b = http('GET', '/api/agent/updates/niyanta-tracker-1.2.10-win-x64.exe.blockmap', [], false);
       assert_true($b->status() === 200 && ($b->headers()['Content-Length'] ?? '') === '6', 'blockmap served');
       assert_eq(200, http('GET', '/api/agent/updates/niyanta-tracker-1.2.10-linux-x86_64.AppImage', [], false)->status(), 'binary served');
+      $m = http('GET', '/api/agent/updates/niyanta-tracker-1.2.10-win-x64.msi', [], false);
+      assert_true($m->status() === 200 && ($m->headers()['Content-Length'] ?? '') === (string) strlen($bin['niyanta-tracker-1.2.10-win-x64.msi']), 'the MSI is served to the app for its update');
+      $y = http('GET', '/api/agent/updates/latest.yml', [], false)->body();
+      assert_true(str_contains($y, 'win-x64.exe') && !str_contains($y, '.msi') && !str_contains($y, 'win-x64.zip'), 'latest.yml stays the NSIS setup only');
       assert_eq(404, http('GET', '/api/agent/updates/latest-mac.yml', [], false)->status(), 'not in the release');
       assert_eq(404, http('GET', '/api/agent/updates/manifest.json', [], false)->status(), 'manifest not served');
       unset($_SERVER['HTTP_AUTHORIZATION']); }

@@ -271,14 +271,15 @@ final class Tools {
     [$p, $err] = self::who($u, $a, self::leaveAllIds($u), 'leave');
     if ($err) { return $err; }
     if (!self::leaveAccess($u, (int) $p['id'])) { return self::deny('you cannot view the leave of '.$p['name']); }
-    $year = max(2000, min(2100, (int) ($a['year'] ?? 0) ?: (int) date('Y')));
+    /* no year asked: the last and the next 12 months, so leave planned for next January shows in December too */
+    $year = (int) ($a['year'] ?? 0) ? max(2000, min(2100, (int) $a['year'])) : null;
     $st = in_array($a['status'] ?? '', ['pending', 'approved', 'rejected', 'cancelled'], true) ? $a['status'] : null;
     $reasons = self::self($u, $p) || People::isHr($u) || Scope::can('hr.leave.manage', $u);
     $sql = 'SELECT lr.id, lr.start_date, lr.end_date, lr.half_day, lr.days, lr.status, lr.reason, lr.review_note, lr.cancel_requested_at, t.name AS type FROM leave_requests lr JOIN leave_types t ON t.id=lr.leave_type_id WHERE lr.user_id=? AND lr.end_date>=? AND lr.start_date<=?';
-    $pp = [$p['id'], "$year-01-01", "$year-12-31"];
+    $pp = [$p['id'], $year ? "$year-01-01" : date('Y-m-d', strtotime('-12 months')), $year ? "$year-12-31" : date('Y-m-d', strtotime('+12 months'))];
     if ($st) { $sql .= ' AND lr.status=?'; $pp[] = $st; }
     $rows = DB::all($sql.' ORDER BY lr.start_date DESC LIMIT 25', $pp);
-    return ['person' => $p['name'], 'year' => $year, 'url' => '/hr/leave', 'requests' => array_map(static fn ($r) => ['type' => $r['type'], 'from' => $r['start_date'], 'to' => $r['end_date'], 'days' => (float) $r['days'], 'half_day' => (bool) $r['half_day'], 'status' => $r['status'], 'url' => '/hr/leave/requests/'.$r['id']] + ($r['cancel_requested_at'] && $r['status'] === 'approved' ? ['cancellation_requested' => true] : []) + ($reasons ? ['reason' => self::cut($r['reason'], 160), 'approver_note' => self::cut($r['review_note'], 160)] : []), $rows)]; }
+    return ['person' => $p['name'], 'year' => $year ?? 'last and next 12 months', 'url' => '/hr/leave', 'requests' => array_map(static fn ($r) => ['type' => $r['type'], 'from' => $r['start_date'], 'to' => $r['end_date'], 'days' => (float) $r['days'], 'half_day' => (bool) $r['half_day'], 'status' => $r['status'], 'url' => '/hr/leave/requests/'.$r['id']] + ($r['cancel_requested_at'] && $r['status'] === 'approved' ? ['cancellation_requested' => true] : []) + ($reasons ? ['reason' => self::cut($r['reason'], 160), 'approver_note' => self::cut($r['review_note'], 160)] : []), $rows)]; }
 
   private static function t_holidays(array $u, array $a): array {
     $year = max(2000, min(2100, (int) ($a['year'] ?? 0) ?: (int) date('Y')));

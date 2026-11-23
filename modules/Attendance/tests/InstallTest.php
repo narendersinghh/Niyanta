@@ -3,11 +3,12 @@ use Core\{Auth, Crypto, DB, Settings};
 use Modules\Attendance\Services\{DesktopApp, DesktopInstall};
 
 /** A mirrored tracker release in a temp folder (manifest + update files with real sha512), like DesktopApp::sync() leaves it. */
-function inst_mirror(): array {
+function inst_mirror(bool $winExtras = true): array {
   $root = sys_get_temp_dir().'/ny-install-'.bin2hex(random_bytes(4));
   $v = '1.4.0'; $dir = "$root/$v"; mkdir($dir, 0775, true);
   $bin = ['niyanta-tracker-1.4.0-win-x64.exe' => 'MZ'.str_repeat('w', 200), 'niyanta-tracker-1.4.0-mac-arm64.zip' => 'PKarm', 'niyanta-tracker-1.4.0-mac-x64.zip' => 'PKx64', 'niyanta-tracker-1.4.0-mac-arm64.dmg' => 'dmg',
     'niyanta-tracker-1.4.0-linux-x86_64.AppImage' => "\x7fELF".str_repeat('a', 100)];
+  if ($winExtras) { $bin += ['niyanta-tracker-1.4.0-win-x64.msi' => "\xd0\xcf\x11\xe0".str_repeat('m', 3 * 1048576), 'niyanta-tracker-1.4.0-win-x64.zip' => 'PK'.str_repeat('z', 2 * 1048576)]; }
   $sha = static fn (string $n): string => base64_encode(hash('sha512', $bin[$n], true));
   $yml = static fn (array $names): string => "version: $v\nfiles:\n".implode('', array_map(static fn ($n) => "  - url: $n\n    sha512: ".$sha($n)."\n    size: ".strlen($bin[$n])."\n", $names))."path: {$names[0]}\n";
   $bin['latest.yml'] = $yml(['niyanta-tracker-1.4.0-win-x64.exe']);
@@ -74,6 +75,18 @@ return [
       assert_true(str_contains($raw, $win), 'PowerShell: save to Downloads, check sha512, open');
       assert_eq('$f = "$env:USERPROFILE\\Downloads\\a.exe"; Invoke-WebRequest -Uri \'http://localhost/time/desktop/get/a.exe?k=K\' -OutFile $f -UseBasicParsing; if (-not (Test-Path -LiteralPath $f)) { Write-Host \'Windows Security blocked the setup. Open Windows Security, Protection history, choose the Niyanta Tracker entry, Actions, Allow on device, then run the command again.\' } else { Start-Process -FilePath $f }', DesktopInstall::windowsCommand('K', ['name' => "a.ex\"';e", 'sha512' => '']), 'no checksum: download and open; the file name cannot break out of the quotes');
       assert_true(!str_contains($html, 'SECRETunitTOKEN'), 'GitHub token never on the page');
+      // Windows Security quarantines the setup: the MSI installer and the portable zip, with sizes, after the main download
+      $alt = strpos($html, 'If Windows Security blocks the setup');
+      assert_true($alt !== false && $alt > strpos($html, 'Download for Windows'), 'alternatives after the main Windows download');
+      assert_true(str_contains($html, '/time/desktop/download/niyanta-tracker-1.4.0-win-x64.msi') && (bool) preg_match('#Download the MSI installer <span class="muted">3 MB</span>#', $html), 'MSI with its size');
+      assert_true(str_contains($html, '/time/desktop/download/niyanta-tracker-1.4.0-win-x64.zip') && (bool) preg_match('#Portable version \(\.zip\) <span class="muted">2 MB</span>#', $html) && str_contains($html, 'Niyanta Tracker.exe</span>, no installation'), 'portable zip with its size and how to run it');
+      assert_eq(1, substr_count($html, 'Download for Windows'), 'one main Windows button (the setup), not one per file');
+      assert_true(str_contains($html, 'choose <b>Keep</b>') && !preg_match('/\x{2014}/u', $html), 'Keep / SmartScreen guidance, no em dashes');
+      foreach (['niyanta-tracker-1.4.0-win-x64.msi', 'niyanta-tracker-1.4.0-win-x64.zip'] as $n) {
+        $r = http('GET', '/time/desktop/download/'.$n);
+        assert_true($r->status() === 200 && str_starts_with((string) ($r->headers()['Content-Disposition'] ?? ''), 'attachment;') && ($r->headers()['Content-Length'] ?? '') === (string) strlen($bin[$n]), $n.' downloads: '.$r->status()); }
+      $f = DesktopInstall::files();
+      assert_true($f['windows_msi']['sha512'] === hash('sha512', $bin['niyanta-tracker-1.4.0-win-x64.msi']) && $f['windows_zip']['sha512'] === hash('sha512', $bin['niyanta-tracker-1.4.0-win-x64.zip']), 'MSI and zip sha512 although no update file lists them');
 
       // bash script (macOS + Linux)
       $r = inst_get('/time/desktop/install.sh?k='.$k);
@@ -120,6 +133,20 @@ return [
       assert_eq(429, $s, 'throttled');
       DB::query("DELETE FROM rate_limits"); }
     finally { Settings::set('updates.github_token', $oldTok); inst_cleanup($root); } },
+
+  'Windows alternatives: a release without the MSI and the zip shows only the setup; Settings › Updates lists every file' => function () {
+    $emp = (int) DB::value("SELECT id FROM users WHERE email='emp@install.test'");
+    ['root' => $root] = inst_mirror(false);
+    try {
+      act_as($emp);
+      $html = (string) http('GET', '/time')->body();
+      assert_true(str_contains($html, 'Download for Windows') && !str_contains($html, 'If Windows Security blocks the setup') && !str_contains($html, '.msi'), 'older release: no alternatives block');
+      inst_cleanup($root);
+      ['root' => $root] = inst_mirror();
+      act_as((int) $GLOBALS['ADMIN_ID']);
+      $html = (string) http('GET', '/admin/updates')->body();
+      assert_true(str_contains($html, 'niyanta-tracker-1.4.0-win-x64.msi</span> · Windows MSI installer · 3 MB') && str_contains($html, 'niyanta-tracker-1.4.0-win-x64.zip</span> · Windows portable (.zip) · 2 MB') && str_contains($html, 'niyanta-tracker-1.4.0-mac-x64.zip</span> · macOS zip') && str_contains($html, '7 installers'), 'mirror status lists the MSI and the portable zip'); }
+    finally { inst_cleanup($root); } },
 
   'one-line install: nothing mirrored yet, and plain-HTTP workspaces get no commands' => function () {
     $emp = (int) DB::value("SELECT id FROM users WHERE email='emp@install.test'");

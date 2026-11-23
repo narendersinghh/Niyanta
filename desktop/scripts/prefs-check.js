@@ -290,12 +290,25 @@ function windowsChecks() {
   eq([pkg.build.win.requestedExecutionLevel, pkg.build.win.signAndEditExecutable, pkg.build.win.legalTrademarks], ['asInvoker', true, 'Niyanta'], 'Windows exe: no elevation, version resource written');
   eq([pkg.build.nsis.oneClick, pkg.build.nsis.perMachine, pkg.build.nsis.deleteAppDataOnUninstall, pkg.build.nsis.artifactName], [false, false, false, 'niyanta-tracker-${version}-win-${arch}.${ext}'], 'NSIS: assisted per-user installer, data kept unless asked, stable file name');
   ok(!pkg.build.win.publisherName && !pkg.build.win.azureSignOptions && !pkg.build.win.certificateFile, 'no signing settings in package.json (unsigned builds keep working; CI adds them only with secrets)');
+  /* the MSI installer and the portable zip: alternatives when Windows Security quarantines the setup; the setup stays the update path */
+  const msi = pkg.build.msi || {};
+  eq([msi.oneClick, msi.perMachine, msi.runAfterFinish, msi.createDesktopShortcut, msi.createStartMenuShortcut, msi.shortcutName, msi.artifactName], [false, false, true, true, true, 'Niyanta Tracker', 'niyanta-tracker-${version}-win-${arch}.${ext}'], 'MSI: assisted, per user (no administrator), shortcuts, starts at the end, stable file name');
+  ok(/^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$/.test(msi.upgradeCode || ''), 'MSI: a fixed upgradeCode, so a newer MSI upgrades the installed one in place');
+  eq(pkg.build.win.target.map(t => t.target), ['nsis'], 'electron-builder --win alone builds the setup only (the MSI and the marked zip come from scripts/dist-win.js)');
+  eq(pkg.scripts['dist:win'], 'node scripts/dist-win.js', 'dist:win builds setup, MSI and zip');
+  ok(/^niyanta-tracker-\$\{version\}-\$\{os\}-\$\{arch\}\.\$\{ext\}$/.test(pkg.build.artifactName), 'the Windows zip is named niyanta-tracker-<v>-win-x64.zip (the server tells it apart from the macOS zips by "win")');
+  ok(!pkg.build.compression && !(pkg.build.win.compression && pkg.build.win.compression !== 'normal') && pkg.build.nsis.differentialPackage !== false, 'NSIS: default compression and differential package (updates keep downloading only the changed blocks)');
   const wf = read('../.github/workflows/desktop.yml');
   ok(/AZURE_TENANT_ID: \$\{\{ secrets\.AZURE_TENANT_ID \}\}/.test(wf) && /AZURE_CLIENT_SECRET: \$\{\{ secrets\.AZURE_CLIENT_SECRET \}\}/.test(wf) && /vars\.AZURE_TRUSTED_SIGNING_ENDPOINT/.test(wf), 'workflow: Azure Trusted Signing secrets and variables wired');
   ok(/-c\.win\.azureSignOptions\.endpoint=/.test(wf) && /\[ -n "\$AZURE_CLIENT_SECRET" \] && \[ -n "\$AZURE_TENANT_ID" \]/.test(wf), 'workflow: Azure signing only when the secrets exist');
   ok(/WIN_CSC_LINK: \$\{\{ secrets\.WIN_CSC_LINK \}\}/.test(wf), 'workflow: a .pfx certificate still works');
+  ok(/files=\(dist\/\*\.exe dist\/\*\.msi dist\/\*\.dmg dist\/\*\.zip /.test(wf) && /desktop\/dist\/\*\.msi/.test(wf), 'workflow: the MSI is uploaded to the release (the zip with the other zips)');
+  ok(/for f in latest\.yml latest-mac\.yml latest-linux\.yml; do/.test(wf) && !/latest[^\n]*\.msi/.test(wf), 'workflow: publishing still needs only the update files');
+  ok(/Check the Windows MSI and portable zip/.test(wf) && /resources\/niyanta-portable/.test(wf) && /dist\/win-unpacked\/Niyanta Tracker\.exe/.test(wf), 'workflow: version info of the exe the MSI and zip ship, MSI upgrade code and zip marker checked');
   const readme = read('README.md'), rel = read('../docs/RELEASING.md');
-  ok(/## Windows Defender/.test(readme) && /wdsi\/filesubmission/.test(rel) && /Azure Trusted Signing/.test(rel) && /Azure Trusted Signing/.test(readme), 'docs: Defender section, false-positive submission per release, signing'); }
+  ok(/## Windows Defender/.test(readme) && /wdsi\/filesubmission/.test(rel) && /Azure Trusted Signing/.test(rel) && /Azure Trusted Signing/.test(readme), 'docs: Defender section, false-positive submission per release, signing');
+  const signing = read('SIGNING.md');
+  ok(/MSI/.test(readme) && /portable/i.test(readme) && /MSI/.test(signing) && /each file/i.test(signing), 'docs: what the MSI and the zip are for, how they update, Defender submissions per file'); }
 
 /* ---------- resources ---------- */
 async function resourceChecks() {

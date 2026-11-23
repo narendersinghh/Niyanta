@@ -78,7 +78,9 @@ final class DesktopInstall {
 
   /**
    * Files of the mirrored release the scripts install: version, the macOS zips (x64 / arm64), the Linux AppImage and the
-   * Windows installer, each with its sha512 as hex ('' when the update file does not list it).
+   * Windows setup, plus the Windows MSI installer and portable zip (the page's alternatives when Windows Security blocks the
+   * setup), each with its sha512 as hex: from latest*.yml, else (.msi, .zip: no update file lists them) the one recorded when
+   * the file was mirrored; '' when neither is known.
    */
   public static function files(): ?array {
     $m = DesktopApp::local();
@@ -88,10 +90,10 @@ final class DesktopInstall {
     $pick = static function (string $platform, string $ext, string $arch) use ($m, $sums): ?array {
       foreach ($m['files'] as $n => $f) {
         if (($f['platform'] ?? '') === $platform && ($f['ext'] ?? '') === $ext && ($f['arch'] ?? '') === $arch && DesktopApp::path($n)) {
-          $raw = isset($sums[$n]) ? base64_decode($sums[$n], true) : false;
+          $raw = base64_decode((string) ($sums[$n] ?? DesktopApp::sha512($n)), true);
           return ['name' => $n, 'sha512' => $raw !== false && strlen($raw) === 64 ? bin2hex($raw) : '']; } }
       return null; };
-    return ['version' => $m['version'], 'mac_arm64' => $pick('mac', 'zip', 'arm64'), 'mac_x64' => $pick('mac', 'zip', 'x64'), 'linux' => $pick('linux', 'appimage', 'x64'), 'windows' => $pick('windows', 'exe', 'x64')]; }
+    return ['version' => $m['version'], 'mac_arm64' => $pick('mac', 'zip', 'arm64'), 'mac_x64' => $pick('mac', 'zip', 'x64'), 'linux' => $pick('linux', 'appimage', 'x64'), 'windows' => $pick('windows', 'exe', 'x64'), 'windows_msi' => $pick('windows', 'msi', 'x64'), 'windows_zip' => $pick('windows', 'zip', 'x64')]; }
 
   public static function fileBase(): string { return absolute_url('/time/desktop/get/'); }
 

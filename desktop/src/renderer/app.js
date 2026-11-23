@@ -187,6 +187,7 @@
   /** Short steps after the installer was saved to Downloads (fallback, .deb, development builds). */
   const MANUAL = {
     windows: ['The installer opened. If you do not see it, click <b>Open installer</b>.', 'Follow it to the end: it replaces this version and keeps your sign-in.', 'Niyanta Tracker starts again by itself.'],
+    msi: ['The MSI installer opened. If you do not see it, click <b>Open installer</b>.', 'Quit Niyanta Tracker (tray icon › <b>Quit</b>), then follow the installer: it replaces this version and keeps your sign-in.', 'Leave <b>Run Niyanta Tracker</b> ticked on its last page.'],
     mac: ['The disk image opened. Quit Niyanta Tracker (menu bar icon › <b>Quit</b>).', 'Drag <b>Niyanta Tracker</b> onto <b>Applications</b> and choose <b>Replace</b>.', 'Open it from Applications. The download has no quarantine flag, so macOS opens it without warnings.'],
     linux: ['The new AppImage is in your Downloads folder and is already executable.', 'Quit Niyanta Tracker, then double-click the new AppImage.', 'You can delete the old AppImage afterwards.'],
     deb: ['The new package opened in your software installer: click <b>Install</b>.', 'Or run the command below in a terminal.', 'Then click <b>Restart app</b>. Tracking continues.'] };
@@ -209,12 +210,15 @@
       return card('ok', head(`Version ${v} downloaded`, `Saved to ${esc(m.folder)}`) + `<ol class="upd-steps">${steps}</ol>${cmd}<div class="acts">${acts}</div>`); }
     if (up.want && BUSY.includes(up.status)) {
       const pc = up.status === 'downloading' ? Math.max(2, +up.percent || 0) : 100;
-      const label = { downloading: `Downloading${up.auto && up.mode !== 'deb' ? '' : ' the installer'}... ${+up.percent || 0}%`, verifying: 'Checking the download...', ready: 'Installing. The app restarts in a moment.', installing: 'Installing. The app restarts in a moment.' }[up.status];
+      const msi = up.mode === 'msi';
+      const label = { downloading: `Downloading${up.auto && up.mode !== 'deb' && !msi ? '' : ' the installer'}... ${+up.percent || 0}%`, verifying: 'Checking the download...', ready: msi ? 'Opening the installer. The app closes in a moment.' : 'Installing. The app restarts in a moment.', installing: msi ? 'Opening the installer. The app closes in a moment.' : 'Installing. The app restarts in a moment.' }[up.status];
       return card('info', head(`Updating to Niyanta Tracker ${v}`, up.auto ? 'Keep working. Tracking pauses for the restart and continues by itself.' : '') + `<div class="upd-bar" role="progressbar" aria-label="Update progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pc}"><span data-pc="${pc}"></span></div><small class="upd-label">${label}</small>`); }
     if (up.status === 'error') {
-      return card('error', head(`Niyanta Tracker ${v} is available`, esc(up.error || 'The automatic update did not work.')) + '<p class="upd-p">Get the new version in one step instead: it downloads inside the app (no browser) and opens the installer.</p><div class="acts"><button class="btn primary sm" data-download-installer>Download the new version</button>' + (up.auto ? '<button class="btn sm" data-install-update>Try again</button>' : '') + '</div>'); }
+      return card('error', head(`Niyanta Tracker ${v} is available`, esc(up.error || 'The automatic update did not work.')) + (up.mode === 'portable' ? '<p class="upd-p">Download the new zip from your workspace and extract it.</p>' : '<p class="upd-p">Get the new version in one step instead: it downloads inside the app (no browser) and opens the installer.</p>') + '<div class="acts"><button class="btn primary sm" data-download-installer>Download the new version</button>' + (up.auto ? '<button class="btn sm" data-install-update>Try again</button>' : '') + '</div>'); }
     const notes = up.notes && up.notes.length ? `<ul class="upd-notes">${up.notes.map(n => `<li>${esc(n)}</li>`).join('')}</ul>` : '';
-    const sub = up.auto ? (up.mode === 'deb' ? 'Downloads the new package and opens your software installer.' : 'One click: it downloads, installs and restarts. Tracking continues.') : 'Downloads the installer inside the app and opens it.';
+    const sub = up.mode === 'portable' ? 'This is the portable version: get the new zip from your workspace, extract it and use it instead of this folder.'
+      : up.mode === 'msi' ? 'Downloads the new MSI installer and opens it; the app closes so it can be replaced. Click through the installer, then tracking continues.'
+      : up.auto ? (up.mode === 'deb' ? 'Downloads the new package and opens your software installer.' : 'One click: it downloads, installs and restarts. Tracking continues.') : 'Downloads the installer inside the app and opens it.';
     return card('hot', head(`Niyanta Tracker ${v} is available`, `You have ${esc(up.current)}. ${sub}`) + notes + `<div class="acts">${up.auto ? '<button class="btn light" data-install-update>Update now</button>' : '<button class="btn light" data-download-installer>Download the new version</button>'}</div>`); }
 
   /** One quiet line about screen monitoring (screenshots themselves are never shown in the app) and the last activity level. */
@@ -363,7 +367,9 @@
       $('m-title').textContent = `Niyanta Tracker ${up.latest} is available`;
       $('m-body').className = 'm-body center';
       const notes = up.notes && up.notes.length ? `<ul>${up.notes.map(n => `<li>${esc(n)}</li>`).join('')}</ul>` : '';
-      $('m-body').innerHTML = `${notes}<p>${up.auto ? 'Update now downloads and installs it, then the app restarts by itself. Your tracking continues where you left off.' : 'Download the new version: the app saves the installer and opens it.'}</p><p class="note">You have version ${esc(up.current)}.</p>`;
+      const how = up.mode === 'portable' ? 'This is the portable version: Download opens your workspace page with the new zip.' : up.mode === 'msi' ? 'Update now downloads the new MSI installer and opens it, then the app closes so it can be replaced. Your tracking continues where you left off.'
+        : up.auto ? 'Update now downloads and installs it, then the app restarts by itself. Your tracking continues where you left off.' : 'Download the new version: the app saves the installer and opens it.';
+      $('m-body').innerHTML = `${notes}<p>${how}</p><p class="note">You have version ${esc(up.current)}.</p>`;
       $('m-actions').innerHTML = `<button class="btn ghost" data-prompt-later>Later</button><button class="btn primary" data-prompt-update>${up.auto ? 'Update now' : 'Download'}</button>`; }
     setTimeout(() => { const b = $('m-actions').querySelector('.primary'); if (b) b.focus(); }, 0); }
 

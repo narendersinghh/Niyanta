@@ -15,6 +15,13 @@
  *   flag, so Gatekeeper does not block it.
  * - Microsoft Store (process.windowsStore, the optional appx build): the Store updates the app; the click opens the Store's
  *   downloads and updates page (Store policy: an app from the Store never updates itself).
+ * - Windows MSI install (no NSIS uninstaller next to the exe, no portable marker: selfupdate.windowsInstallKind):
+ *   electron-updater only knows the NSIS setup, so the click downloads the new .msi from the workspace to Downloads, checks
+ *   it against the sha512 the workspace recorded when it mirrored the release (required: no checksum, no install), opens
+ *   it with Windows Installer (shell.openPath: its normal window, no msiexec command line, nothing silent) and the app
+ *   quits, so the installer can replace it. The person clicks through it; its last page starts the new version.
+ * - Windows portable zip (resources/niyanta-portable): nothing to install. The click opens the workspace's download page
+ *   (Time Tracking › Get the desktop app) to get the new zip ('download-page', main.js opens it).
  * - Linux .deb: downloads the new .deb to Downloads and opens it with the system installer (and shows the apt command).
  * - Anything failing: "Download the new version" saves the installer to Downloads (inside the app, no browser) and opens it,
  *   with short steps. Development builds only offer that manual download.
@@ -31,7 +38,7 @@ const { rawRequest, readBody, userAgent } = require('./api');
 const { safeFileName } = require('./guard');
 
 const FEED = { win32: 'latest.yml', darwin: 'latest-mac.yml', linux: 'latest-linux.yml' };
-const EXTS = ['exe', 'dmg', 'zip', 'appimage', 'deb'];
+const EXTS = ['exe', 'msi', 'dmg', 'zip', 'appimage', 'deb'];
 const MAX_FEED_BYTES = 1048576;
 const MAX_DOWNLOAD_BYTES = 600 * 1048576;
 const STALL_MS = 60000;
@@ -52,16 +59,18 @@ class Updater extends EventEmitter {
     this.signing = this.mode === 'mac' ? this.detectMacSigning() : Promise.resolve(); }
 
   /** electron: electron-updater; mac: own macOS updater; deb: download + system installer; store: the Microsoft Store
-      updates it; manual: only "Download". */
+      updates it; msi: download the new .msi and open it; portable: the workspace's download page; manual: only "Download". */
   static initialMode() {
     if (!app.isPackaged) return 'manual';
     if (process.windowsStore) return 'store';
-    if (process.platform === 'win32') return 'electron';
+    if (process.platform === 'win32') {
+      const kind = su.windowsInstallKind({ windowsStore: !!process.windowsStore, execPath: process.execPath, resourcesPath: process.resourcesPath, exists: p => fs.existsSync(p) });
+      return { nsis: 'electron', msi: 'msi', portable: 'portable' }[kind] || 'manual'; }
     if (process.platform === 'linux') return process.env.APPIMAGE ? 'electron' : 'deb';
     if (process.platform === 'darwin') return process.env.NIYANTA_MAC_UPDATER === 'squirrel' ? 'electron' : 'mac';
     return 'manual'; }
 
-  get auto() { return ['electron', 'mac', 'deb'].includes(this.mode); }
+  get auto() { return ['electron', 'mac', 'deb', 'msi'].includes(this.mode); }
 
   /** A real Developer ID signature (TeamIdentifier set) lets Squirrel.Mac update the app; ad-hoc builds use the own updater. */
   detectMacSigning() {
@@ -155,6 +164,7 @@ class Updater extends EventEmitter {
   /** "Update now": download (progress), verify, then emit 'restart' (main.js pauses tracking and calls apply()). */
   async updateNow() {
     if (this.mode === 'store') return this.openStore();
+    if (this.mode === 'portable') return this.downloadPage();
     if (this.state.want && this.state.status !== 'error') return { ok: true };
     if (!this.state.version && this.offer && this.offer.latest) this.state.version = this.offer.latest;
     await this.signing;
@@ -166,6 +176,7 @@ class Updater extends EventEmitter {
         if (!this.state.bg) this.au.downloadUpdate().catch(e => this.onError(e));
         return { ok: true }; }
       if (this.mode === 'mac') { this.set({ want: true, error: null, status: 'downloading', percent: 0 }); await this.prepareMac(); this.emit('restart'); return { ok: true }; }
+      if (this.mode === 'msi') { this.set({ want: true, error: null, status: 'downloading', percent: 0 }); await this.prepareMsi(); this.emit('restart'); return { ok: true }; }
       if (this.mode === 'deb') { this.set({ want: true, error: null }); return await this.manualDownload('deb'); }
       return await this.manualDownload(); }
     catch (e) { this.fail(e.message, e); return { ok: false, error: this.state.error }; } }
@@ -197,8 +208,30 @@ class Updater extends EventEmitter {
     this.set({ status: 'ready', percent: 100 }); }
 
   /**
+   * Windows MSI install: the .msi of the offered version (listed under `windows` by /api/agent/version, with the sha512 the
+   * workspace recorded) -> Downloads -> sha512 (required) -> ready for apply(), which opens it.
+   */
+  async prepareMsi() {
+    const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
+    const f = su.pickInstaller(this.offer && this.offer.files, 'msi', arch);
+    if (!f) throw new Error('Your workspace does not offer the MSI installer for this version yet.');
+    if (f.version && su.cmpVersion(f.version, app.getVersion()) <= 0) throw new Error('You already have the newest version.');
+    if (typeof f.sha512 !== 'string' || f.sha512.length < 64) throw new Error('Your workspace did not send a checksum for the MSI installer, so it was not installed.');
+    const name = safeFileName(f.name, ['msi']);
+    if (!name) throw new Error('The installer has an unexpected file name.');
+    let dir = app.getPath('downloads');
+    try { fs.mkdirSync(dir, { recursive: true }); } catch (e) { dir = os.tmpdir(); }
+    const dest = path.join(dir, name);
+    await this.download(name, dest, f.size);
+    this.set({ status: 'verifying' });
+    if (await su.sha512File(dest) !== f.sha512) { fs.rmSync(dest, { force: true }); throw new Error('The downloaded installer is damaged (checksum mismatch). Please try again.'); }
+    this.prepared = { msi: dest };
+    this.set({ status: 'ready', percent: 100 }); }
+
+  /**
    * After tracking is paused: install and restart. Returns 'self' (electron-updater quits the app), 'quit' (the caller quits;
-   * the macOS helper takes over) or false (could not start; the caller relaunches the current version).
+   * the macOS helper or the MSI installer takes over) or false (could not start; the caller relaunches the current version).
+   * The MSI case answers with a promise: Windows must have opened the installer before the app quits.
    */
   apply() {
     try {
@@ -206,6 +239,13 @@ class Updater extends EventEmitter {
       if (this.mode === 'electron' && this.au) {
         this.au.quitAndInstall(true, true);
         return this.au.quitAndInstallCalled === false ? false : 'self'; }
+      if (this.mode === 'msi' && this.prepared && this.prepared.msi) {
+        const msi = this.prepared.msi;
+        /* Windows Installer's own window (the .msi file's default action), never a command line or a silent switch */
+        return shell.openPath(msi).then(err => {
+          if (!err) return 'quit';
+          this.fail('Windows could not open the installer (' + err + '). Open it from your Downloads folder.');
+          return false; }, e => { this.fail(e.message, e); return false; }); }
       if (this.mode === 'mac' && this.prepared) {
         const appPath = su.macAppPath(process.execPath);
         const canWrite = p => { try { fs.accessSync(p, fs.constants.W_OK); return true; } catch (e) { return false; } };
@@ -226,7 +266,8 @@ class Updater extends EventEmitter {
   /** Save the installer for this computer to Downloads and open it (no browser, so no browser or SmartScreen warning). */
   async manualDownload(kindIn) {
     if (this.mode === 'store') return this.openStore();
-    const kind = kindIn || ({ win32: 'windows', darwin: 'mac' }[process.platform] || (this.mode === 'deb' ? 'deb' : 'linux'));
+    if (this.mode === 'portable') return this.downloadPage();
+    const kind = kindIn || ({ win32: this.mode === 'msi' ? 'msi' : 'windows', darwin: 'mac' }[process.platform] || (this.mode === 'deb' ? 'deb' : 'linux'));
     const arch = process.platform === 'darwin' && (process.arch === 'arm64' || app.runningUnderARM64Translation) ? 'arm64' : (process.arch === 'arm64' ? 'arm64' : 'x64');
     const f = su.pickInstaller(this.offer && this.offer.files, kind, arch);
     if (!f) throw new Error('Your workspace does not offer an installer for this computer yet.');
@@ -247,6 +288,12 @@ class Updater extends EventEmitter {
     this.set({ status: 'manual', want: false, percent: 100, manual });
     this.open(kind);
     return { ok: true }; }
+
+  /** Portable zip: nothing to install in place; main.js opens the workspace's download page for the new zip. */
+  downloadPage() {
+    this.set({ status: 'available', want: false, error: null });
+    this.emit('download-page');
+    return { ok: true, page: true }; }
 
   /** Microsoft Store install: updates come from the Store (its downloads and updates page). */
   openStore() {

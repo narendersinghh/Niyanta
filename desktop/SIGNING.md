@@ -8,7 +8,7 @@ for each release.
 | macOS asks for Screen Recording again after every update | Sign every build with the project's own self-signed certificate (below) | |
 | macOS "unverified developer" on the first open of a browser download | The one-line `curl ... \| bash` install (no quarantine flag); otherwise Privacy & Security, Open Anyway | Apple Developer ID + notarization |
 | Windows SmartScreen "Windows protected your PC" | Explained on Time Tracking (More info, Run anyway). Reputation grows per file as people run it | Code-signing certificate |
-| Microsoft Defender deletes or blocks a new version | Submit each release as a false positive (checklist below) | Signing makes this much rarer |
+| Microsoft Defender deletes or blocks a new version | Submit each release as a false positive (checklist below); offer the MSI installer and the portable zip, which Defender judges as separate files | Signing makes this much rarer |
 | Windows 11 Smart App Control blocks the setup | None for a direct download (Smart App Control allows only signed or known apps). The Microsoft Store package is the free route | Code-signing certificate |
 
 ## macOS: one certificate for every build (free)
@@ -56,6 +56,23 @@ signature like no signature at all (or worse), so the Windows build stays unsign
 - Complete version information on the app and the setup (company "Niyanta", product, description, copyright, version,
   original file name); the workflow fails a build where something is missing.
 
+## Windows: MSI installer and portable zip (free alternatives)
+
+Defender quarantines some PCs' download of the unsigned setup (`niyanta-tracker-<v>-win-x64.exe`) right away, in the
+browser and in PowerShell. Each release therefore also has:
+
+- `niyanta-tracker-<v>-win-x64.msi`: the same app, installed by Windows Installer (per user, no administrator rights,
+  shortcuts, starts at the end). Installed copies update from the app: **Update now** downloads the next `.msi` from the
+  workspace, checks its sha512 and opens it; the person clicks through it.
+- `niyanta-tracker-<v>-win-x64.zip`: the portable app. Extract it and run `Niyanta Tracker.exe`; nothing is installed. It
+  does not update itself: the app says a new version is out and opens the workspace's download page.
+
+Time Tracking shows both under *If Windows Security blocks the setup*, with sizes. They are unsigned too, so SmartScreen
+may still say *Windows protected your PC* (More info, Run anyway) and the browser may ask to *Keep* the file. They do not
+make Defender trust the app: they are different files with their own verdicts, which may avoid the detection that
+hit the setup. When Defender flags any of them, that file needs its own submission. The NSIS setup stays the main download
+and the only file electron-updater uses (`latest.yml`). Details: README.md, *Windows: setup, MSI installer and portable zip*.
+
 ## Each release: Microsoft Defender submission (free, about 10 minutes)
 
 Defender learns from submissions; a new version is a new file to it.
@@ -66,7 +83,8 @@ Defender learns from submissions; a new version is a new file to it.
    `%LOCALAPPDATA%\Programs\niyanta-tracker\Niyanta Tracker.exe`.
 3. Open https://www.microsoft.com/en-us/wdsi/filesubmission, sign in with a Microsoft account, choose
    **Software developer**, then **Microsoft Defender Antivirus (Windows 10/11)**.
-4. Submit the setup, then the app file (one submission each, zip them if the form asks): product "Niyanta Tracker",
+4. Submit the setup, then the app file, and the `.msi` and the `.zip` when a PC flagged them (Defender judges each file on
+   its own, so each file needs its own submission; zip them if the form asks): product "Niyanta Tracker",
    company "Niyanta", detection: **Incorrectly detected as malware/malicious** (give the detection name if a PC reported
    one, e.g. from Windows Security > Protection history), and a note such as "Employee time tracker built with Electron,
    installed per user from our own server; screenshots only with the user's consent."

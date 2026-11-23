@@ -41,6 +41,22 @@ const eq = (a, b, msg) => ok(JSON.stringify(a) === JSON.stringify(b), `${msg}: e
   eq(['windows', 'linux', 'deb'].map(k => su.pickInstaller(files, k, 'x64').name), ['a.exe', 'l.AppImage', 'l.deb'], 'pickInstaller');
   eq([su.pickInstaller(files, 'mac', 'x64').name, su.pickInstaller(files, 'mac', 'arm64').name], ['m-x64.dmg', 'm-arm64.dmg'], 'mac installer prefers the dmg of the right arch');
   eq(su.pickInstaller({}, 'windows', 'x64'), null, 'nothing offered');
+  /* Windows: setup, MSI and portable zip side by side under `windows`; old apps ask for 'windows' and still get the setup */
+  const win = { windows: [{ name: 'n-win-x64.exe', arch: 'x64', ext: 'exe' }, { name: 'n-win-x64.msi', arch: 'x64', ext: 'msi', sha512: 'S' }, { name: 'n-win-x64.zip', arch: 'x64', ext: 'zip' }], mac: files.mac };
+  eq(['windows', 'msi', 'portable'].map(k => su.pickInstaller(win, k, 'x64').name), ['n-win-x64.exe', 'n-win-x64.msi', 'n-win-x64.zip'], 'pickInstaller: setup, MSI, portable zip');
+  eq(su.pickInstaller(win, 'mac', 'x64').name, 'm-x64.dmg', 'the Windows zip is never a macOS file');
+  eq(su.pickInstaller({ windows: [win.windows[0]] }, 'msi', 'x64'), null, 'no MSI in an older release');
+
+  /* how a Windows copy was installed */
+  const W = 'C:\\Users\\ana\\AppData\\Local\\Programs\\Niyanta Tracker';
+  const kind = (have, extra) => su.windowsInstallKind(Object.assign({ execPath: W + '\\Niyanta Tracker.exe', resourcesPath: W + '\\resources', exists: p => have.includes(p) }, extra || {}));
+  eq(kind([W + '\\Uninstall Niyanta Tracker.exe']), 'nsis', 'NSIS setup: its uninstaller is next to the exe');
+  eq(kind([]), 'msi', 'no uninstaller, no marker: MSI');
+  eq(kind([W + '\\resources\\niyanta-portable']), 'portable', 'zip: the marker in resources');
+  eq(kind([W + '\\Uninstall Niyanta Tracker.exe', W + '\\resources\\niyanta-portable']), 'nsis', 'the setup wins: electron-updater is never lost');
+  eq(kind([W + '\\resources\\niyanta-portable'], { resourcesPath: '' }), 'portable', 'resources folder derived from the exe');
+  eq(kind([W + '\\Uninstall Niyanta Tracker.exe'], { windowsStore: true }), 'store', 'Microsoft Store');
+  eq([su.NSIS_UNINSTALLER, su.PORTABLE_MARKER], ['Uninstall Niyanta Tracker.exe', 'niyanta-portable'], 'names');
 
   /* where the macOS app lives and where the new one goes */
   eq(su.macAppPath('/Applications/Niyanta Tracker.app/Contents/MacOS/Niyanta Tracker'), '/Applications/Niyanta Tracker.app', 'macAppPath');

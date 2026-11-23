@@ -58,7 +58,7 @@ The activity source in use (and why the fallback is used) is written to `userDat
 
 | Command | Output (in `dist/`) |
 |---|---|
-| `npm run dist:win` (on Windows) | `niyanta-tracker-<v>-win-x64.exe` (NSIS installer) + `.blockmap`, `latest.yml` |
+| `npm run dist:win` (on Windows) | `niyanta-tracker-<v>-win-x64.exe` (NSIS installer) + `.blockmap`, `latest.yml`; `niyanta-tracker-<v>-win-x64.msi` (MSI installer) and `niyanta-tracker-<v>-win-x64.zip` (portable) |
 | `npm run dist:mac` (on macOS) | `niyanta-tracker-<v>-mac-x64.dmg` / `-arm64.dmg` and `.zip` + `.blockmap`, `latest-mac.yml` |
 | `npm run dist:linux` (on Linux) | `niyanta-tracker-<v>-linux-x86_64.AppImage`, `niyanta-tracker-<v>-linux-amd64.deb`, `latest-linux.yml` |
 
@@ -67,6 +67,39 @@ The `latest*.yml` files are the auto-update metadata (version, file names, sha51
 runtime with the workspace it is signed in to. Builds always run with `--publish never`; electron-builder uploads nothing.
 Icons: `build/icon.png` is converted to `.ico` / `.icns` by electron-builder; run `npm run icons` (under `xvfb-run` on a
 headless Linux box) after changing `src/renderer/logo.svg`.
+
+### Windows: setup, MSI installer and portable zip
+
+Some Windows 11 PCs quarantine the unsigned NSIS setup right after the download ("the file contains a virus or potentially
+unwanted software"), in the browser and in PowerShell alike. Without a code-signing certificate the release therefore also
+carries the same app (the same `Niyanta Tracker.exe`) in two other forms, offered on Time Tracking under *If Windows Security
+blocks the setup*:
+
+| File | What it is | How it updates |
+|---|---|---|
+| `...-win-x64.exe` | NSIS setup, per user (the main download) | electron-updater, one click (the only Windows file in `latest.yml`) |
+| `...-win-x64.msi` | MSI (Windows Installer, WiX), per user by default, assisted UI (welcome, scope, install, *Run Niyanta Tracker* on the last page), desktop and Start menu shortcuts, fixed `upgradeCode` (`build.msi`) so a newer MSI replaces the installed one | **Update now** downloads the new `.msi` from the workspace, checks the sha512 the workspace recorded when it mirrored it (no checksum, no install), opens it with Windows Installer (`shell.openPath`: its normal window, no `msiexec` command line, nothing silent) and quits; the person clicks through it |
+| `...-win-x64.zip` | Portable: extract anywhere and run `Niyanta Tracker.exe`, no installation | Not in place: the card says a new version is available and **Download the new version** opens the workspace's *Get the desktop app* page |
+
+`scripts/dist-win.js` (`npm run dist:win`) builds the setup first (it must succeed), then the MSI and the zip from the very
+same `dist/win-unpacked` (`--prepackaged`, no second pack). electron-builder writes Windows update info for NSIS only, so
+`latest.yml` and NSIS auto-update are unchanged. A failed MSI / zip build is a warning (`NIYANTA_WIN_EXTRAS=required` makes
+it fatal); the workflow step *Check the Windows MSI and portable zip* reads the MSI's product data and upgrade code and the
+zip's file list, and removes a file that fails from the release rather than holding the setup back.
+
+How the app knows which one it is (`selfupdate.windowsInstallKind`): `Uninstall Niyanta Tracker.exe` next to the exe means
+the setup (it wins, so a setup install never loses electron-updater); `resources/niyanta-portable` means the zip (the file
+exists only while `dist-win.js` builds the zip: the setup and the MSI never contain it, and the zip is the only target that
+can be told apart this way, since all three are made from one packed folder); anything else is the MSI. `niyanta-tracker://`
+is registered by the app itself at every start (`app.setAsDefaultProtocolClient`, the user's `HKCU\Software\Classes`), so
+*Connect the desktop app* works for MSI and zip copies too. Install only one of the three: the MSI and the setup use the same
+`%LOCALAPPDATA%\Programs\Niyanta Tracker` folder by default. Settings › *Uninstall* sends MSI copies to Windows Settings ›
+Apps and tells zip users to delete the folder.
+
+The NSIS compression is left at electron-builder's default (`normal`; the app is a 7z inside the setup). `store` would make
+the setup about three times larger and `differentialPackage: false` would only make updates download the whole file; neither
+is a known fix for Defender's verdict, so the MSI and the zip are the way around it, and the per-file submission below the
+way to clear it.
 
 ### Releasing a new version
 
@@ -105,6 +138,8 @@ quarantine flag (macOS), so SmartScreen and Gatekeeper do not interfere.
 | Install | What **Update now** does |
 |---|---|
 | Windows (NSIS) | electron-updater (generic provider). The update is pre-downloaded in the background; the click waits for it, then `quitAndInstall(true, true)`: silent NSIS update, app starts again. |
+| Windows (MSI) | Downloads the new `.msi` (listed under `windows` by `/api/agent/version` with its sha512) to Downloads, checks it, pauses tracking, opens it with Windows Installer and quits. The installer's last page starts the new version; tracking resumes. |
+| Windows (portable zip) | Nothing is installed: **Download the new version** opens the workspace's *Get the desktop app* page for the new zip. |
 | Linux AppImage | electron-updater: the AppImage file is replaced in place and started again. |
 | macOS, ad-hoc signed (no Developer ID) | Own updater (Squirrel.Mac refuses such apps): reads `latest-mac.yml`, downloads the zip for this Mac (arm64 on Apple silicon, also under Rosetta), checks its sha512, extracts it with `ditto -x -k` and starts a detached helper script (`selfupdate.macHelperScript`) that waits for the app to quit, swaps the bundle at its current path (from `process.execPath`; `/Applications`, or `~/Applications` when that is not writable, or when the app ran from the disk image / App Translocation), keeps the old copy until the new one is in place (restores it on failure), runs `xattr -cr` and opens the new version. Log: `userData/logs/update.log`. |
 | macOS with a Developer ID | Detected at start (`codesign -dv` shows a TeamIdentifier): electron-updater / Squirrel.Mac as on Windows. `NIYANTA_MAC_UPDATER=custom` or `=squirrel` forces one or the other. |
@@ -167,7 +202,10 @@ to object to (checked by `scripts/prefs-check.js`):
   on a real uninstall, removes it and the update cache; it runs no programs.
 - **Built-in mechanisms only.** Launch at startup: `app.setLoginItemSettings` (the user's Run key, switch in Settings).
   Updates: electron-updater, only after the person clicks *Update now* (no background download, no install on quit); it
-  checks the sha512 and runs the new NSIS setup.
+  checks the sha512 and runs the new NSIS setup. MSI copies: the new `.msi` is checked and opened in its normal window.
+- **Alternatives when the setup is quarantined:** the MSI installer and the portable zip (above). Defender judges each file
+  on its own, so when the setup is flagged the MSI or the zip may still pass; each still needs its own false-positive
+  submission when flagged (SIGNING.md).
 - **Complete version resource.** `scripts/after-sign.js` fills `OriginalFilename` (electron-builder leaves it empty); the
   workflow fails a Windows build whose exe or setup lacks company, product, description, copyright or version. No input hook, no native module (activity comes from the system
   idle time), Electron fuses on (no `ELECTRON_RUN_AS_NODE`, no `--inspect`, asar integrity checked).
@@ -330,9 +368,10 @@ processes) about 290 to 310 MB for both, about 290 MB when hidden.
 Settings › **Uninstall Niyanta Tracker** (after a confirmation): tracking is paused and the offline queue is synced (at most
 75 s), this device is signed out (token revoked on the server; token, keys and queue removed), the login item / autostart
 entry and the `niyanta-tracker://` handler are removed, then the app quits and the removal runs. Windows: the installed
-`Uninstall Niyanta Tracker.exe` is started directly with `/S --delete-app-data` (electron-builder's own options: it waits
-for or closes the app, removes the program, `%APPDATA%\Niyanta Tracker`, and `build/installer.nsh` the update cache); no
-script or temporary file. macOS and Linux: a small `/bin/sh` helper (in a `ny-uninstall-*` temp folder, every path checked by
+`Uninstall Niyanta Tracker.exe` is started directly with `--delete-app-data` (electron-builder's own option; visible, never
+`/S`: it waits for or closes the app, removes the program, `%APPDATA%\Niyanta Tracker`, and `build/installer.nsh` the update
+cache); no script or temporary file. An MSI copy is removed in Windows Settings › Apps (the app says so), a portable copy by
+deleting its folder. macOS and Linux: a small `/bin/sh` helper (in a `ny-uninstall-*` temp folder, every path checked by
 `guard.uninstallPath`) waits for the app to quit and removes the `.app` (only from /Applications or ~/Applications), data,
 logs, caches and saved state; an AppImage with its `.desktop` entries and data; for a `.deb` install the data, and the app
 shows `sudo apt remove niyanta-tracker`. The helper logs each step and deletes its folder at the end; if something is left it

@@ -2,7 +2,8 @@
 /*
  * Pure helpers for in-app updates (no Electron here, so scripts/updates-check.js can test them with plain Node):
  * version compare, the electron-builder feed (latest*.yml), release notes as short text, picking the right file for this
- * computer, sha512 checks, and the macOS helper script that swaps the app bundle after the app has quit.
+ * computer, how a Windows copy was installed (setup, MSI, portable zip, Store), sha512 checks, and the macOS helper script
+ * that swaps the app bundle after the app has quit.
  * macOS without a Developer ID: Squirrel.Mac refuses ad-hoc signed apps, so the app downloads the zip itself (no quarantine
  * flag on files an app downloads), checks its sha512, extracts it with ditto and lets this script replace the bundle,
  * clear extended attributes (xattr -cr) and open the new version.
@@ -55,14 +56,37 @@ function pickMacZip(files, arch) {
 
 /**
  * The installer to download for a manual update, from /api/agent/version `files` ({windows|mac|linux|deb: [{name, arch, ext}]}).
- * kind: 'windows' | 'mac' | 'linux' (AppImage) | 'deb'.
+ * kind: 'windows' (NSIS setup) | 'msi' (Windows MSI installer) | 'portable' (Windows zip) | 'mac' | 'linux' (AppImage) | 'deb'.
+ * The MSI and the zip are listed under `windows` next to the setup.
  */
 function pickInstaller(files, kind, arch) {
-  const list = (files && files[kind]) || [];
-  const ext = { windows: ['exe'], mac: ['dmg', 'zip'], linux: ['appimage'], deb: ['deb'] }[kind] || [];
+  const list = (files && files[kind === 'msi' || kind === 'portable' ? 'windows' : kind]) || [];
+  const ext = { windows: ['exe'], msi: ['msi'], portable: ['zip'], mac: ['dmg', 'zip'], linux: ['appimage'], deb: ['deb'] }[kind] || [];
   const ok = list.filter(f => ext.includes(String(f.ext).toLowerCase()));
   ok.sort((a, b) => ext.indexOf(String(a.ext).toLowerCase()) - ext.indexOf(String(b.ext).toLowerCase()));
   return ok.find(f => f.arch === arch) || ok.find(f => f.arch === 'universal') || (kind === 'mac' ? null : ok[0]) || null; }
+
+/** The uninstaller the NSIS setup puts next to the exe, and the marker file only the portable zip has (resources/). */
+const NSIS_UNINSTALLER = 'Uninstall ' + APP_NAME + '.exe';
+const PORTABLE_MARKER = 'niyanta-portable';
+
+/**
+ * How this Windows copy was installed, which decides how it updates (updater.js):
+ *   'store'    Microsoft Store (process.windowsStore): the Store updates it
+ *   'nsis'     the setup (.exe): its uninstaller is next to the exe; electron-updater updates it
+ *   'portable' the zip: resources/niyanta-portable exists (scripts/dist-win.js adds it to the zip build only)
+ *   'msi'      anything else: the MSI installer (neither the NSIS uninstaller nor the zip marker)
+ * ctx: { windowsStore, execPath, resourcesPath, exists(path) }. The NSIS uninstaller wins, so a setup install never loses
+ * electron-updater, even if an MSI or a zip was put into the same folder later.
+ */
+function windowsInstallKind(ctx) {
+  const P = path.win32;
+  if (ctx.windowsStore) return 'store';
+  const exe = String(ctx.execPath || '');
+  if (exe && ctx.exists(P.join(P.dirname(exe), NSIS_UNINSTALLER))) return 'nsis';
+  const res = String(ctx.resourcesPath || '') || (exe && P.join(P.dirname(exe), 'resources'));
+  if (res && ctx.exists(P.join(res, PORTABLE_MARKER))) return 'portable';
+  return 'msi'; }
 
 /** sha512 of a file, base64 (the format of latest*.yml). */
 function sha512File(file) {
@@ -124,4 +148,4 @@ function macHelperScript({ pid, source, target, work, log }) {
     'open "$DEST" || open -a "$(basename "$DEST" .app)"',
     ''].join('\n'); }
 
-module.exports = { APP_NAME, cmpVersion, parseFeed, notesLines, pickMacZip, pickInstaller, sha512File, macAppPath, macTarget, macHelperScript, sq, baseName };
+module.exports = { APP_NAME, NSIS_UNINSTALLER, PORTABLE_MARKER, cmpVersion, parseFeed, notesLines, pickMacZip, pickInstaller, windowsInstallKind, sha512File, macAppPath, macTarget, macHelperScript, sq, baseName };

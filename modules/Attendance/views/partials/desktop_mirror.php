@@ -9,6 +9,9 @@ $total = array_sum(array_map(static fn ($f) => (int) $f['size'], $files));
   <?php if (!$app['connected']): ?><div class="alert warn"><?= icon('info', 'sm') ?><div>Add a <b>GitHub access token</b> above (fine-grained, read-only access to <i>Contents</i> of <span class="mono"><?= e($repo) ?></span>). The same token is used for app updates. See docs/UPDATES.md.</div></div><?php endif ?>
   <div class="list mb">
     <div class="list-item"><span class="grow small">Downloaded version</span><b class="small"><?= $app['ok'] ? 'v'.e($app['version']).' · '.count($files).' installer'.(count($files) === 1 ? '' : 's').' · '.e($size($total)) : 'none' ?></b></div>
+    <?php if ($files): $kind = ['exe' => 'Windows setup', 'msi' => 'Windows MSI installer', 'dmg' => 'macOS disk image', 'appimage' => 'Linux AppImage', 'deb' => 'Linux .deb']; ?>
+    <div class="list-item"><details class="grow"><summary class="small">Files</summary><ul class="xs muted mb0"><?php foreach ($files as $f): ?><li><span class="mono"><?= e($f['name']) ?></span> · <?= e($f['ext'] === 'zip' ? ($f['platform'] === 'windows' ? 'Windows portable (.zip)' : 'macOS zip') : ($kind[$f['ext']] ?? $f['ext'])) ?> · <?= e($size((int) $f['size'])) ?></li><?php endforeach ?></ul></details></div>
+    <?php endif ?>
     <div class="list-item"><span class="grow small">Copied to this server</span><span class="small muted"><?= $app['synced_at'] ? e(fdatetime($app['synced_at'])) : 'never' ?></span></div>
     <div class="list-item"><span class="grow small">Last check</span><span class="small muted"><?= !empty($sync['at']) ? e(fdatetime($sync['at'])).(empty($sync['ok']) ? '' : ' · OK') : 'never' ?></span></div>
   </div>

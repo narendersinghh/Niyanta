@@ -14,6 +14,9 @@
 #     AZURE_CLIENT_SECRET, variables AZURE_TRUSTED_SIGNING_ENDPOINT / _ACCOUNT / _PROFILE) or a .pfx (WIN_CSC_LINK,
 #     WIN_CSC_KEY_PASSWORD); macOS Developer ID + notarization (MAC_CSC_LINK, MAC_CSC_KEY_PASSWORD, APPLE_ID,
 #     APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID).
+# Windows ships three files (desktop/scripts/dist-win.js): the NSIS setup (.exe, the only one in latest.yml, so installed apps
+# keep updating through it), and for PCs where Windows Security quarantines the unsigned setup, the same app as an MSI
+# installer (.msi) and as a portable zip (.zip). A failed MSI / zip build is a warning, never a failed release.
 #   Optional Microsoft Store package (.appx, Microsoft signs it when it is published in the Store): repository variables
 #     MS_STORE_IDENTITY_NAME and MS_STORE_PUBLISHER (from Partner Center); built after the NSIS installer, never blocks it.
 name: Desktop tracker
@@ -158,7 +161,7 @@ jobs:
         run: |
           ls -la dist
           # SHA-256 of what ships: what to look up / submit at https://www.microsoft.com/en-us/wdsi/filesubmission
-          shopt -s nullglob; for f in dist/*.exe dist/*.dmg dist/*.zip dist/*.AppImage dist/*.deb; do
+          shopt -s nullglob; for f in dist/*.exe dist/*.msi dist/*.dmg dist/*.zip dist/*.AppImage dist/*.deb; do
             if command -v sha256sum >/dev/null; then sha256sum "$f"; else shasum -a 256 "$f"; fi; done
       - name: Check the Windows version information
         if: matrix.name == 'Windows'
@@ -173,6 +176,41 @@ jobs:
             foreach ($k in 'CompanyName', 'ProductName', 'FileDescription', 'LegalCopyright', 'ProductVersion') { if (-not $v.$k) { Write-Host "::error::$($f.Name) has no $k"; $bad++ } }
             if ($v.CompanyName -and $v.CompanyName -ne 'Niyanta') { Write-Host "::error::$($f.Name): publisher is '$($v.CompanyName)', expected 'Niyanta'"; $bad++ } }
           if ($bad) { exit 1 }
+      - name: Check the Windows MSI and portable zip
+        if: matrix.name == 'Windows'
+        shell: pwsh
+        run: |
+          # Both ship the exe of dist/win-unpacked (checked above). A file that fails here is removed with a warning, so a
+          # release never carries a broken alternative and the setup (what installed apps update to) is never held back.
+          $drop = { param($f, $why) Write-Host "::warning::$($f.Name) removed from the release: $why"; Remove-Item -LiteralPath $f.FullName -Force }
+          $msi = @(Get-ChildItem 'dist/*.msi')
+          if (-not $msi) { Write-Host '::warning::No MSI installer was built' }
+          $want = (Get-Content package.json -Raw | ConvertFrom-Json).build.msi.upgradeCode
+          foreach ($f in $msi) {
+            try {
+              $wi = New-Object -ComObject WindowsInstaller.Installer
+              $db = $wi.GetType().InvokeMember('OpenDatabase', 'InvokeMethod', $null, $wi, @($f.FullName, 0))
+              $p = @{}
+              foreach ($k in 'ProductName', 'Manufacturer', 'ProductVersion', 'UpgradeCode', 'ALLUSERS', 'MSIINSTALLPERUSER') {
+                $view = $db.GetType().InvokeMember('OpenView', 'InvokeMethod', $null, $db, @("SELECT Value FROM Property WHERE Property='$k'"))
+                $null = $view.GetType().InvokeMember('Execute', 'InvokeMethod', $null, $view, $null)
+                $rec = $view.GetType().InvokeMember('Fetch', 'InvokeMethod', $null, $view, $null)
+                $p[$k] = if ($rec) { [string] $rec.GetType().InvokeMember('StringData', 'GetProperty', $null, $rec, @(1)) } else { '' }
+                $null = $view.GetType().InvokeMember('Close', 'InvokeMethod', $null, $view, $null) }
+              $db = $null; $wi = $null; [GC]::Collect(); [GC]::WaitForPendingFinalizers()
+              "{0}: {1}" -f $f.Name, (($p.GetEnumerator() | Sort-Object Name | ForEach-Object { "$($_.Name)=$($_.Value)" }) -join ' ')
+              "  signature: {0}" -f (Get-AuthenticodeSignature $f.FullName).Status
+              if ($p.UpgradeCode.Trim('{}') -ne $want) { & $drop $f "UpgradeCode $($p.UpgradeCode), expected $want (a different code installs side by side instead of upgrading)" }
+              elseif ($p.Manufacturer -ne 'Niyanta' -or $p.ProductName -ne 'Niyanta Tracker' -or $p.MSIINSTALLPERUSER -ne '1') { & $drop $f 'unexpected product data' } }
+            catch { Write-Host "::warning::Could not read $($f.Name): $($_.Exception.Message)" } }
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          foreach ($f in @(Get-ChildItem 'dist/*-win-*.zip')) {
+            $z = [IO.Compression.ZipFile]::OpenRead($f.FullName)
+            $names = @($z.Entries | ForEach-Object { $_.FullName.Replace([char]92, [char]47) }); $z.Dispose()
+            "{0}: {1} files" -f $f.Name, $names.Count
+            $miss = @('Niyanta Tracker.exe', 'resources/app.asar', 'resources/niyanta-portable' | Where-Object { $names -notcontains $_ })
+            if ($miss) { & $drop $f "it has no $($miss -join ', ') (without resources/niyanta-portable the app would not know it is the portable copy)" } }
+          if (Test-Path 'dist/win-unpacked/resources/niyanta-portable') { Write-Host '::error::the portable marker was left in dist/win-unpacked'; exit 1 }
       - name: Check the macOS code identity
         if: matrix.name == 'macOS'
         shell: bash
@@ -188,7 +226,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           shopt -s nullglob
-          files=(dist/*.exe dist/*.dmg dist/*.zip dist/*.AppImage dist/*.deb dist/*.blockmap dist/latest*.yml)
+          files=(dist/*.exe dist/*.msi dist/*.dmg dist/*.zip dist/*.AppImage dist/*.deb dist/*.blockmap dist/latest*.yml)
           [ ${#files[@]} -gt 0 ] || { echo "::error::No installers in dist"; exit 1; }
           # by release id: the tag lookup used by `gh release upload` does not find draft releases
           rid() { gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq "[.[] | select(.tag_name == \"$TAG\")][0].id // empty"; }
@@ -211,6 +249,7 @@ jobs:
           retention-days: 1
           path: |
             desktop/dist/*.exe
+            desktop/dist/*.msi
             desktop/dist/*.dmg
             desktop/dist/*.zip
             desktop/dist/*.AppImage
