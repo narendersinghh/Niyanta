@@ -84,6 +84,7 @@ echo partial('partials/head', get_defined_vars());
     </div>
   </header>
   <main class="content" id="content">
+    <?php if ($u['role_slug'] === 'super_admin' && !\Core\Crypto::available()): ?><div class="alert error mb"><?= icon('alert') ?><div><b>The PHP "sodium" extension is turned off on this server.</b> Saved secrets (GitHub token, AI and Fireflies keys, bank details) cannot be read and some features stop working. In Hostinger: Websites › Advanced › PHP Configuration › PHP extensions, tick <b>sodium</b> and save. Changing the PHP version resets these extensions.</div></div><?php endif ?>
     <?= $content ?>
   </main>
 </div>
