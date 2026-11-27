@@ -151,13 +151,14 @@ return [
     LeaveService::flush(); la_clean(); },
   'who is out: today and this week for everyone, team filter and pending requests for approvers' => function () {
     ['mgr' => $mgr, 'e1' => $e1, 'e3' => $e3, 't' => $t] = la_fx(); la_clean();
-    $p = la_req($e1, $t, date('Y-m-d', strtotime('+1 day')), date('Y-m-d', strtotime('+1 day')));
+    $d = date('Y-m-d', strtotime('+1 day')); while (LeaveService::requestDaysFor($e1, $d, $d, false) <= 0) { $d = date('Y-m-d', strtotime($d.' +1 day')); } /* a working day: weekends and holidays (other tests add some) count 0 days */
+    $p = la_req($e1, $t, $d, $d);
     act_as($e3);
     $body = (string) http('GET', '/hr/leave/calendar')->body();
     assert_true(str_contains($body, 'Out today') && str_contains($body, 'This week'), 'who is out panels');
     assert_true(!str_contains($body, "/hr/leave/requests/$p"), 'employees do not see other people\'s pending requests');
     act_as($mgr);
-    $body = (string) http('GET', '/hr/leave/calendar?scope=team&month='.date('Y-m', strtotime('+1 day')))->body();
+    $body = (string) http('GET', '/hr/leave/calendar?scope=team&month='.substr($d, 0, 7))->body();
     assert_true(str_contains($body, 'My team') && str_contains($body, "/hr/leave/requests/$p"), 'approver sees pending of their reports, linked');
     la_clean(); },
 ];
