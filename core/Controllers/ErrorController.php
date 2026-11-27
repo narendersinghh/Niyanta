@@ -8,6 +8,9 @@ final class ErrorController extends Controller {
     $d = $this->request->json() ?: $this->request->all();
     $msg = trim((string) ($d['message'] ?? ''));
     if ($msg === '' || str_contains($msg, 'ResizeObserver loop')) { return new Response('', 204); }
+    /* errors thrown by browser extensions (chrome-extension://, moz-extension://, safari-web-extension://) are not ours: ignore when they come only from there */
+    $where = (string) ($d['source'] ?? '').' '.(string) ($d['stack'] ?? '');
+    if (preg_match('~(chrome|moz|safari(-web)?|ms-browser)-extension://~i', $where) && !str_contains($where, (string) parse_url(absolute_url('/'), PHP_URL_HOST))) { return new Response('', 204); }
     /* bounded per day so anonymous or scripted reports cannot fill the database: 300 new reports a day from signed-out pages in total, 500 per person */
     $uid = Auth::id();
     if (!RateLimiter::hit($uid ? 'errors:user:'.$uid : 'errors:guest', $uid ? 500 : 300, 86400)) { return new Response('', 204); }

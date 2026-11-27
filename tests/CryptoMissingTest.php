@@ -18,4 +18,10 @@ return [
       assert_true(str_contains($h->body(), 'extension is turned off'), 'banner for the super admin'); }
     finally { Crypto::$simulateMissing = null; }
     assert_eq('secret-token', Crypto::decrypt($enc), 'readable again once enabled'); },
+  'browser errors raised only inside a browser extension are not logged' => function () {
+    $n = (int) \Core\DB::value('SELECT COUNT(*) FROM error_logs');
+    http('POST', '/errors/client', ['message' => "TypeError: Cannot read properties of undefined (reading 'M_ID')", 'stack' => 'at h (chrome-extension://eppiocemhmnlbhjplcgkofciiegomcon/executors/200.js:1:761)'], false);
+    assert_eq($n, (int) \Core\DB::value('SELECT COUNT(*) FROM error_logs'), 'extension error ignored');
+    http('POST', '/errors/client', ['message' => 'TypeError: ours '.bin2hex(random_bytes(4)), 'source' => '/assets/js/app.js', 'line' => 3], false);
+    assert_eq($n + 1, (int) \Core\DB::value('SELECT COUNT(*) FROM error_logs'), 'our own errors still logged'); },
 ];
